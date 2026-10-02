@@ -1,4 +1,5 @@
-import type { NextRequest } from "next/server";
+import { after, type NextRequest } from "next/server";
+import { recordEvent } from "@/lib/telemetry";
 import { verifyToken } from "@/lib/token";
 
 export const runtime = "nodejs";
@@ -43,9 +44,18 @@ export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get("t") ?? "";
   const payload = verifyToken(token);
   if (!payload) {
+    // Also covers tampered tokens; both are counted, neither is a broken download.
+    after(() => recordEvent({ stage: "download", code: "expired" }));
     return errorPage("This download link has expired. Go back and paste the video link again.", 410);
   }
-  if (!isPublicHttpUrl(payload.u)) return errorPage("Invalid download link.", 400);
+  const log = (code: string, detail?: string) =>
+    after(() =>
+      recordEvent({ stage: "download", code, platform: payload.p, url: payload.s, host: cdnHost(payload.u), detail }),
+    );
+  if (!isPublicHttpUrl(payload.u)) {
+    log("bad_url");
+    return errorPage("Invalid download link.", 400);
+  }
 
   let upstream: Response;
   try {
@@ -54,10 +64,12 @@ export async function GET(request: NextRequest) {
       redirect: "follow",
       signal: request.signal,
     });
-  } catch {
+  } catch (err) {
+    if (!request.signal.aborted) log("fetch_failed", String(err));
     return errorPage("The video site did not respond. Please try again.", 502);
   }
   if (!upstream.ok || !upstream.body) {
+    log("upstream_error", `HTTP ${upstream.status} from ${cdnHost(upstream.url || payload.u)}`);
     return errorPage("The video site refused the download. Please paste the link again.", 502);
   }
 
@@ -72,5 +84,39 @@ export async function GET(request: NextRequest) {
     const value = upstream.headers.get(name);
     if (value) headers.set(name, value);
   }
-  return new Response(upstream.body, { status: 200, headers });
+
+  // Count bytes on the way through so a download that dies halfway is logged
+  // too, not only the ones that fail to start.
+  let sent = 0;
+  const counter = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      sent += chunk.byteLength;
+      controller.enqueue(chunk);
+    },
+  });
+  const finished = upstream.body.pipeTo(counter.writable).then(
+    () => recordEvent({ stage: "download", code: "ok", platform: payload.p }),
+    (err) => {
+      // The user cancelling the download is not a failure.
+      if (request.signal.aborted) return;
+      return recordEvent({
+        stage: "download",
+        code: "stream_failed",
+        platform: payload.p,
+        url: payload.s,
+        host: cdnHost(payload.u),
+        detail: `stopped after ${sent} bytes: ${String(err)}`,
+      });
+    },
+  );
+  after(() => finished);
+  return new Response(counter.readable, { status: 200, headers });
+}
+
+function cdnHost(raw: string): string | null {
+  try {
+    return new URL(raw).hostname;
+  } catch {
+    return null;
+  }
 }

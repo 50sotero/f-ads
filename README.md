@@ -8,6 +8,8 @@ Paste a link from X, TikTok, Instagram, Reddit, Facebook and other sites and dow
 2. `api/info.py` (Vercel Python function) follows app share links (`fb.watch`, `pin.it`, Reddit `/s/` links…) to the real post, staying on the platform's own domains, then runs [yt-dlp](https://github.com/yt-dlp/yt-dlp) in metadata-only mode, picks the formats that are a single downloadable file, and returns each with a signed token that expires in 30 minutes.
 3. `src/app/api/download/route.ts` (Next.js route) checks the token and streams the file from the source site's CDN to the browser as an attachment. Nothing is stored.
 
+Every lookup and download is counted, and failures worth fixing (no video found, login walls, stream-only formats, share links that don't resolve, crashes, refused or broken downloads, timeouts and "Didn't work?" reports) are stored with the cleaned link, error, site, yt-dlp version and build. See **Failure log** below.
+
 YouTube is turned off for now (`BLOCKED_HOSTS` in `api/info.py`); it needs rotating proxies and ffmpeg merging, planned for phase 2.
 
 ## Run locally
@@ -25,6 +27,14 @@ npm test          # Python + Node tests
 1. Import the repo in Vercel (framework: Next.js). Vercel picks up `api/info.py` and `requirements.txt` automatically.
 2. Add the environment variable `DOWNLOAD_SIGNING_SECRET` (generate with `openssl rand -hex 32`).
 3. Deploy.
+
+## Failure log
+
+- Storage: Upstash Redis over its REST API. In Vercel, open Storage, create an **Upstash for Redis** database (free plan), connect it to the project and redeploy. Without it, failures still go to the function logs.
+- Review: set `ADMIN_TOKEN` in Vercel and open `/admin`. It shows lookups and downloads per site with failure rates, the top failure reasons, sites people asked for that we don't support, and the latest failures with their errors.
+- Export: `GET /api/admin/failures?days=7` with `Authorization: Bearer $ADMIN_TOKEN` returns everything as JSON, ready to hand to Claude to fix.
+- Retention: failure details 30 days (max 2,000 per day), counters 90 days. Links are stored without tracking parameters, and no IP addresses are kept.
+- Code: `api/info.py` (lookups) and `src/lib/telemetry.ts` (downloads, browser reports, reading) share the same keys; `tests/fake_upstash.py` stands in for Upstash in tests.
 
 ## Editing content
 

@@ -6,6 +6,8 @@ export type DownloadToken = {
   h: Record<string, string>; // headers the CDN expects
   f: string; // filename for the user
   e: number; // expiry, unix seconds
+  p?: string; // platform id, for the failure log
+  s?: string | null; // the post's link (cleaned), for the failure log
 };
 
 function secret(): string {

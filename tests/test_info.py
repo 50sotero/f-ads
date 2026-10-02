@@ -8,12 +8,15 @@ import threading
 import unittest
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'api'))
 os.environ['DOWNLOAD_SIGNING_SECRET'] = 'test-secret'
 
+import fake_upstash  # noqa: E402
 import info  # noqa: E402
 import yt_dlp  # noqa: E402
+from yt_dlp.utils import DownloadError  # noqa: E402
 
 PLATFORMS_JSON = os.path.join(os.path.dirname(__file__), '..', 'src', 'config', 'platforms.json')
 with open(PLATFORMS_JSON) as f:
@@ -155,6 +158,127 @@ class HandleTest(unittest.TestCase):
         status, payload = info.handle(json.dumps({'url': 'https://example.com/video'}).encode())
         self.assertEqual(status, 422)
         self.assertIn('support', payload['error'])
+
+
+MUXED = {'url': 'https://cdn.example/v.mp4', 'protocol': 'https', 'height': 720, 'ext': 'mp4'}
+
+
+class FailureLogTest(unittest.TestCase):
+    def setUp(self):
+        self.server, url, self.store = fake_upstash.start()
+        self.env = mock.patch.dict(os.environ, {
+            'UPSTASH_REDIS_REST_URL': url, 'UPSTASH_REDIS_REST_TOKEN': fake_upstash.TOKEN,
+        })
+        self.env.start()
+
+    def tearDown(self):
+        self.env.stop()
+        self.server.shutdown()
+        self.server.server_close()
+
+    def lookup(self, url, platform=None, **extract):
+        body = json.dumps({'url': url, 'platform': platform}).encode()
+        if not extract:
+            return info.handle(body)
+        with mock.patch.object(yt_dlp.YoutubeDL, 'extract_info', **extract):
+            return info.handle(body)
+
+    def stats(self):
+        return next(iter(self.store.hashes.values()), {})
+
+    def failures(self):
+        return [json.loads(e) for lst in self.store.lists.values() for e in lst]
+
+    def test_success_is_counted_and_token_knows_its_source(self):
+        status, payload = self.lookup('https://x.com/a/status/1?s=20', 'x',
+                                      return_value={'title': 't', 'formats': [MUXED], 'extractor_key': 'Twitter'})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.stats(), {'info:x:ok': 1})
+        token = decode(payload['formats'][0]['token'])
+        self.assertEqual((token['p'], token['s']), ('x', 'https://x.com/a/status/1'))
+        self.assertEqual(self.failures(), [])
+
+    def test_unknown_site_success_is_counted_under_its_extractor(self):
+        self.lookup('https://www.dailymotion.com/video/x8abcde',
+                    return_value={'title': 't', 'formats': [MUXED], 'extractor_key': 'Dailymotion'})
+        self.assertEqual(self.stats(), {'info:dailymotion:ok': 1})
+
+    def test_not_found_is_stored_with_a_clean_link(self):
+        err = DownloadError('ERROR: [twitter] 1: No video could be found in this tweet')
+        status, _ = self.lookup('https://x.com/a/status/1?s=20&t=abc#frag', 'x', side_effect=err)
+        self.assertEqual(status, 422)
+        self.assertEqual(self.stats(), {'info:x:not_found': 1})
+        (event,) = self.failures()
+        self.assertEqual(event['code'], 'not_found')
+        self.assertEqual(event['platform'], 'x')
+        self.assertEqual(event['url'], 'https://x.com/a/status/1')
+        self.assertEqual(event['host'], 'x.com')
+        self.assertIn('No video could be found', event['detail'])
+        self.assertEqual(event['version'], info.YTDLP_VERSION)
+        self.assertEqual(event['build'], 'local')
+        ttls = {k.split(':')[1]: v for k, v in self.store.ttls.items()}
+        self.assertEqual(ttls, {'stats': 90 * 86400, 'failures': 30 * 86400})
+
+    def test_login_wall_is_stored(self):
+        err = DownloadError('ERROR: [Instagram] abc: Requested content is not available, rate-limit reached or login required')
+        self.lookup('https://www.instagram.com/reel/abc/?igsh=xyz', 'instagram', side_effect=err)
+        (event,) = self.failures()
+        self.assertEqual((event['code'], event['url']), ('login_required', 'https://www.instagram.com/reel/abc/'))
+
+    def test_stream_only_video_stores_what_was_found(self):
+        hls = {'url': 'https://cdn.example/a.m3u8', 'protocol': 'm3u8_native', 'vcodec': 'avc1', 'acodec': 'mp4a'}
+        status, _ = self.lookup('https://vimeo.com/1', 'vimeo', return_value={'title': 't', 'formats': [hls, hls]})
+        self.assertEqual(status, 422)
+        (event,) = self.failures()
+        self.assertEqual(event['code'], 'no_direct_formats')
+        self.assertEqual(event['detail'], 'm3u8_native video+audio x2')
+
+    def test_crash_is_caught_and_stored(self):
+        status, payload = self.lookup('https://x.com/a/status/1', 'x', side_effect=RuntimeError('boom'))
+        self.assertEqual(status, 500)
+        self.assertNotIn('boom', payload['error'])
+        (event,) = self.failures()
+        self.assertEqual(event['code'], 'internal_error')
+        self.assertIn('RuntimeError: boom', event['detail'])
+
+    def test_unsupported_site_counts_demand_but_keeps_no_link(self):
+        status, _ = self.lookup('https://example.com/v?id=1', 'bad:id')
+        self.assertEqual(status, 422)
+        self.assertEqual(self.stats(), {'info:unknown:unsupported_site': 1})
+        self.assertEqual(list(self.store.zsets.values()), [{'example.com': 1.0}])
+        self.assertEqual(self.failures(), [])
+
+    def test_coming_soon_is_only_counted(self):
+        self.lookup('https://youtu.be/abc', 'youtube')
+        self.assertEqual(self.stats(), {'info:youtube:coming_soon': 1})
+        self.assertEqual(self.failures(), [])
+
+    def test_lookup_still_answers_when_the_store_is_down(self):
+        self.server.shutdown()
+        self.server.server_close()
+        status, _ = self.lookup('https://youtu.be/abc', 'youtube')
+        self.assertEqual(status, 422)
+
+    def test_works_without_a_store(self):
+        with mock.patch.dict(os.environ, {'UPSTASH_REDIS_REST_URL': '', 'KV_REST_API_URL': ''}):
+            status, _ = self.lookup('https://x.com/a/status/1', 'x', side_effect=DownloadError('ERROR: nope'))
+        self.assertEqual(status, 422)
+        self.assertEqual(self.stats(), {})
+
+    def test_vercel_integration_variable_names(self):
+        url = os.environ.pop('UPSTASH_REDIS_REST_URL')
+        token = os.environ.pop('UPSTASH_REDIS_REST_TOKEN')
+        with mock.patch.dict(os.environ, {'KV_REST_API_URL': url, 'KV_REST_API_TOKEN': token}):
+            self.lookup('https://youtu.be/abc', 'youtube')
+        self.assertEqual(self.stats(), {'info:youtube:coming_soon': 1})
+
+
+class RedactUrlTest(unittest.TestCase):
+    def test_keeps_only_params_needed_to_find_the_post(self):
+        self.assertEqual(info.redact_url('https://www.facebook.com/watch/?v=123&ref=share&mibextid=x'),
+                         'https://www.facebook.com/watch/?v=123')
+        self.assertEqual(info.redact_url('https://vm.tiktok.com/ZM1/?_r=1&_t=abc#x'), 'https://vm.tiktok.com/ZM1/')
+        self.assertIsNone(info.redact_url(None))
 
 
 if __name__ == '__main__':

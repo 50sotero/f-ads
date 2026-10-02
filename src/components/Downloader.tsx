@@ -20,6 +20,7 @@ type VideoInfo = {
   duration: number | null;
   uploader: string | null;
   site: string | null;
+  platform: string | null;
   formats: Format[];
 };
 
@@ -27,7 +28,7 @@ type State =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; info: VideoInfo; platform: Platform | null };
+  | { status: "ready"; info: VideoInfo; platform: Platform | null; source: string };
 
 function formatDuration(seconds: number | null) {
   if (!seconds) return null;
@@ -44,6 +45,22 @@ function formatSize(bytes: number | null) {
 
 function comingSoon(platform: Platform) {
   return `${platform.name} support is coming soon.`;
+}
+
+/** Tells the failure log about something only the browser saw (see /api/report). */
+function reportFailure(body: { code: string; platform?: string | null; url?: string; status?: number; detail?: string }) {
+  const payload = JSON.stringify(body);
+  try {
+    if (navigator.sendBeacon?.("/api/report", new Blob([payload], { type: "application/json" }))) return;
+  } catch {
+    // Fall through to fetch.
+  }
+  fetch("/api/report", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: payload,
+    keepalive: true,
+  }).catch(() => {});
 }
 
 export function Downloader() {
@@ -66,15 +83,25 @@ export function Downloader() {
       const res = await fetch("/api/info", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url: target }),
+        body: JSON.stringify({ url: target, platform: found?.id ?? null }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data) {
+        // The server logs its own failures; no JSON means it never got to (e.g. a timeout).
+        if (!data) {
+          reportFailure({
+            code: res.status === 504 ? "timeout" : "bad_response",
+            platform: found?.id,
+            url: target,
+            status: res.status,
+          });
+        }
         setState({ status: "error", message: data?.error ?? "Something went wrong. Please try again." });
         return;
       }
-      setState({ status: "ready", info: data, platform: found });
-    } catch {
+      setState({ status: "ready", info: data, platform: found, source: target });
+    } catch (err) {
+      reportFailure({ code: "network", platform: found?.id, url: target, detail: String(err) });
       setState({ status: "error", message: "Could not reach the server. Check your connection and try again." });
     }
   }
@@ -176,14 +203,18 @@ export function Downloader() {
         {state.status === "error" && (
           <p className="rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-danger">{state.message}</p>
         )}
-        {state.status === "ready" && <Result info={state.info} platform={state.platform} />}
+        {state.status === "ready" && (
+          <Result key={state.source} info={state.info} platform={state.platform} source={state.source} />
+        )}
       </div>
     </div>
   );
 }
 
-function Result({ info, platform }: { info: VideoInfo; platform: Platform | null }) {
+function Result({ info, platform, source }: { info: VideoInfo; platform: Platform | null; source: string }) {
   const duration = formatDuration(info.duration);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [reported, setReported] = useState(false);
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-4 sm:flex-row">
       {info.thumbnail && (
@@ -212,6 +243,7 @@ function Result({ info, platform }: { info: VideoInfo; platform: Platform | null
                 <a
                   href={`/api/download?t=${encodeURIComponent(f.token)}`}
                   download
+                  onClick={() => setPicked(`${f.label} ${f.ext.toUpperCase()}`)}
                   className={
                     f.kind === "video"
                       ? "inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-bg transition hover:opacity-90"
@@ -225,6 +257,27 @@ function Result({ info, platform }: { info: VideoInfo; platform: Platform | null
             );
           })}
         </ul>
+        <p className="mt-3 text-xs text-muted">
+          {reported ? (
+            "Thanks, we'll look into it."
+          ) : (
+            <button
+              type="button"
+              className="underline underline-offset-2 hover:text-ink"
+              onClick={() => {
+                reportFailure({
+                  code: "user_report",
+                  platform: platform?.id ?? info.platform,
+                  url: source,
+                  detail: picked ? `picked ${picked}` : "before picking a format",
+                });
+                setReported(true);
+              }}
+            >
+              Didn&apos;t work? Let us know
+            </button>
+          )}
+        </p>
       </div>
     </div>
   );
