@@ -1,0 +1,186 @@
+[
+  {
+    "id": "x",
+    "name": "X / Twitter",
+    "hosts": ["x.com", "twitter.com", "t.co"],
+    "status": "supported",
+    "featured": true,
+    "samples": [
+      "https://x.com/TododiaRenan14/status/2105846762850427240/video/1",
+      "https://twitter.com/user/status/2105846762850427240",
+      "https://mobile.twitter.com/user/status/2105846762850427240",
+      "https://t.co/abc123XYZ"
+    ]
+  },
+  {
+    "id": "tiktok",
+    "name": "TikTok",
+    "hosts": ["tiktok.com"],
+    "status": "supported",
+    "featured": true,
+    "samples": [
+      "https://www.tiktok.com/@user/video/7290000000000000000",
+      "https://vm.tiktok.com/ZMabcdef/",
+      "https://vt.tiktok.com/ZSabcdef/"
+    ]
+  },
+  {
+    "id": "instagram",
+    "name": "Instagram",
+    "hosts": ["instagram.com", "instagr.am"],
+    "status": "supported",
+    "featured": true,
+    "samples": [
+      "https://www.instagram.com/reel/Cabcdefghij/",
+      "https://www.instagram.com/p/Cabcdefghij/",
+      "https://instagr.am/p/Cabcdefghij/"
+    ]
+  },
+  {
+    "id": "facebook",
+    "name": "Facebook",
+    "hosts": ["facebook.com", "fb.watch", "fb.com"],
+    "status": "supported",
+    "featured": true,
+    "samples": [
+      "https://www.facebook.com/watch/?v=1234567890",
+      "https://www.facebook.com/reel/1234567890",
+      "https://www.facebook.com/share/v/1AbCdEfGh/",
+      "https://www.facebook.com/share/r/1AbCdEfGh/",
+      "https://fb.watch/abcdEFGH12/"
+    ]
+  },
+  {
+    "id": "reddit",
+    "name": "Reddit",
+    "hosts": ["reddit.com", "redd.it"],
+    "status": "supported",
+    "featured": true,
+    "samples": [
+      "https://www.reddit.com/r/videos/comments/abc123/some_title/",
+      "https://www.reddit.com/r/videos/s/AbCdEf123",
+      "https://redd.it/abc123",
+      "https://v.redd.it/abc123xyz"
+    ]
+  },
+  {
+    "id": "pinterest",
+    "name": "Pinterest",
+    "hosts": ["pinterest.com", "pin.it"],
+    "status": "supported",
+    "featured": true,
+    "samples": [
+      "https://www.pinterest.com/pin/123456789012345678/",
+      "https://br.pinterest.com/pin/123456789012345678/",
+      "https://pin.it/abc123"
+    ]
+  },
+  {
+    "id": "vimeo",
+    "name": "Vimeo",
+    "hosts": ["vimeo.com"],
+    "status": "supported",
+    "featured": true,
+    "samples": ["https://vimeo.com/123456789", "https://player.vimeo.com/video/123456789"]
+  },
+  {
+    "id": "twitch",
+    "name": "Twitch",
+    "hosts": ["twitch.tv"],
+    "status": "supported",
+    "featured": true,
+    "samples": ["https://clips.twitch.tv/SomeClipSlug-abc", "https://www.twitch.tv/someone/clip/SomeClipSlug-abc"]
+  },
+  {
+    "id": "youtube",
+    "name": "YouTube",
+    "hosts": ["youtube.com", "youtu.be", "youtube-nocookie.com"],
+    "status": "soon",
+    "featured": true,
+    "samples": ["https://www.youtube.com/watch?v=dQw4w9WgXcQ", "https://youtu.be/dQw4w9WgXcQ", "https://m.youtube.com/shorts/dQw4w9WgXcQ"]
+  },
+  {
+    "id": "bluesky",
+    "name": "Bluesky",
+    "hosts": ["bsky.app"],
+    "status": "supported",
+    "samples": ["https://bsky.app/profile/someone.bsky.social/post/3kabcdefg2x"]
+  },
+  {
+    "id": "linkedin",
+    "name": "LinkedIn",
+    "hosts": ["linkedin.com"],
+    "status": "supported",
+    "samples": ["https://www.linkedin.com/posts/someone_title-activity-7123456789012345678-AbCd"]
+  },
+  {
+    "id": "snapchat",
+    "name": "Snapchat",
+    "hosts": ["snapchat.com"],
+    "status": "supported",
+    "samples": ["https://www.snapchat.com/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYYWtidGhudGZpAX1TKn0JAX1TKnXJAAAAAA"]
+  },
+  {
+    "id": "dailymotion",
+    "name": "Dailymotion",
+    "hosts": ["dailymotion.com", "dai.ly"],
+    "status": "supported",
+    "samples": ["https://www.dailymotion.com/video/x8abcde", "https://dai.ly/x8abcde"]
+  },
+  {
+    "id": "tumblr",
+    "name": "Tumblr",
+    "hosts": ["tumblr.com"],
+    "status": "supported",
+    "samples": ["https://someone.tumblr.com/post/123456789/title", "https://www.tumblr.com/someone/123456789/title"]
+  },
+  {
+    "id": "kick",
+    "name": "Kick",
+    "hosts": ["kick.com"],
+    "status": "supported",
+    "samples": ["https://kick.com/someone/clips/clip_01ABCDEF"]
+  },
+  {
+    "id": "rumble",
+    "name": "Rumble",
+    "hosts": ["rumble.com"],
+    "status": "supported",
+    "samples": ["https://rumble.com/v4abcde-title.html"]
+  },
+  {
+    "id": "streamable",
+    "name": "Streamable",
+    "hosts": ["streamable.com"],
+    "status": "supported",
+    "samples": ["https://streamable.com/abc12"]
+  },
+  {
+    "id": "bilibili",
+    "name": "Bilibili",
+    "hosts": ["bilibili.com", "b23.tv"],
+    "status": "supported",
+    "samples": ["https://www.bilibili.com/video/BV1xx411c7mD", "https://b23.tv/abc1234"]
+  },
+  {
+    "id": "9gag",
+    "name": "9GAG",
+    "hosts": ["9gag.com"],
+    "status": "supported",
+    "samples": ["https://9gag.com/gag/aABC123"]
+  },
+  {
+    "id": "imgur",
+    "name": "Imgur",
+    "hosts": ["imgur.com"],
+    "status": "supported",
+    "samples": ["https://imgur.com/abc1234"]
+  },
+  {
+    "id": "likee",
+    "name": "Likee",
+    "hosts": ["likee.video"],
+    "status": "supported",
+    "samples": ["https://likee.video/@someone/video/7123456789012345678"]
+  }
+]

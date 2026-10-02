@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:api": "python3 scripts/dev_api.py",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "python3 -m unittest discover tests && node --test tests/*.test.mjs"
   },
   "dependencies": {
     "next": "16.3.8",
