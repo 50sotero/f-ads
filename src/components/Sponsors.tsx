@@ -9,17 +9,14 @@ import { activeSponsors, type Sponsor } from "@/config/sponsors";
 const cardFrame =
   "rounded-xl border-2 border-ink/80 bg-surface shadow-[3px_3px_0_0_rgb(0_0_0/0.25)] transition hover:-translate-y-0.5 hover:rotate-0";
 
-// Every slot, paid or open, for the side columns.
-function slots(): (Sponsor | null)[] {
-  const shown = activeSponsors().slice(0, site.advertise.totalSlots);
-  return [...shown, ...Array<null>(site.advertise.totalSlots - shown.length).fill(null)];
+function paidSlots(): Sponsor[] {
+  return activeSponsors().slice(0, site.advertise.totalSlots);
 }
 
-// Every paid slot, topped up with open ones to fill a row of four, so small
-// screens don't get a wall of "Your brand here" cards.
-function inlineSlots(): (Sponsor | null)[] {
-  const shown = activeSponsors().slice(0, site.advertise.totalSlots);
-  return [...shown, ...Array<null>(Math.max(0, 4 - shown.length)).fill(null)];
+// The paid cards plus one "Your brand here" card while spots are left, so open
+// spots never fill the page with placeholders; only real sponsors add cards.
+function withShowcase(paid: Sponsor[], spots: number): (Sponsor | null)[] {
+  return paid.length < spots ? [...paid, null] : paid;
 }
 
 function priceLine() {
@@ -57,7 +54,10 @@ export function SponsorCard({ sponsor, className = "flex", compact = false }: Ca
   const logo = compact ? "h-10 w-10" : "h-11 w-11";
   if (!sponsor) {
     return (
-      <Link href="/#advertise" className={`${cardFrame} flex-col border-dashed p-4 ${className}`}>
+      <Link
+        href="/#advertise"
+        className={`${cardFrame} flex-col border-dashed p-4 opacity-50 hover:opacity-100 focus-visible:opacity-100 ${className}`}
+      >
         <Label />
         <span className={inner}>
           <span
@@ -95,17 +95,22 @@ export function SponsorCard({ sponsor, className = "flex", compact = false }: Ca
 /** Under the downloader, below the width where the side rails fit. */
 export function SponsorGrid() {
   return (
-    <section aria-label="Sponsors" className="grid grid-cols-2 gap-3 lg:grid-cols-4 2xl:hidden">
-      {inlineSlots().map((s, i) => (
-        <SponsorCard key={s?.name ?? `open-${i}`} sponsor={s} />
+    <section aria-label="Sponsors" className="flex flex-wrap justify-center gap-3 2xl:hidden">
+      {withShowcase(paidSlots(), site.advertise.totalSlots).map((s, i) => (
+        <SponsorCard
+          key={s?.name ?? `open-${i}`}
+          sponsor={s}
+          className="flex w-[calc(50%-0.375rem)] lg:w-[calc(25%-0.5625rem)]"
+        />
       ))}
     </section>
   );
 }
 
-// The n-th card in a side column shows once the window is tall enough for it
-// at its smallest (180px, 16px gaps, starting 77px down, below the header), so
-// short windows drop the lowest cards instead of squeezing them.
+// A side column's n-th most important card shows once the window is tall enough
+// for n cards at their smallest (180px, 16px gaps, starting 77px down, below the
+// header), so short windows drop the "Your brand here" card first, then the last
+// sponsors, instead of squeezing them.
 const SHOW_AT_HEIGHT = [
   "flex",
   "hidden [@media(min-height:469px)]:flex",
@@ -114,32 +119,43 @@ const SHOW_AT_HEIGHT = [
 ];
 
 /**
- * Side columns of cards from just below the header to the bottom of the window,
- * only on screens wide enough that they sit beside the 1024px content column.
- * Slots alternate sides, so slots 1 and 2 are at the top; the cards stretch to
- * share the height.
+ * Side columns of cards, only on screens wide enough that they sit beside the
+ * 1024px content column. Each column starts as one faded "Your brand here" card
+ * at the bottom of the window; sponsors stack above it, growing toward the
+ * header. Once a column is all sponsors, its cards stretch (up to 300px) so it
+ * reaches the header on tall screens too. Slots alternate sides, so the first
+ * two sponsors sit lowest.
  */
 export function SponsorRails() {
-  const all = slots();
-  const rail = (side: "left" | "right") => (
-    <aside
-      aria-label="Sponsors"
-      className={`fixed top-[77px] bottom-4 z-10 hidden w-[220px] flex-col gap-4 2xl:flex ${side === "left" ? "left-4" : "right-4"}`}
-    >
-      {all
-        .filter((_, i) => i % 2 === (side === "left" ? 0 : 1))
-        .map((s, i) => (
+  const paid = paidSlots();
+  const perSide = Math.ceil(site.advertise.totalSlots / 2);
+  const rail = (side: "left" | "right") => {
+    const mine = paid.filter((_, i) => i % 2 === (side === "left" ? 0 : 1));
+    const full = mine.length >= perSide;
+    // Most important first, so the height rules drop the right cards...
+    const cards = withShowcase(mine, perSide).map((sponsor, rank) => ({ sponsor, rank }));
+    // ...then listed top to bottom: later sponsors above earlier ones, the showcase card last.
+    const topToBottom = [...cards.filter((c) => c.sponsor).reverse(), ...cards.filter((c) => !c.sponsor)];
+    const tilt = (fromBottom: number) =>
+      (fromBottom % 2 === 0) === (side === "left") ? "rotate-[-0.6deg]" : "rotate-[0.6deg]";
+    return (
+      <aside
+        aria-label="Sponsors"
+        className={`fixed top-[77px] bottom-4 z-10 hidden w-[220px] flex-col justify-end gap-4 2xl:flex ${side === "left" ? "left-4" : "right-4"}`}
+      >
+        {topToBottom.map(({ sponsor, rank }, i) => (
           <SponsorCard
-            key={s?.name ?? `open-${side}-${i}`}
-            sponsor={s}
+            key={sponsor?.name ?? `open-${side}`}
+            sponsor={sponsor}
             compact
-            className={`max-h-[300px] min-h-[180px] flex-1 ${SHOW_AT_HEIGHT[i] ?? "hidden"} ${
-              (i % 2 === 0) === (side === "left") ? "rotate-[-0.6deg]" : "rotate-[0.6deg]"
-            }`}
+            className={`min-h-[180px] basis-[200px] ${full ? "max-h-[300px] grow" : ""} ${
+              SHOW_AT_HEIGHT[rank] ?? "hidden"
+            } ${tilt(topToBottom.length - 1 - i)}`}
           />
         ))}
-    </aside>
-  );
+      </aside>
+    );
+  };
   return (
     <>
       {rail("left")}
@@ -182,7 +198,7 @@ export function FooterSponsors() {
     <section aria-label="Sponsors" className="2xl:hidden">
       <p className="mb-3 font-mono text-xs font-semibold tracking-wider text-muted uppercase">Sponsors</p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {inlineSlots().map((s, i) =>
+        {withShowcase(paidSlots(), site.advertise.totalSlots).map((s, i) =>
           s ? (
             <a
               key={s.name}
