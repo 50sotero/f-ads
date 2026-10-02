@@ -1,5 +1,6 @@
-// Paid sponsor slots. Up to `site.advertise.totalSlots` are shown; empty slots
-// render as "Your brand here" cards that link to the advertise section.
+// Paid sponsor slots. Up to `site.advertise.totalSlots` are shown; while spots are
+// left, each column adds one faded "Your brand here" card that links to the
+// advertise section.
 //
 // Example:
 // {
