@@ -12,6 +12,4 @@ export const site = {
     pricePerMonthUsd: 500,
     totalSlots: 4,
   },
-  supportedSites: ["X / Twitter", "TikTok", "Instagram", "Reddit", "Facebook", "Vimeo", "Twitch clips"],
-  comingSoon: ["YouTube"],
 };

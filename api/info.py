@@ -13,6 +13,8 @@ import os
 import re
 import time
 import traceback
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
@@ -43,6 +45,26 @@ YDL_OPTS = {
 
 FORWARDED_HEADERS = ('User-Agent', 'Referer', 'Origin', 'Cookie', 'Accept')
 
+# Share buttons in the apps hand out short links that only redirect to the
+# real post, and yt-dlp can't read them with the generic extractor off. We
+# follow the redirect ourselves, but only while it stays on the platform.
+# (host, path prefix or regex or None, domains the redirect may land on)
+SHARE_LINKS = (
+    ('fb.watch', None, ('facebook.com',)),
+    ('fb.com', None, ('facebook.com', 'fb.com')),
+    ('facebook.com', '/share/', ('facebook.com',)),
+    ('redd.it', None, ('reddit.com', 'redd.it')),
+    ('reddit.com', re.compile(r'/r/[^/]+/s/'), ('reddit.com',)),
+    ('pin.it', None, ('pinterest.com', 'pin.it')),
+    ('instagr.am', None, ('instagram.com', 'instagr.am')),
+    ('b23.tv', None, ('bilibili.com', 'b23.tv')),
+)
+SHARE_LINK_MAX_REDIRECTS = 5
+BROWSER_UA = (
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+    '(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+)
+
 
 class UserError(Exception):
     def __init__(self, message, status=400):
@@ -67,20 +89,83 @@ def sign_token(payload):
     return f'{body}.{sig}'
 
 
+def host_matches(host, domain):
+    host = (host or '').lower()
+    return host == domain or host.endswith('.' + domain)
+
+
 def validate_url(raw):
     if not isinstance(raw, str) or not raw.strip():
         raise UserError('Paste a video link first.')
     url = raw.strip()
     if len(url) > MAX_URL_LENGTH:
         raise UserError('That link is too long.')
+    if '://' not in url:
+        url = 'https://' + url
     parsed = urlparse(url)
-    if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+    if parsed.scheme not in ('http', 'https') or '.' not in (parsed.hostname or ''):
         raise UserError('That does not look like a web link.')
-    host = parsed.hostname.lower()
     for blocked, message in BLOCKED_HOSTS.items():
-        if host == blocked or host.endswith('.' + blocked):
+        if host_matches(parsed.hostname, blocked):
             raise UserError(message, status=422)
     return url
+
+
+def share_link_domains(url):
+    """Domains a share link may redirect to, or None if it isn't one."""
+    parsed = urlparse(url)
+    for host, path, domains in SHARE_LINKS:
+        if not host_matches(parsed.hostname, host):
+            continue
+        if path is None:
+            return domains
+        if isinstance(path, str) and parsed.path.startswith(path):
+            return domains
+        if not isinstance(path, str) and path.match(parsed.path):
+            return domains
+    return None
+
+
+class _StayOnPlatform(urllib.request.HTTPRedirectHandler):
+    max_redirections = SHARE_LINK_MAX_REDIRECTS
+
+    def __init__(self, domains):
+        super().__init__()
+        self.domains = domains
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        target = urlparse(newurl)
+        if target.scheme not in ('http', 'https') or not any(
+            host_matches(target.hostname, d) for d in self.domains
+        ):
+            raise UserError('We could not follow that share link. Try the full link instead.', status=422)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def follow_redirects(url, domains, timeout=10):
+    opener = urllib.request.build_opener(_StayOnPlatform(domains))
+    req = urllib.request.Request(url, headers={'User-Agent': BROWSER_UA, 'Accept': 'text/html'})
+    try:
+        with opener.open(req, timeout=timeout) as resp:
+            return resp.geturl()
+    except urllib.error.HTTPError as e:
+        # Some sites answer the final page with an error for bots, but the
+        # redirect already told us where the post is.
+        if e.url and e.url != url:
+            return e.url
+        raise UserError('We could not open that share link. Try the full link instead.', status=422)
+    except (urllib.error.URLError, TimeoutError, OSError):
+        raise UserError('We could not open that share link. Try the full link instead.', status=422)
+
+
+def resolve_share_link(url):
+    domains = share_link_domains(url)
+    if not domains:
+        return url
+    resolved = follow_redirects(url, domains)
+    if resolved == url:
+        raise UserError('We could not open that share link. Try the full link instead.', status=422)
+    return validate_url(resolved)
 
 
 def safe_filename(title, ext):
@@ -193,7 +278,7 @@ def handle(body):
         return 400, {'error': 'Invalid request.'}
     try:
         url = validate_url(data.get('url') if isinstance(data, dict) else None)
-        return 200, extract(url)
+        return 200, extract(resolve_share_link(url))
     except UserError as e:
         return e.status, {'error': str(e)}
 

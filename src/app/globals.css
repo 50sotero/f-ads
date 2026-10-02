@@ -44,3 +44,14 @@ body {
   color: var(--ink);
   font-family: var(--font-sans);
 }
+
+@keyframes pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}

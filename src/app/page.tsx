@@ -2,13 +2,14 @@ import { AdvertiseBox } from "@/components/AdvertiseBox";
 import { Downloader } from "@/components/Downloader";
 import { SponsorGrid } from "@/components/SponsorGrid";
 import { site } from "@/config/site";
+import { comingSoonPlatforms, supportedPlatforms } from "@/lib/platforms";
 
 // Re-render hourly so expired sponsor slots drop off without a redeploy.
 export const revalidate = 3600;
 
 const steps = [
   { title: "Copy the link", body: "Tap Share on the post and copy its link." },
-  { title: "Paste it here", body: "Drop it in the box above and press Download." },
+  { title: "Paste it here", body: "Drop it in the box above. We spot the site and fetch the video right away." },
   { title: "Pick a quality", body: "Choose the size you want. The file saves straight away." },
 ];
 
@@ -19,7 +20,9 @@ const faq = [
   },
   {
     q: "Which sites work?",
-    a: `${site.supportedSites.join(", ")}, and many more. ${site.comingSoon.join(", ")} support is coming soon.`,
+    a: `${supportedPlatforms.map((p) => p.name).join(", ")}. Just paste the link and we detect the site for you. ${comingSoonPlatforms
+      .map((p) => p.name)
+      .join(", ")} support is coming soon.`,
   },
   {
     q: "Do you keep the videos?",
@@ -42,9 +45,6 @@ export default function Home() {
         <div className="mt-8 text-left">
           <Downloader />
         </div>
-        <p className="mt-4 text-sm text-muted">
-          Works with {site.supportedSites.slice(0, 4).join(", ")} and more.
-        </p>
       </section>
 
       <SponsorGrid />
