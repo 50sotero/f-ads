@@ -1,6 +1,6 @@
 import { AdvertiseBox } from "@/components/AdvertiseBox";
 import { Downloader } from "@/components/Downloader";
-import { SponsorGrid } from "@/components/SponsorGrid";
+import { SponsorBar, SponsorGrid, SponsorRails } from "@/components/Sponsors";
 import { site } from "@/config/site";
 import { comingSoonPlatforms, supportedPlatforms } from "@/lib/platforms";
 
@@ -44,7 +44,11 @@ export default function Home() {
         </div>
       </section>
 
+      <div className="mx-auto max-w-3xl">
+        <SponsorBar />
+      </div>
       <SponsorGrid />
+      <SponsorRails />
 
       <section id="how" className="mt-16 scroll-mt-8">
         <h2 className="text-2xl font-bold">How it works</h2>

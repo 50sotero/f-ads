@@ -18,8 +18,9 @@ export function AdvertiseBox() {
     <section id="advertise" className="scroll-mt-8 rounded-2xl border border-line bg-surface p-6 sm:p-8">
       <h2 className="text-2xl font-bold">Advertise here</h2>
       <p className="mt-2 max-w-2xl text-muted">
-        One of {totalSlots} sponsor spots, shown under the downloader and in the footer on every page. Book it by the
-        hour or by the day. No pop-ups, no auto-play, no tracking scripts. Just your logo, a line of text and a link.
+        One of {totalSlots} sponsor cards. On big screens it sits beside the downloader and stays in view on every
+        page; on phones it shows right under the downloader. Book it by the hour or by the day. No pop-ups, no
+        auto-play, no tracking scripts. Just your logo, a line of text and a link.
       </p>
       <dl className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
         {stats.map((s) => (
