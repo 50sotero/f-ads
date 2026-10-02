@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { site } from "@/config/site";
 import { activeSponsors } from "@/config/sponsors";
 
@@ -28,13 +29,13 @@ export function SponsorGrid({ compact = false }: { compact?: boolean }) {
           </a>
         ))}
         {Array.from({ length: open }, (_, i) => (
-          <a
+          <Link
             key={`open-${i}`}
-            href="#advertise"
+            href="/#advertise"
             className="flex items-center justify-center rounded-xl border border-dashed border-line p-4 text-sm text-muted transition hover:border-muted hover:text-ink"
           >
             Your brand here
-          </a>
+          </Link>
         ))}
       </div>
     </section>

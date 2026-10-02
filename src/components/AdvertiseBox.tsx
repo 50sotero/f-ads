@@ -4,12 +4,13 @@ import { activeSponsors } from "@/config/sponsors";
 const fmt = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 
 export function AdvertiseBox() {
-  const { monthlyVisitors, monthlyDownloads, pricePerMonthUsd, totalSlots } = site.advertise;
+  const { monthlyVisitors, monthlyDownloads, pricePerHourUsd, pricePerDayUsd, totalSlots } = site.advertise;
   const left = Math.max(0, totalSlots - activeSponsors().length);
   const stats = [
     monthlyVisitors != null && { label: "Unique visitors · 30 days", value: `~${fmt.format(monthlyVisitors)}` },
     monthlyDownloads != null && { label: "Downloads · 30 days", value: `~${fmt.format(monthlyDownloads)}` },
-    { label: "Price", value: `$${pricePerMonthUsd.toLocaleString("en-US")}/month` },
+    { label: "Price per hour", value: `$${pricePerHourUsd.toLocaleString("en-US")}` },
+    { label: "Price per day", value: `$${pricePerDayUsd.toLocaleString("en-US")}` },
     { label: "Ad spots left", value: `${left} of ${totalSlots}` },
   ].filter(Boolean) as { label: string; value: string }[];
 
@@ -17,8 +18,8 @@ export function AdvertiseBox() {
     <section id="advertise" className="scroll-mt-8 rounded-2xl border border-line bg-surface p-6 sm:p-8">
       <h2 className="text-2xl font-bold">Advertise here</h2>
       <p className="mt-2 max-w-2xl text-muted">
-        One of {totalSlots} sponsor spots, shown under the downloader and in the footer on every page. No pop-ups, no
-        auto-play, no tracking scripts. Just your logo, a line of text and a link.
+        One of {totalSlots} sponsor spots, shown under the downloader and in the footer on every page. Book it by the
+        hour or by the day. No pop-ups, no auto-play, no tracking scripts. Just your logo, a line of text and a link.
       </p>
       <dl className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
         {stats.map((s) => (

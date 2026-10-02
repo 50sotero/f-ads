@@ -3,13 +3,14 @@ export const site = {
   name: "F.ADS",
   tagline: "Download videos from X, TikTok, Instagram and more. No waiting, no pop-ups.",
   url: "https://f-ads.vercel.app",
-  // TODO: replace with the real sponsorship inbox before launch.
-  contactEmail: "sponsors@example.com",
+  // Sponsor inquiries, copyright notices and privacy questions go here.
+  contactEmail: "victorvcdb@gmail.com",
   advertise: {
     // Leave a number as null to hide it until there is real traffic data.
     monthlyVisitors: null as number | null,
     monthlyDownloads: null as number | null,
-    pricePerMonthUsd: 500,
+    pricePerHourUsd: 1,
+    pricePerDayUsd: 20,
     totalSlots: 4,
   },
 };

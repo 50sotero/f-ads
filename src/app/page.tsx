@@ -4,9 +4,6 @@ import { SponsorGrid } from "@/components/SponsorGrid";
 import { site } from "@/config/site";
 import { comingSoonPlatforms, supportedPlatforms } from "@/lib/platforms";
 
-// Re-render hourly so expired sponsor slots drop off without a redeploy.
-export const revalidate = 3600;
-
 const steps = [
   { title: "Copy the link", body: "Tap Share on the post and copy its link." },
   { title: "Paste it here", body: "Drop it in the box above. We spot the site and fetch the video right away." },

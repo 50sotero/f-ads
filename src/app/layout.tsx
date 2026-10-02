@@ -11,6 +11,10 @@ export const metadata: Metadata = {
   openGraph: { title: site.name, description: site.tagline, type: "website" },
 };
 
+// Sponsor slots are sold by the hour and the footer shows them on every page, so
+// re-render pages every 5 minutes to drop expired slots without a redeploy.
+export const revalidate = 300;
+
 export const viewport: Viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#fdf6e9" },
