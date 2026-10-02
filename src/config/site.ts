@@ -11,6 +11,8 @@ export const site = {
     monthlyDownloads: null as number | null,
     pricePerHourUsd: 1,
     pricePerDayUsd: 20,
-    totalSlots: 4,
+    // Wide screens fill each side column with up to 4 cards (as many as the window
+    // height allows); smaller screens show every paid card under the downloader.
+    totalSlots: 8,
   },
 };

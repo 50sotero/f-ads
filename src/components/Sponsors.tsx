@@ -4,14 +4,22 @@ import { activeSponsors, type Sponsor } from "@/config/sponsors";
 
 // Sponsor cards in the style of codex-resets.com: a small "Sponsor" label, the
 // logo, the name and a one-line pitch. Wide screens get them in the side
-// gutters (SponsorRails); narrower screens get a grid under the downloader.
+// columns (SponsorRails); narrower screens get a grid under the downloader.
 
 const cardFrame =
   "rounded-xl border-2 border-ink/80 bg-surface shadow-[3px_3px_0_0_rgb(0_0_0/0.25)] transition hover:-translate-y-0.5 hover:rotate-0";
 
+// Every slot, paid or open, for the side columns.
 function slots(): (Sponsor | null)[] {
   const shown = activeSponsors().slice(0, site.advertise.totalSlots);
   return [...shown, ...Array<null>(site.advertise.totalSlots - shown.length).fill(null)];
+}
+
+// Every paid slot, topped up with open ones to fill a row of four, so small
+// screens don't get a wall of "Your brand here" cards.
+function inlineSlots(): (Sponsor | null)[] {
+  const shown = activeSponsors().slice(0, site.advertise.totalSlots);
+  return [...shown, ...Array<null>(Math.max(0, 4 - shown.length)).fill(null)];
 }
 
 function priceLine() {
@@ -36,14 +44,25 @@ function Logo({ sponsor, className }: { sponsor: Sponsor; className: string }) {
   );
 }
 
-export function SponsorCard({ sponsor, className = "" }: { sponsor: Sponsor | null; className?: string }) {
-  const inner = "mt-3 flex flex-1 flex-col items-center justify-center text-center";
+type CardProps = {
+  sponsor: Sponsor | null;
+  /** Display and sizing classes; the card is a flex column, so pass "flex" or a variant of it. */
+  className?: string;
+  /** Smaller logo and a two-line pitch, for the side columns. */
+  compact?: boolean;
+};
+
+export function SponsorCard({ sponsor, className = "flex", compact = false }: CardProps) {
+  const inner = `${compact ? "mt-2" : "mt-3"} flex flex-1 flex-col items-center justify-center text-center`;
+  const logo = compact ? "h-10 w-10" : "h-11 w-11";
   if (!sponsor) {
     return (
-      <Link href="/#advertise" className={`${cardFrame} flex flex-col border-dashed p-4 ${className}`}>
+      <Link href="/#advertise" className={`${cardFrame} flex-col border-dashed p-4 ${className}`}>
         <Label />
         <span className={inner}>
-          <span className="flex h-11 w-11 items-center justify-center rounded-lg border-2 border-dashed border-muted/60 text-xl text-muted">
+          <span
+            className={`${logo} flex items-center justify-center rounded-lg border-2 border-dashed border-muted/60 text-xl text-muted`}
+          >
             +
           </span>
           <span className="mt-3 font-bold">Your brand here</span>
@@ -57,13 +76,17 @@ export function SponsorCard({ sponsor, className = "" }: { sponsor: Sponsor | nu
       href={sponsor.href}
       target="_blank"
       rel="sponsored noopener"
-      className={`${cardFrame} flex flex-col p-4 ${className}`}
+      className={`${cardFrame} flex-col p-4 ${className}`}
     >
       <Label />
       <span className={inner}>
-        <Logo sponsor={sponsor} className="h-11 w-11" />
-        <span className="mt-3 font-bold">{sponsor.name}</span>
-        <span className="mt-1 line-clamp-3 font-mono text-xs leading-relaxed text-muted">{sponsor.tagline}</span>
+        <Logo sponsor={sponsor} className={logo} />
+        <span className={`${compact ? "mt-2" : "mt-3"} font-bold`}>{sponsor.name}</span>
+        <span
+          className={`mt-1 font-mono text-xs leading-relaxed text-muted ${compact ? "line-clamp-2" : "line-clamp-3"}`}
+        >
+          {sponsor.tagline}
+        </span>
       </span>
     </a>
   );
@@ -73,38 +96,54 @@ export function SponsorCard({ sponsor, className = "" }: { sponsor: Sponsor | nu
 export function SponsorGrid() {
   return (
     <section aria-label="Sponsors" className="grid grid-cols-2 gap-3 lg:grid-cols-4 2xl:hidden">
-      {slots().map((s, i) => (
+      {inlineSlots().map((s, i) => (
         <SponsorCard key={s?.name ?? `open-${i}`} sponsor={s} />
       ))}
     </section>
   );
 }
 
+// The n-th card in a side column shows once the window is tall enough for it
+// at its smallest (180px, 16px gaps, starting 77px down, below the header), so
+// short windows drop the lowest cards instead of squeezing them.
+const SHOW_AT_HEIGHT = [
+  "flex",
+  "hidden [@media(min-height:469px)]:flex",
+  "hidden [@media(min-height:665px)]:flex",
+  "hidden [@media(min-height:861px)]:flex",
+];
+
 /**
- * Two cards in each side gutter, pinned to the bottom of the window. Only on
- * screens wide enough that they sit beside the 1024px content column.
+ * Side columns of cards from just below the header to the bottom of the window,
+ * only on screens wide enough that they sit beside the 1024px content column.
+ * Slots alternate sides, so slots 1 and 2 are at the top; the cards stretch to
+ * share the height.
  */
 export function SponsorRails() {
   const all = slots();
-  const half = Math.ceil(all.length / 2);
-  const rail = (side: "left" | "right", items: (Sponsor | null)[]) => (
+  const rail = (side: "left" | "right") => (
     <aside
       aria-label="Sponsors"
-      className={`fixed bottom-4 z-10 hidden w-[220px] flex-col gap-4 2xl:flex ${side === "left" ? "left-4" : "right-4"}`}
+      className={`fixed top-[77px] bottom-4 z-10 hidden w-[220px] flex-col gap-4 2xl:flex ${side === "left" ? "left-4" : "right-4"}`}
     >
-      {items.map((s, i) => (
-        <SponsorCard
-          key={s?.name ?? `open-${side}-${i}`}
-          sponsor={s}
-          className={`h-52 ${(i % 2 === 0) === (side === "left") ? "rotate-[-0.6deg]" : "rotate-[0.6deg]"}`}
-        />
-      ))}
+      {all
+        .filter((_, i) => i % 2 === (side === "left" ? 0 : 1))
+        .map((s, i) => (
+          <SponsorCard
+            key={s?.name ?? `open-${side}-${i}`}
+            sponsor={s}
+            compact
+            className={`max-h-[300px] min-h-[180px] flex-1 ${SHOW_AT_HEIGHT[i] ?? "hidden"} ${
+              (i % 2 === 0) === (side === "left") ? "rotate-[-0.6deg]" : "rotate-[0.6deg]"
+            }`}
+          />
+        ))}
     </aside>
   );
   return (
     <>
-      {rail("left", all.slice(0, half))}
-      {rail("right", all.slice(half))}
+      {rail("left")}
+      {rail("right")}
     </>
   );
 }
@@ -143,7 +182,7 @@ export function FooterSponsors() {
     <section aria-label="Sponsors" className="2xl:hidden">
       <p className="mb-3 font-mono text-xs font-semibold tracking-wider text-muted uppercase">Sponsors</p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {slots().map((s, i) =>
+        {inlineSlots().map((s, i) =>
           s ? (
             <a
               key={s.name}
