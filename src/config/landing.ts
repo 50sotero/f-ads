@@ -116,16 +116,16 @@ export const landings: Landing[] = [
     keyword: "Reddit",
     thing: "video",
     intro:
-      "Download Reddit videos with their sound. Reddit stores video and audio separately, which is why saving them is usually awkward; paste the post link here and pick a quality.",
+      "Download videos from public Reddit posts. Paste the post link from the app or the website and pick a quality, with no countdown and no sign-up.",
     copyStep: "On the post, tap Share and choose Copy link. Links with /s/ from the Reddit app work too.",
     faq: [
       {
-        q: "Why do Reddit videos download without sound elsewhere?",
-        a: "Reddit serves the picture and the sound as separate files. The qualities listed here already include audio where Reddit provides it.",
-      },
-      {
         q: "Do Reddit app share links work?",
         a: "Yes. Links like reddit.com/r/…/s/… from the app are followed to the post automatically.",
+      },
+      {
+        q: "Can I download videos from private or quarantined subreddits?",
+        a: "No. Only posts anyone can see without logging in can be downloaded.",
       },
     ],
   },
@@ -166,12 +166,12 @@ export const landings: Landing[] = [
     slug: "twitch-clip-downloader",
     keyword: "Twitch",
     thing: "clip",
-    intro: "Download Twitch clips and past broadcasts as MP4 files. Paste a clip or VOD link and choose a quality.",
+    intro: "Download Twitch clips as MP4 files. Paste the clip link and choose a quality.",
     copyStep: "On the clip, tap Share and choose Copy link. clips.twitch.tv links work too.",
     faq: [
       {
-        q: "Can I download a live Twitch stream?",
-        a: "Live streams can't be saved while they are live. Clips and past broadcasts can.",
+        q: "Can I download a live stream or a past broadcast?",
+        a: "Not yet. Clips work today; full streams and past broadcasts are coming later.",
       },
     ],
   },
@@ -230,7 +230,7 @@ export const landings: Landing[] = [
     slug: "kick-clip-downloader",
     keyword: "Kick",
     thing: "clip",
-    intro: "Download Kick clips and past streams. Paste the clip or video link and pick a quality.",
+    intro: "Download Kick clips as MP4 files. Paste the clip link and pick a quality.",
     copyStep: "On the clip, tap Share and copy the link.",
     faq: [],
   },
