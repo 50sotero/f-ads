@@ -260,6 +260,22 @@ class FailureLogTest(StoreTestCase):
         (event,) = self.failures()
         self.assertEqual((event['code'], event['url']), ('bot_check', 'https://www.youtube.com/watch?v=abc'))
 
+    def test_youtube_failure_notes_what_each_player_answered(self):
+        def blocked(ydl, url, download=False):
+            ydl.write_debug('abc: tv player response playability status: LOGIN_REQUIRED')
+            ydl.to_screen('[youtube] abc: Downloading tv player API JSON')
+            ydl.report_warning('[youtube] abc: web_embedded client: HTTP Error 403')
+            raise DownloadError("ERROR: [youtube] abc: Sign in to confirm you're not a bot.")
+
+        self.lookup('https://youtu.be/abc', 'youtube', autospec=True, side_effect=blocked)
+        (event,) = self.failures()
+        self.assertEqual(event['detail'], " | ".join([
+            "ERROR: [youtube] abc: Sign in to confirm you're not a bot.",
+            'no JavaScript runtime',
+            'abc: tv player response playability status: LOGIN_REQUIRED',
+            '[youtube] abc: web_embedded client: HTTP Error 403',
+        ]))
+
     def test_stream_only_video_stores_what_was_found(self):
         hls = {'url': 'https://cdn.example/a.m3u8', 'protocol': 'm3u8_native', 'vcodec': 'avc1', 'acodec': 'mp4a'}
         status, _ = self.lookup('https://vimeo.com/1', 'vimeo', return_value={'title': 't', 'formats': [hls, hls]})
@@ -322,10 +338,14 @@ class TokenTest(unittest.TestCase):
 
 
 class YoutubeRuntimeTest(unittest.TestCase):
-    def test_only_youtube_gets_a_js_runtime(self):
+    def test_only_youtube_gets_a_js_runtime_and_extra_players(self):
         with mock.patch.object(info, 'find_deno', return_value='/opt/deno'):
-            self.assertEqual(info.ydl_opts('https://youtu.be/abc')['js_runtimes'], {'deno': {'path': '/opt/deno'}})
-            self.assertNotIn('js_runtimes', info.ydl_opts('https://x.com/a/status/1'))
+            opts = info.ydl_opts('https://youtu.be/abc')
+            self.assertEqual(opts['js_runtimes'], {'deno': {'path': '/opt/deno'}})
+            self.assertEqual(opts['extractor_args']['youtube']['player_client'][0], 'default')
+            other = info.ydl_opts('https://x.com/a/status/1')
+            self.assertNotIn('js_runtimes', other)
+            self.assertNotIn('extractor_args', other)
         with mock.patch.object(info, 'find_deno', return_value=None):
             self.assertNotIn('js_runtimes', info.ydl_opts('https://www.youtube.com/watch?v=abc'))
         self.assertNotIn('js_runtimes', info.YDL_OPTS)

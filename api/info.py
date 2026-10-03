@@ -48,6 +48,10 @@ DENO_ZIP_URL = (f'https://github.com/denoland/deno/releases/download/v{DENO_VERS
                 'deno-x86_64-unknown-linux-gnu.zip')
 DENO_ZIP_SHA256 = 'c6527f24f4b16031d3ae4fa9f658d5f11534c8d84ce7dc8502420280919c3490'
 DENO_TMP_PATH = '/tmp/deno-bin/deno'
+# YouTube answers each of its player apps differently. yt-dlp's defaults
+# (visionos, web) get "confirm you're not a bot" from Vercel's addresses; the TV
+# and embedded players need no PO token and are sometimes let through.
+YOUTUBE_PLAYER_CLIENTS = ['default', 'tv', 'tv_downgraded', 'web_embedded']
 
 YDL_OPTS = {
     'quiet': True,
@@ -349,16 +353,42 @@ def find_deno():
         return None
 
 
+def is_youtube(url):
+    return any(host_matches(urlparse(url).hostname, h) for h in YOUTUBE_HOSTS)
+
+
 def ydl_opts(url):
     # A fresh copy each time: YoutubeDL fills in the dict it is given.
     opts = dict(YDL_OPTS)
-    if any(host_matches(urlparse(url).hostname, h) for h in YOUTUBE_HOSTS):
+    if is_youtube(url):
+        opts['extractor_args'] = {'youtube': {'player_client': YOUTUBE_PLAYER_CLIENTS}}
         path = find_deno()
         if path:
             # The function's home directory is read-only; deno needs a cache.
             os.environ.setdefault('DENO_DIR', '/tmp/deno-cache')
             opts['js_runtimes'] = {'deno': {'path': path}}
     return opts
+
+
+class YtdlpNotes:
+    """yt-dlp logger that keeps its warnings and each YouTube player's answer,
+    so a failure's log entry shows what was tried."""
+
+    def __init__(self):
+        self.lines = []
+
+    def debug(self, msg):
+        if 'playability status' in msg:
+            self.lines.append(msg.removeprefix('[debug] '))
+
+    def info(self, msg):
+        pass
+
+    def warning(self, msg):
+        self.lines.append(_strip_ansi(msg))
+
+    def error(self, msg):
+        pass
 
 
 # --- Formats -----------------------------------------------------------------
@@ -460,12 +490,20 @@ def _strip_ansi(text):
 
 def run_ytdlp(url):
     """yt-dlp's metadata for a link, with its errors turned into UserErrors."""
+    notes = YtdlpNotes()
+    opts = ydl_opts(url)
+    opts['logger'] = notes
+    if is_youtube(url):
+        # Only so the logger hears each player's answer.
+        opts['verbose'] = True
+        if 'js_runtimes' not in opts:
+            notes.lines.append('no JavaScript runtime')
     try:
-        with yt_dlp.YoutubeDL(ydl_opts(url)) as ydl:
+        with yt_dlp.YoutubeDL(opts, auto_init='no_verbose_header') as ydl:
             return ydl.extract_info(url, download=False)
     except DownloadError as e:
-        msg = _strip_ansi(str(e))
-        lower = msg.lower()
+        lower = _strip_ansi(str(e)).lower()
+        msg = ' | '.join([_strip_ansi(str(e)), *notes.lines])
         if 'unsupported url' in lower or 'no suitable extractor' in lower:
             raise UserError('We do not support that site yet.', status=422, code='unsupported_site')
         # YouTube's answer to requests from data-center addresses. Stored so the
