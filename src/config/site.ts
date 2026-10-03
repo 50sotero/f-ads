@@ -5,6 +5,10 @@ export const site = {
   url: "https://f-ads.vercel.app",
   // Sponsor inquiries, copyright notices and privacy questions go here.
   contactEmail: "victorvcdbswe@gmail.com",
+  // Ownership tokens from Google Search Console / Bing Webmaster Tools (the content
+  // of their HTML meta tag). They are public, so they live here; an env var of the
+  // same purpose (GOOGLE_SITE_VERIFICATION, BING_SITE_VERIFICATION) overrides them.
+  verification: { google: "oQVVqAAE9b8CHXj-lwoYT3xZvNnyv1v-w3-2oi_Y5vQ", bing: "" },
   advertise: {
     // Leave a number as null to hide it until there is real traffic data.
     monthlyVisitors: null as number | null,

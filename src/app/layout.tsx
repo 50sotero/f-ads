@@ -5,11 +5,12 @@ import { site } from "@/config/site";
 import { siteDescription } from "@/lib/seo";
 import "./globals.css";
 
-// Search Console and Bing Webmaster Tools give a token to prove the site is ours;
-// set it as an env var on Vercel and the matching meta tag appears.
+// Search Console and Bing Webmaster Tools check these meta tags to prove the site is ours.
+const google = process.env.GOOGLE_SITE_VERIFICATION || site.verification.google;
+const bing = process.env.BING_SITE_VERIFICATION || site.verification.bing;
 const verification: Metadata["verification"] = {
-  google: process.env.GOOGLE_SITE_VERIFICATION || undefined,
-  other: process.env.BING_SITE_VERIFICATION ? { "msvalidate.01": process.env.BING_SITE_VERIFICATION } : undefined,
+  google: google || undefined,
+  other: bing ? { "msvalidate.01": bing } : undefined,
 };
 
 export const metadata: Metadata = {
