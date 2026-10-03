@@ -63,7 +63,7 @@ function reportFailure(body: { code: string; platform?: string | null; url?: str
   }).catch(() => {});
 }
 
-export function Downloader() {
+export function Downloader({ placeholder = "Paste a link from X, TikTok, Instagram…" }: { placeholder?: string }) {
   const [url, setUrl] = useState("");
   const [state, setState] = useState<State>({ status: "idle" });
 
@@ -160,7 +160,7 @@ export function Downloader() {
             autoComplete="off"
             autoCapitalize="off"
             spellCheck={false}
-            placeholder="Paste a link from X, TikTok, Instagram…"
+            placeholder={placeholder}
             value={url}
             onChange={(e) => {
               setUrl(e.target.value);

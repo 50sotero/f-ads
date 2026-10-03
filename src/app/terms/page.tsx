@@ -1,8 +1,14 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { LegalPage } from "@/components/LegalPage";
 import { site } from "@/config/site";
+import { pageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: `Terms of use – ${site.name}` };
+export const metadata: Metadata = pageMetadata({
+  title: "Terms of use",
+  description: `The rules for using ${site.name}: download only videos you own or may use, how the service works, and how to send a copyright complaint.`,
+  path: "/terms",
+});
 
 export default function Terms() {
   return (
@@ -29,7 +35,7 @@ export default function Terms() {
       </p>
       <h2>Copyright complaints</h2>
       <p>
-        See our <a href="/dmca">copyright page</a>.
+        See our <Link href="/dmca">copyright page</Link>.
       </p>
     </LegalPage>
   );

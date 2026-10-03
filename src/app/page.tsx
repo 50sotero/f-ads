@@ -1,8 +1,19 @@
+import type { Metadata } from "next";
 import { AdvertiseBox } from "@/components/AdvertiseBox";
 import { Downloader } from "@/components/Downloader";
+import { Faq, SiteLinks, Steps } from "@/components/Guide";
+import { JsonLd } from "@/components/JsonLd";
 import { SponsorBar, SponsorGrid, SponsorRails } from "@/components/Sponsors";
 import { site } from "@/config/site";
 import { comingSoonPlatforms, supportedPlatforms } from "@/lib/platforms";
+import { absoluteUrl, baseGraph, faqPage, howTo, pageMetadata, siteDescription, webApp } from "@/lib/seo";
+
+export const metadata: Metadata = pageMetadata({
+  title: `${site.name}: Free Video Downloader for TikTok, X, Instagram & More`,
+  absoluteTitle: true,
+  description: siteDescription,
+  path: "/",
+});
 
 const steps = [
   { title: "Copy the link", body: "Tap Share on the post and copy its link." },
@@ -34,8 +45,22 @@ const faq = [
 export default function Home() {
   return (
     <div className="mx-auto max-w-5xl px-4">
+      <JsonLd
+        graph={[
+          ...baseGraph(),
+          webApp({
+            name: `${site.name} video downloader`,
+            url: absoluteUrl("/"),
+            description: siteDescription,
+            sites: supportedPlatforms.map((p) => p.name),
+          }),
+          howTo(absoluteUrl("/"), "How to download a video from a link", steps),
+          faqPage(absoluteUrl("/"), faq),
+        ]}
+      />
       <section className="mx-auto max-w-3xl pt-14 pb-10 text-center sm:pt-20">
-        <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl">
+        <p className="text-sm font-semibold tracking-wide text-accent uppercase">Free online video downloader</p>
+        <h1 className="mt-3 text-4xl font-extrabold tracking-tight sm:text-5xl">
           Download any video. <span className="text-accent">No waiting.</span>
         </h1>
         <p className="mt-4 text-lg text-muted">{site.tagline}</p>
@@ -50,33 +75,9 @@ export default function Home() {
       <SponsorGrid />
       <SponsorRails />
 
-      <section id="how" className="mt-16 scroll-mt-8">
-        <h2 className="text-2xl font-bold">How it works</h2>
-        <ol className="mt-6 grid gap-4 sm:grid-cols-3">
-          {steps.map((s, i) => (
-            <li key={s.title} className="rounded-2xl border border-line bg-surface p-5">
-              <span className="text-sm font-semibold text-accent">Step {i + 1}</span>
-              <p className="mt-1 font-semibold">{s.title}</p>
-              <p className="mt-1 text-sm text-muted">{s.body}</p>
-            </li>
-          ))}
-        </ol>
-      </section>
-
-      <section className="mt-16">
-        <h2 className="text-2xl font-bold">Questions</h2>
-        <div className="mt-6 divide-y divide-line rounded-2xl border border-line bg-surface">
-          {faq.map((f) => (
-            <details key={f.q} className="group p-5">
-              <summary className="cursor-pointer list-none font-semibold">
-                {f.q}
-                <span className="float-right text-muted transition group-open:rotate-45">+</span>
-              </summary>
-              <p className="mt-2 text-muted">{f.a}</p>
-            </details>
-          ))}
-        </div>
-      </section>
+      <Steps heading="How to download a video" steps={steps} />
+      <SiteLinks heading="Downloaders for every site" />
+      <Faq faq={faq} />
 
       <div className="mt-16">
         <AdvertiseBox />

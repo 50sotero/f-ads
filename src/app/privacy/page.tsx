@@ -1,8 +1,13 @@
 import type { Metadata } from "next";
 import { LegalPage } from "@/components/LegalPage";
 import { site } from "@/config/site";
+import { pageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: `Privacy – ${site.name}` };
+export const metadata: Metadata = pageMetadata({
+  title: "Privacy",
+  description: `What ${site.name} stores and what it doesn't: no videos and no download history. Failed-link reports expire after 30 days.`,
+  path: "/privacy",
+});
 
 export default function Privacy() {
   return (
