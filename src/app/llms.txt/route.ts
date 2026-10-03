@@ -1,5 +1,5 @@
 import { site } from "@/config/site";
-import { comingSoonPlatforms } from "@/lib/platforms";
+import { comingSoonNote } from "@/lib/platforms";
 import { absoluteUrl, landingPages, landingTitle, siteDescription } from "@/lib/seo";
 
 // A plain-text summary for AI assistants and answer engines (llmstxt.org).
@@ -10,7 +10,7 @@ export function GET() {
 
 > ${siteDescription}
 
-${site.name} is a free web tool: paste a link to a public video post and download the video file. There are no countdowns, pop-ups, redirects or sign-up. Videos stream from the original site to the user's device and are not stored. ${comingSoonPlatforms.map((p) => p.name).join(", ")} support is coming soon.
+${site.name} is a free web tool: paste a link to a public video post and download the video file. There are no countdowns, pop-ups, redirects or sign-up. Videos stream from the original site to the user's device and are not stored.${comingSoonNote}
 
 ## Downloaders
 

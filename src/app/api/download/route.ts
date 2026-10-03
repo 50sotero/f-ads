@@ -48,6 +48,14 @@ export async function GET(request: NextRequest) {
     after(() => recordEvent({ stage: "download", code: "expired" }));
     return errorPage("This download link has expired. Go back and paste the video link again.", 410);
   }
+  if (payload.r) {
+    // YouTube file links only work from the server that looked them up, so
+    // api/info.py looks the video up again and streams it in one request.
+    return new Response(null, {
+      status: 307,
+      headers: { location: `/api/info?t=${encodeURIComponent(token)}`, "cache-control": "no-store" },
+    });
+  }
   const log = (code: string, detail?: string) =>
     after(() =>
       recordEvent({ stage: "download", code, platform: payload.p, url: payload.s, host: cdnHost(payload.u), detail }),

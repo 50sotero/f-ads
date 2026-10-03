@@ -4,6 +4,11 @@ Runs as a Vercel Python function. yt-dlp only reads metadata here; nothing is
 downloaded or stored. Each format comes back with a short-lived signed token
 that /api/download (src/app/api/download/route.ts) exchanges for the file.
 
+YouTube is the exception: its file links only work from the server that looked
+them up, so /api/download sends YouTube tokens back here as GET /api/info?t=...
+and this function looks the video up again and streams the file itself (see
+"YouTube downloads" below).
+
 Every lookup is counted, and failures worth fixing are stored with enough
 detail to reproduce them (see "Failure log" below and /admin).
 """
@@ -11,6 +16,7 @@ detail to reproduce them (see "Failure log" below and /admin).
 import base64
 import hashlib
 import hmac
+import io
 import json
 import os
 import re
@@ -18,8 +24,9 @@ import time
 import traceback
 import urllib.error
 import urllib.request
+import zipfile
 from http.server import BaseHTTPRequestHandler
-from urllib.parse import parse_qsl, urlencode, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urlparse
 
 import yt_dlp
 from yt_dlp.utils import DownloadError
@@ -28,12 +35,19 @@ from yt_dlp.version import __version__ as YTDLP_VERSION
 TOKEN_TTL_SECONDS = 30 * 60
 MAX_URL_LENGTH = 2048
 
-# YouTube comes in phase 2, once rotating proxies are in place.
-BLOCKED_HOSTS = {
-    'youtube.com': 'YouTube support is coming soon.',
-    'youtu.be': 'YouTube support is coming soon.',
-    'youtube-nocookie.com': 'YouTube support is coming soon.',
-}
+# Hosts we recognize but turn away with "coming soon" (counted as demand).
+BLOCKED_HOSTS = {}
+
+# yt-dlp needs a JavaScript runtime to solve YouTube's player challenges, or it
+# finds few or no formats. The `deno` pip package ships one; if the deployed
+# bundle leaves its binary out, the official build is fetched into /tmp once
+# per warm instance and checked against the release checksum.
+YOUTUBE_HOSTS = ('youtube.com', 'youtu.be', 'youtube-nocookie.com')
+DENO_VERSION = '2.9.7'
+DENO_ZIP_URL = (f'https://github.com/denoland/deno/releases/download/v{DENO_VERSION}/'
+                'deno-x86_64-unknown-linux-gnu.zip')
+DENO_ZIP_SHA256 = 'c6527f24f4b16031d3ae4fa9f658d5f11534c8d84ce7dc8502420280919c3490'
+DENO_TMP_PATH = '/tmp/deno-bin/deno'
 
 YDL_OPTS = {
     'quiet': True,
@@ -44,7 +58,7 @@ YDL_OPTS = {
     'socket_timeout': 15,
     # The generic extractor fetches any URL it is given; keep it off so the
     # function can only talk to sites yt-dlp knows.
-    'allowed_extractors': ['default', '-generic', r'-youtube.*'],
+    'allowed_extractors': ['default', '-generic'],
 }
 
 FORWARDED_HEADERS = ('User-Agent', 'Referer', 'Origin', 'Cookie', 'Accept')
@@ -94,7 +108,9 @@ FAILURE_RETENTION_DAYS = 30
 MAX_FAILURES_PER_DAY = 2000
 STORE_TIMEOUT_SECONDS = 2
 # Failures we keep in full; every other outcome is only counted.
-STORED_CODES = {'share_link_failed', 'login_required', 'not_found', 'no_direct_formats', 'internal_error'}
+STORED_CODES = {'bot_check', 'share_link_failed', 'login_required', 'not_found', 'no_direct_formats', 'internal_error',
+                # YouTube downloads (see below); the other sites' are logged by /api/download.
+                'fetch_failed', 'upstream_error', 'stream_failed'}
 # Query parameters some sites need to find the post. All others (share ids,
 # tracking tags) are dropped before a link is stored.
 KEPT_QUERY_PARAMS = {'v', 'id', 'story_fbid', 'fbid'}
@@ -196,6 +212,25 @@ def sign_token(payload):
     return f'{body}.{sig}'
 
 
+def verify_token(token):
+    """The token's payload, or None if it is forged, malformed or expired."""
+    body, _, sig = (token or '').partition('.')
+    if not body or not sig:
+        return None
+    expected = _b64(hmac.new(_signing_secret(), body.encode(), hashlib.sha256).digest())
+    if not hmac.compare_digest(expected, sig):
+        return None
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(body + '=' * (-len(body) % 4)))
+    except ValueError:
+        return None
+    if not isinstance(payload, dict) or not isinstance(payload.get('u'), str):
+        return None
+    if not isinstance(payload.get('e'), (int, float)) or payload['e'] < time.time():
+        return None
+    return payload
+
+
 # --- Links -------------------------------------------------------------------
 
 def host_matches(host, domain):
@@ -282,6 +317,50 @@ def resolve_share_link(url):
     return validate_url(resolved)
 
 
+# --- YouTube's JavaScript runtime ---------------------------------------------
+
+def find_deno():
+    """Path to a deno binary, or None if none can be found or fetched."""
+    try:
+        import deno
+        path = deno.find_deno_bin()
+        if os.access(path, os.X_OK):
+            return path
+    except (ImportError, FileNotFoundError):
+        pass
+    if os.path.isfile(DENO_TMP_PATH):
+        return DENO_TMP_PATH
+    try:
+        with urllib.request.urlopen(DENO_ZIP_URL, timeout=10) as resp:
+            data = resp.read()
+        if hashlib.sha256(data).hexdigest() != DENO_ZIP_SHA256:
+            print('deno download checksum mismatch')
+            return None
+        os.makedirs(os.path.dirname(DENO_TMP_PATH), exist_ok=True)
+        # Concurrent requests may race here; each writes its own file.
+        part = f'{DENO_TMP_PATH}.{os.urandom(4).hex()}'
+        with zipfile.ZipFile(io.BytesIO(data)) as zf, open(part, 'wb') as out:
+            out.write(zf.read('deno'))
+        os.chmod(part, 0o755)
+        os.replace(part, DENO_TMP_PATH)
+        return DENO_TMP_PATH
+    except Exception as e:  # noqa: BLE001 - extraction still runs, just with fewer formats
+        print(f'deno unavailable: {e}')
+        return None
+
+
+def ydl_opts(url):
+    # A fresh copy each time: YoutubeDL fills in the dict it is given.
+    opts = dict(YDL_OPTS)
+    if any(host_matches(urlparse(url).hostname, h) for h in YOUTUBE_HOSTS):
+        path = find_deno()
+        if path:
+            # The function's home directory is read-only; deno needs a cache.
+            os.environ.setdefault('DENO_DIR', '/tmp/deno-cache')
+            opts['js_runtimes'] = {'deno': {'path': path}}
+    return opts
+
+
 # --- Formats -----------------------------------------------------------------
 
 def safe_filename(title, ext):
@@ -327,6 +406,9 @@ def pick_formats(info, *, platform='unknown', source=None):
     candidates = info.get('formats') or [info]
     title = info.get('title')
     expires = int(time.time()) + TOKEN_TTL_SECONDS
+    # YouTube's file links only work from this server, so its tokens name the
+    # video and format to look up again instead (see "YouTube downloads").
+    refetch_url = info.get('webpage_url') if info.get('extractor_key') == 'Youtube' else None
 
     videos, audios = {}, {}
     for fmt in candidates:
@@ -349,7 +431,7 @@ def pick_formats(info, *, platform='unknown', source=None):
     out = []
     for _, (fmt, kind) in picked:
         ext = fmt.get('ext') or ('m4a' if kind == 'audio' else 'mp4')
-        token = sign_token({
+        payload = {
             'u': fmt['url'],
             'h': _headers_for(fmt),
             'f': safe_filename(title, ext),
@@ -357,7 +439,10 @@ def pick_formats(info, *, platform='unknown', source=None):
             # For the failure log if the download itself fails.
             'p': platform,
             's': redact_url(source),
-        })
+        }
+        if refetch_url and fmt.get('format_id'):
+            payload.update(u=refetch_url, h={}, r=fmt['format_id'])
+        token = sign_token(payload)
         out.append({
             'kind': kind,
             'label': _label(fmt, kind),
@@ -373,20 +458,29 @@ def _strip_ansi(text):
     return re.sub(r'\x1b\[[0-9;]*m', '', text)
 
 
-def extract(url, *, platform='unknown', source=None):
+def run_ytdlp(url):
+    """yt-dlp's metadata for a link, with its errors turned into UserErrors."""
     try:
-        with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
-            info = ydl.extract_info(url, download=False)
+        with yt_dlp.YoutubeDL(ydl_opts(url)) as ydl:
+            return ydl.extract_info(url, download=False)
     except DownloadError as e:
         msg = _strip_ansi(str(e))
         lower = msg.lower()
         if 'unsupported url' in lower or 'no suitable extractor' in lower:
             raise UserError('We do not support that site yet.', status=422, code='unsupported_site')
+        # YouTube's answer to requests from data-center addresses. Stored so the
+        # failure log shows how often it happens without a proxy.
+        if 'not a bot' in lower:
+            raise UserError('YouTube is blocking our server right now. Please try again in a few minutes.',
+                            status=503, code='bot_check', detail=msg)
         if any(w in lower for w in ('login', 'log in', 'sign in', 'private')):
             raise UserError('That post is private or needs a login, so we cannot reach it.', status=422,
                             code='login_required', detail=msg)
         raise UserError('We could not find a video at that link.', status=422, code='not_found', detail=msg)
 
+
+def extract(url, *, platform='unknown', source=None):
+    info = run_ytdlp(url)
     if info.get('_type') == 'playlist':
         entries = [e for e in info.get('entries') or [] if e]
         if not entries:
@@ -409,6 +503,115 @@ def extract(url, *, platform='unknown', source=None):
         'platform': platform,
         'formats': formats,
     }
+
+
+# --- YouTube downloads -------------------------------------------------------
+# YouTube signs each file link for the address that looked it up, and Vercel
+# runs every request on whichever server is free, so a link found during the
+# lookup gets refused when /api/download fetches it. Instead /api/download sends
+# YouTube tokens here, and one request looks the video up again and streams it.
+
+# YouTube slows down requests for a whole file, so it is fetched in ranges.
+RANGE_BYTES = 10 * 1024 * 1024
+READ_BYTES = 256 * 1024
+
+
+def _content_disposition(filename):
+    ascii_name = re.sub(r'[^\x20-\x7e]', '_', filename).replace('"', '_').replace('\\', '_')
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename, safe='')}"
+
+
+def _total_size(resp):
+    # "bytes 0-1023/4096" on a range answer; a whole-file answer has its own length.
+    match = re.search(r'/(\d+)$', resp.headers.get('Content-Range') or '')
+    if match:
+        return int(match.group(1))
+    length = resp.headers.get('Content-Length') or ''
+    return int(length) if resp.status == 200 and length.isdigit() else None
+
+
+def send_text(handler, status, message):
+    out = message.encode()
+    handler.send_response(status)
+    handler.send_header('Content-Type', 'text/plain; charset=utf-8')
+    handler.send_header('Cache-Control', 'no-store')
+    handler.send_header('Content-Length', str(len(out)))
+    handler.end_headers()
+    handler.wfile.write(out)
+
+
+def stream_refetched(handler, payload):
+    """Looks the video up again and streams the token's format to the browser."""
+    platform = clean_platform(payload.get('p'))
+
+    def log(code, detail=None, host=None):
+        record('download', code, platform, url=payload.get('s'), host=host, detail=detail)
+
+    try:
+        info = run_ytdlp(payload['u'])
+    except UserError as e:
+        log(e.code, e.detail)
+        send_text(handler, 502, str(e))
+        return
+    fmt = next((f for f in info.get('formats') or [] if f.get('format_id') == payload.get('r') and _is_direct(f)),
+               None)
+    if not fmt:
+        log('no_direct_formats', f'format {payload.get("r")} gone: {describe_formats(info)}')
+        send_text(handler, 502, 'This quality is not available any more. Go back and paste the link again.')
+        return
+
+    url, headers = fmt['url'], _headers_for(fmt)
+    host = urlparse(url).hostname
+    sent, total = 0, None
+    while total is None or sent < total:
+        req = urllib.request.Request(url, headers={**headers, 'Range': f'bytes={sent}-{sent + RANGE_BYTES - 1}'})
+        try:
+            resp = urllib.request.urlopen(req, timeout=20)
+        except OSError as e:  # HTTPError included
+            detail = f'HTTP {e.code} from {host}' if isinstance(e, urllib.error.HTTPError) else str(e)
+            if sent:
+                log('stream_failed', f'stopped after {sent} bytes: {detail}', host)
+            elif isinstance(e, urllib.error.HTTPError):
+                log('upstream_error', detail, host)
+                send_text(handler, 502, 'The video site refused the download. Please paste the link again.')
+            else:
+                log('fetch_failed', detail, host)
+                send_text(handler, 502, 'The video site did not respond. Please try again.')
+            return
+        with resp:
+            if not sent:
+                total = _total_size(resp)
+                handler.send_response(200)
+                handler.send_header('Content-Type', resp.headers.get('Content-Type') or 'application/octet-stream')
+                if total:
+                    handler.send_header('Content-Length', str(total))
+                handler.send_header('Content-Disposition', _content_disposition(payload.get('f') or 'video.mp4'))
+                handler.send_header('Cache-Control', 'no-store')
+                handler.end_headers()
+                handler.response_started = True
+            got = 0
+            while True:
+                try:
+                    chunk = resp.read(READ_BYTES)
+                except OSError as e:
+                    log('stream_failed', f'stopped after {sent} bytes: {e}', host)
+                    return
+                if not chunk:
+                    break
+                try:
+                    handler.wfile.write(chunk)
+                except OSError:
+                    return  # The user cancelled the download; not a failure.
+                got += len(chunk)
+                sent += len(chunk)
+        if resp.status != 206:
+            break  # The whole file came in one answer.
+        if not got:
+            log('stream_failed', f'stopped after {sent} bytes: empty range answer', host)
+            return
+        if total is None and got < RANGE_BYTES:
+            break  # The last range of a file whose size the site didn't say.
+    log('ok')
 
 
 # --- Request handling --------------------------------------------------------
@@ -444,6 +647,28 @@ def handle(body):
 
 
 class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        token = dict(parse_qsl(urlparse(self.path).query)).get('t')
+        if token is None:
+            self.send_response(405)
+            self.send_header('Allow', 'POST')
+            self.end_headers()
+            return
+        self.response_started = False
+        try:
+            payload = verify_token(token)
+            if payload and payload.get('r'):
+                stream_refetched(self, payload)
+            else:
+                record('download', 'expired')
+                send_text(self, 410, 'This download link has expired. Go back and paste the video link again.')
+        except Exception:  # noqa: BLE001 - never leak internals to the browser
+            tb = traceback.format_exc()
+            print(tb)
+            record('download', 'internal_error', detail=tb[-600:])
+            if not self.response_started:
+                send_text(self, 500, 'Something went wrong. Please try again.')
+
     def do_POST(self):
         length = min(int(self.headers.get('Content-Length') or 0), 16 * 1024)
         try:
@@ -458,8 +683,3 @@ class handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(out)))
         self.end_headers()
         self.wfile.write(out)
-
-    def do_GET(self):
-        self.send_response(405)
-        self.send_header('Allow', 'POST')
-        self.end_headers()

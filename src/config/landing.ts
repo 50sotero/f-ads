@@ -42,6 +42,29 @@ export const landings: Landing[] = [
     ],
   },
   {
+    id: "youtube",
+    slug: "youtube-video-downloader",
+    keyword: "YouTube",
+    thing: "video",
+    intro:
+      "Download YouTube videos and Shorts as MP4 files, or save just the audio. Paste the video link and the download starts with no countdown, no pop-ups and no sign-in.",
+    copyStep: "Under the video, tap Share and choose Copy link. youtube.com, youtu.be and Shorts links all work.",
+    faq: [
+      {
+        q: "Can I download YouTube Shorts?",
+        a: "Yes. Paste the link of the Short, from the app's Share button or the address bar, like any other video.",
+      },
+      {
+        q: "Can I save only the audio of a YouTube video?",
+        a: "Yes. Pick the Audio option in the list to save just the sound.",
+      },
+      {
+        q: "Can I download private or members-only YouTube videos?",
+        a: "No. Only public videos can be downloaded. Private, members-only and age-restricted videos need a login and are not available.",
+      },
+    ],
+  },
+  {
     id: "tiktok",
     slug: "tiktok-video-downloader",
     keyword: "TikTok",

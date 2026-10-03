@@ -8,6 +8,7 @@ export type DownloadToken = {
   e: number; // expiry, unix seconds
   p?: string; // platform id, for the failure log
   s?: string | null; // the post's link (cleaned), for the failure log
+  r?: string; // YouTube format id; then u is the video page and api/info.py streams it
 };
 
 function secret(): string {

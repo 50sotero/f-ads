@@ -1,1 +1,4 @@
 yt-dlp==2026.8.19
+# JavaScript pieces yt-dlp needs for YouTube.
+yt-dlp-ejs==0.8.0
+deno==2.9.7

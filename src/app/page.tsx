@@ -5,7 +5,7 @@ import { Faq, SiteLinks, Steps } from "@/components/Guide";
 import { JsonLd } from "@/components/JsonLd";
 import { SponsorBar, SponsorGrid, SponsorRails } from "@/components/Sponsors";
 import { site } from "@/config/site";
-import { comingSoonPlatforms, supportedPlatforms } from "@/lib/platforms";
+import { comingSoonNote, supportedPlatforms } from "@/lib/platforms";
 import { absoluteUrl, baseGraph, faqPage, howTo, pageMetadata, siteDescription, webApp } from "@/lib/seo";
 
 export const metadata: Metadata = pageMetadata({
@@ -28,9 +28,7 @@ const faq = [
   },
   {
     q: "Which sites work?",
-    a: `${supportedPlatforms.map((p) => p.name).join(", ")}. Just paste the link and we detect the site for you. ${comingSoonPlatforms
-      .map((p) => p.name)
-      .join(", ")} support is coming soon.`,
+    a: `${supportedPlatforms.map((p) => p.name).join(", ")}. Just paste the link and we detect the site for you.${comingSoonNote}`,
   },
   {
     q: "Do you keep the videos?",
