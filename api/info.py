@@ -20,6 +20,7 @@ import io
 import json
 import os
 import re
+import tempfile
 import time
 import traceback
 import urllib.error
@@ -112,9 +113,12 @@ FAILURE_RETENTION_DAYS = 30
 MAX_FAILURES_PER_DAY = 2000
 STORE_TIMEOUT_SECONDS = 2
 # Failures we keep in full; every other outcome is only counted.
-STORED_CODES = {'bot_check', 'share_link_failed', 'login_required', 'not_found', 'no_direct_formats', 'internal_error',
-                # YouTube downloads (see below); the other sites' are logged by /api/download.
-                'fetch_failed', 'upstream_error', 'stream_failed'}
+STORED_CODES = {
+    'share_link_failed', 'login_required', 'not_found', 'no_direct_formats', 'internal_error',
+    'bot_check', 'cookies_expired',  # YouTube turning our server away
+    # YouTube downloads (see below); the other sites' are logged by /api/download.
+    'fetch_failed', 'upstream_error', 'stream_failed',
+}
 # Query parameters some sites need to find the post. All others (share ids,
 # tracking tags) are dropped before a link is stored.
 KEPT_QUERY_PARAMS = {'v', 'id', 'story_fbid', 'fbid'}
@@ -321,7 +325,7 @@ def resolve_share_link(url):
     return validate_url(resolved)
 
 
-# --- YouTube's JavaScript runtime ---------------------------------------------
+# --- YouTube: JavaScript runtime and sign-in -----------------------------------
 
 def find_deno():
     """Path to a deno binary, or None if none can be found or fetched."""
@@ -351,6 +355,35 @@ def find_deno():
     except Exception as e:  # noqa: BLE001 - extraction still runs, just with fewer formats
         print(f'deno unavailable: {e}')
         return None
+
+
+COOKIES_CACHE_SECONDS = 60
+_cookies_cache = {'at': 0.0, 'text': None}
+
+
+def youtube_cookies():
+    """The cookies.txt uploaded in /admin (src/lib/telemetry.ts saves it), or None.
+    Kept for a minute per warm instance so lookups don't each ask the store."""
+    if time.time() - _cookies_cache['at'] < COOKIES_CACHE_SECONDS:
+        return _cookies_cache['text']
+    text = _cookies_cache['text']
+    try:
+        results = redis_pipeline([['GET', f'{KEY_PREFIX}:youtube:cookies']])
+        text = results[0].get('result') if results else None
+    except Exception:  # noqa: BLE001 - lookups still run, just signed out
+        traceback.print_exc()
+    _cookies_cache.update(at=time.time(), text=text)
+    return text
+
+
+def write_cookie_file(text):
+    # yt-dlp only reads files that start with the Netscape header.
+    if not text.startswith(('# Netscape HTTP Cookie File', '# HTTP Cookie File')):
+        text = '# Netscape HTTP Cookie File\n' + text
+    fd, path = tempfile.mkstemp(prefix='yt-cookies-', suffix='.txt')
+    with os.fdopen(fd, 'w') as f:
+        f.write(text)
+    return path
 
 
 def is_youtube(url):
@@ -493,11 +526,16 @@ def run_ytdlp(url):
     notes = YtdlpNotes()
     opts = ydl_opts(url)
     opts['logger'] = notes
+    cookie_file = None
     if is_youtube(url):
         # Only so the logger hears each player's answer.
         opts['verbose'] = True
         if 'js_runtimes' not in opts:
             notes.lines.append('no JavaScript runtime')
+        cookies = youtube_cookies()
+        if cookies:
+            cookie_file = opts['cookiefile'] = write_cookie_file(cookies)
+            notes.lines.append('signed in with the /admin cookies')
     try:
         with yt_dlp.YoutubeDL(opts, auto_init='no_verbose_header') as ydl:
             return ydl.extract_info(url, download=False)
@@ -507,14 +545,22 @@ def run_ytdlp(url):
         if 'unsupported url' in lower or 'no suitable extractor' in lower:
             raise UserError('We do not support that site yet.', status=422, code='unsupported_site')
         # YouTube's answer to requests from data-center addresses. Stored so the
-        # failure log shows how often it happens without a proxy.
+        # failure log shows how often it happens, and when the cookies in /admin
+        # need replacing.
         if 'not a bot' in lower:
+            expired = any('cookies are no longer valid' in line for line in notes.lines)
             raise UserError('YouTube is blocking our server right now. Please try again in a few minutes.',
-                            status=503, code='bot_check', detail=msg)
+                            status=503, code='cookies_expired' if expired else 'bot_check', detail=msg)
         if any(w in lower for w in ('login', 'log in', 'sign in', 'private')):
             raise UserError('That post is private or needs a login, so we cannot reach it.', status=422,
                             code='login_required', detail=msg)
         raise UserError('We could not find a video at that link.', status=422, code='not_found', detail=msg)
+    finally:
+        if cookie_file:
+            try:
+                os.unlink(cookie_file)
+            except OSError:
+                pass
 
 
 def extract(url, *, platform='unknown', source=None):

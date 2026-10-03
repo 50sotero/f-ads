@@ -4,7 +4,16 @@ import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { cleanPlatform, readReport, recordEvent, redactUrl, summarize } from "../src/lib/telemetry.ts";
+import {
+  cleanPlatform,
+  readReport,
+  recordEvent,
+  redactUrl,
+  removeYoutubeCookies,
+  saveYoutubeCookies,
+  summarize,
+  youtubeCookiesSavedAt,
+} from "../src/lib/telemetry.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 let server;
@@ -94,6 +103,19 @@ test("reads what the Python lookup function writes", async () => {
   assert.match(fromPython.version, /^\d{4}\.\d+\.\d+/);
   assert.equal(report.platforms.find((p) => p.platform === "x").lookupFailures, 1);
   assert.deepEqual(report.demand, [{ host: "kwai.com", count: 1 }]);
+});
+
+test("the Python lookup function signs in to YouTube with the cookies saved here", async () => {
+  const cookies = "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tabc\n";
+  assert.equal(await youtubeCookiesSavedAt(), null);
+  await saveYoutubeCookies(cookies);
+  assert.match(await youtubeCookiesSavedAt(), /^\d{4}-\d\d-\d\dT/);
+  const script = "import sys; sys.path.insert(0, 'api'); import info; print(info.youtube_cookies(), end='')";
+  const read = () => execFileSync("python3", ["-c", script], { cwd: root, env: process.env, encoding: "utf8" });
+  assert.equal(read(), cookies);
+  await removeYoutubeCookies();
+  assert.equal(await youtubeCookiesSavedAt(), null);
+  assert.equal(read(), "None");
 });
 
 test("a store outage never breaks the caller", async () => {

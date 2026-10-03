@@ -6,6 +6,8 @@
 //   fads:stats:<day>     hash  "<stage>:<platform>:<code>" -> count   (90 days)
 //   fads:failures:<day>  list  JSON FailureEvent, newest first        (30 days, 2000/day)
 //   fads:demand:<month>  zset  unsupported host -> times asked        (~13 months)
+//   fads:youtube:cookies        cookies.txt uploaded in /admin; api/info.py signs in to YouTube with it
+//   fads:youtube:cookies:saved  when it was uploaded (ISO time)
 //
 // No imports on purpose, so tests/telemetry.test.mjs can run it with plain Node.
 
@@ -85,6 +87,26 @@ async function pipeline(commands: Command[]): Promise<unknown[] | null> {
     if (r.error) throw new Error(r.error);
     return r.result;
   });
+}
+
+const YOUTUBE_COOKIES_KEY = `${KEY_PREFIX}:youtube:cookies`;
+
+/** Saves the cookies.txt that api/info.py signs in to YouTube with. */
+export async function saveYoutubeCookies(text: string): Promise<void> {
+  await pipeline([
+    ["SET", YOUTUBE_COOKIES_KEY, text],
+    ["SET", `${YOUTUBE_COOKIES_KEY}:saved`, new Date().toISOString()],
+  ]);
+}
+
+export async function removeYoutubeCookies(): Promise<void> {
+  await pipeline([["DEL", YOUTUBE_COOKIES_KEY, `${YOUTUBE_COOKIES_KEY}:saved`]]);
+}
+
+/** When the YouTube cookies were uploaded, or null if there are none. */
+export async function youtubeCookiesSavedAt(): Promise<string | null> {
+  const [saved] = (await pipeline([["GET", `${YOUTUBE_COOKIES_KEY}:saved`]])) ?? [];
+  return typeof saved === "string" ? saved : null;
 }
 
 /** The link without tracking parameters or fragment, short enough to store. */

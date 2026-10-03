@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { ADMIN_COOKIE, adminConfigured, cookieIsValid } from "@/lib/adminAuth";
-import { readReport, type FailureEvent, type Report } from "@/lib/telemetry";
-import { signIn, signOut } from "./actions";
+import { readReport, youtubeCookiesSavedAt, type FailureEvent, type Report } from "@/lib/telemetry";
+import { deleteYoutubeCookies, signIn, signOut, uploadYoutubeCookies } from "./actions";
 
 export const metadata: Metadata = {
   title: "Failure log",
@@ -32,12 +32,25 @@ const CODE_LABELS: Record<string, string> = {
   unsupported_site: "Site not supported",
   coming_soon: "Coming soon",
   bot_check: "YouTube bot check",
+  cookies_expired: "YouTube cookies expired (upload new ones)",
   expired: "Download link expired",
   bad_url: "Bad download link",
   invalid_url: "Not a link",
   empty: "Empty box",
   too_long: "Link too long",
   bad_request: "Malformed request",
+};
+
+// Outcomes of the YouTube cookies form, from the ?cookies= the actions redirect with.
+const COOKIE_NOTICES: Record<string, { text: string; ok?: boolean }> = {
+  saved: { text: "Saved. YouTube lookups sign in with these cookies from the next minute on.", ok: true },
+  removed: { text: "Removed. YouTube lookups are no longer signed in.", ok: true },
+  empty: { text: "Choose the cookies.txt file first." },
+  too_large: { text: "That file is too big to be a cookies export." },
+  json: { text: "That is a JSON export. Export in the Netscape (cookies.txt) format instead." },
+  not_netscape: { text: "No youtube.com cookies in that file. Export them while on youtube.com, as cookies.txt." },
+  not_signed_in: { text: "Those cookies are not signed in. Sign in to YouTube in that window, then export again." },
+  no_store: { text: "Connect the failure store first; the cookies are kept there." },
 };
 
 function pct(part: number, total: number) {
@@ -84,8 +97,9 @@ export default async function AdminPage({ searchParams }: { searchParams: Search
 
   const days = PERIODS.includes(Number(params.days)) ? Number(params.days) : 7;
   let report: Report;
+  let cookiesSavedAt: string | null;
   try {
-    report = await readReport(days);
+    [report, cookiesSavedAt] = await Promise.all([readReport(days), youtubeCookiesSavedAt()]);
   } catch (err) {
     return (
       <Shell days={days}>
@@ -177,6 +191,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Search
         )}
       </Section>
 
+      <YoutubeCookies savedAt={cookiesSavedAt} notice={COOKIE_NOTICES[String(params.cookies)]} />
+
       <Section title={`Recent failures (${report.failures.length})`}>
         {report.failures.length ? (
           <ul className="divide-y divide-line rounded-2xl border border-line bg-surface">
@@ -242,9 +258,51 @@ function Tile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function YoutubeCookies({ savedAt, notice }: { savedAt: string | null; notice?: { text: string; ok?: boolean } }) {
   return (
-    <section className="mt-10">
+    <Section id="youtube" title="YouTube sign-in">
+      <div className="rounded-2xl border border-line bg-surface p-5 text-sm">
+        <p className="text-muted">
+          YouTube blocks lookups from our servers unless they are signed in. Use a Google account made only for this,
+          since YouTube may ban it.
+        </p>
+        <ol className="mt-3 list-decimal space-y-1 pl-5 text-muted">
+          <li>Open a private window and sign in to YouTube with that account.</li>
+          <li>
+            Open a new tab, close the YouTube one, and export the youtube.com cookies as cookies.txt (for example with
+            the &quot;Get cookies.txt LOCALLY&quot; extension). Then close the private window.
+          </li>
+          <li>Upload the file here. Upload a new one when the log shows &quot;YouTube cookies expired&quot;.</li>
+        </ol>
+        <p className="mt-4 font-semibold">
+          {savedAt
+            ? `Signed in with cookies uploaded ${savedAt.slice(0, 16).replace("T", " ")} UTC`
+            : "No cookies uploaded"}
+        </p>
+        {notice && <p className={`mt-1 ${notice.ok ? "text-ok" : "text-danger"}`}>{notice.text}</p>}
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <form action={uploadYoutubeCookies} className="flex flex-wrap items-center gap-3">
+            <input type="file" name="cookies" accept=".txt,text/plain" required aria-label="cookies.txt file" />
+            <button type="submit" className="rounded-lg bg-ink px-4 py-2 font-semibold text-bg">
+              Upload
+            </button>
+          </form>
+          {savedAt && (
+            <form action={deleteYoutubeCookies}>
+              <button type="submit" className="px-2 py-2 text-muted hover:text-ink">
+                Remove
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function Section({ id, title, children }: { id?: string; title: string; children: React.ReactNode }) {
+  return (
+    <section id={id} className="mt-10">
       <h2 className="mb-3 text-lg font-semibold">{title}</h2>
       {children}
     </section>

@@ -187,6 +187,7 @@ class StoreTestCase(unittest.TestCase):
         no_deno = mock.patch.object(info, 'find_deno', return_value=None)
         no_deno.start()
         self.addCleanup(no_deno.stop)
+        info._cookies_cache.update(at=0.0, text=None)
 
     def tearDown(self):
         self.env.stop()
@@ -275,6 +276,37 @@ class FailureLogTest(StoreTestCase):
             'abc: tv player response playability status: LOGIN_REQUIRED',
             '[youtube] abc: web_embedded client: HTTP Error 403',
         ]))
+
+    def test_youtube_signs_in_with_the_admin_cookies_and_other_sites_do_not(self):
+        self.store.strings['fads:youtube:cookies'] = '.youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tabc\n'
+        seen = {}
+
+        def blocked(ydl, url, download=False):
+            seen['path'] = path = ydl.params.get('cookiefile')
+            if path:
+                with open(path) as f:
+                    seen['text'] = f.read()
+            raise DownloadError("ERROR: [youtube] abc: Sign in to confirm you're not a bot.")
+
+        self.lookup('https://x.com/a/status/1', 'x', autospec=True, side_effect=blocked)
+        self.assertIsNone(seen['path'])
+        self.lookup('https://youtu.be/abc', 'youtube', autospec=True, side_effect=blocked)
+        self.assertEqual(seen['text'], '# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tabc\n')
+        self.assertFalse(os.path.exists(seen['path']))
+        event = next(e for e in self.failures() if e['platform'] == 'youtube')
+        self.assertEqual(event['code'], 'bot_check')
+        self.assertIn('signed in with the /admin cookies', event['detail'])
+
+    def test_expired_cookies_are_their_own_failure(self):
+        self.store.strings['fads:youtube:cookies'] = '.youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\tabc\n'
+
+        def rotated(ydl, url, download=False):
+            ydl.report_warning('The provided YouTube account cookies are no longer valid. They have likely been rotated')
+            raise DownloadError("ERROR: [youtube] abc: Sign in to confirm you're not a bot.")
+
+        status, _ = self.lookup('https://youtu.be/abc', 'youtube', autospec=True, side_effect=rotated)
+        self.assertEqual(status, 503)
+        self.assertEqual(self.stats(), {'info:youtube:cookies_expired': 1})
 
     def test_stream_only_video_stores_what_was_found(self):
         hls = {'url': 'https://cdn.example/a.m3u8', 'protocol': 'm3u8_native', 'vcodec': 'avc1', 'acodec': 'mp4a'}

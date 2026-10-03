@@ -1,7 +1,8 @@
 """A tiny stand-in for Upstash's Redis REST API, for tests.
 
-Supports only the commands the failure log uses. Import `start()` from Python
-tests, or run `python3 tests/fake_upstash.py` and read "PORT <n>" from stdout.
+Supports only the commands the failure log and the YouTube cookies use. Import
+`start()` from Python tests, or run `python3 tests/fake_upstash.py` and read
+"PORT <n>" from stdout.
 """
 
 import json
@@ -14,11 +15,18 @@ TOKEN = 'test-token'
 
 class Store:
     def __init__(self):
-        self.lists, self.hashes, self.zsets, self.ttls = {}, {}, {}, {}
+        self.strings, self.lists, self.hashes, self.zsets, self.ttls = {}, {}, {}, {}, {}
         self.lock = threading.Lock()
 
     def run(self, cmd):
         name, args = cmd[0].upper(), cmd[1:]
+        if name == 'GET':
+            return self.strings.get(args[0])
+        if name == 'SET':
+            self.strings[args[0]] = args[1]
+            return 'OK'
+        if name == 'DEL':
+            return sum(self.strings.pop(key, None) is not None for key in args)
         if name == 'HINCRBY':
             key, field, by = args
             h = self.hashes.setdefault(key, {})
