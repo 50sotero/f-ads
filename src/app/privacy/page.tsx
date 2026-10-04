@@ -29,10 +29,19 @@ export default function Privacy() {
         Our hosting provider may keep short-lived request logs (such as IP address and time) for security and abuse
         prevention.
       </p>
+      <h2>Visitor statistics</h2>
+      <p>
+        We use Vercel Web Analytics to count page views. It records which page was viewed, the referring site, your
+        approximate location (country, region and city), and your browser, operating system and device type. It uses
+        no cookies, and visitors are counted with a hash that is discarded after 24 hours, so it can&apos;t follow you
+        across days or other sites. The links you paste are not part of it. See{" "}
+        <a href="https://vercel.com/docs/analytics/privacy-policy">Vercel&apos;s analytics privacy policy</a>.
+      </p>
       <h2>Cookies and ads</h2>
       <p>
-        We do not use advertising cookies or tracking scripts. Sponsor cards are plain links. If you click one, the
-        sponsor&apos;s site has its own privacy policy.
+        Visitors get no cookies: no analytics or advertising cookies, and no cross-site tracking scripts. The only
+        cookie on the site is a sign-in cookie for the owner&apos;s admin page. Sponsor cards are plain links. If you
+        click one, the sponsor&apos;s site has its own privacy policy.
       </p>
       <h2>Contact</h2>
       <p>
