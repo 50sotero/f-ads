@@ -367,6 +367,10 @@ def pick_formats(info, *, platform='unknown', source=None):
     def size(fmt):
         return fmt.get('filesize') or fmt.get('filesize_approx')
 
+    # A clip with no sound at all (common on Reddit): the picture file is the whole video.
+    if not videos and not audios:
+        videos = video_only
+
     best_audio = max(audios.items())[1][0] if audios else None
     out = []
     for _, (fmt, kind) in sorted(videos.items(), reverse=True):

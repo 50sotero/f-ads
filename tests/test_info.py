@@ -225,6 +225,22 @@ class RedditVideoTest(unittest.TestCase):
         self.assertEqual(decode(out['formats'][0]['audio_token'])['u'],
                          'https://v.redd.it/ba9rghafmmth1/DASH_AUDIO_128.mp4')
 
+    def test_a_clip_without_sound_offers_the_picture_files(self):
+        import xml.etree.ElementTree as ET
+        silent = REDDIT_MPD.split('<AdaptationSet contentType="audio"')[0] + '</Period></MPD>'
+
+        def fake_mpd(ie, url, video_id, **kwargs):
+            base = url.rsplit('/', 1)[0] + '/'
+            return ie._parse_mpd_formats(ET.fromstring(silent), mpd_base_url=base, mpd_url=url)
+
+        with mock.patch.object(info.InfoExtractor, '_extract_mpd_formats', fake_mpd), \
+                mock.patch.object(info, 'record'):
+            status, out = info.handle(json.dumps({'url': 'https://v.redd.it/ba9rghafmmth1'}).encode())
+        self.assertEqual(status, 200, out)
+        self.assertEqual([f['label'] for f in out['formats']], ['720p', '480p'])
+        self.assertNotIn('audio_token', out['formats'][0])
+        self.assertEqual(decode(out['formats'][0]['token'])['u'], 'https://v.redd.it/ba9rghafmmth1/DASH_720.mp4')
+
     def test_ignores_a_video_id_for_other_sites(self):
         with mock.patch.object(info, 'extract_reddit_video') as reddit, \
                 mock.patch.object(info, 'extract', return_value={'platform': 'x'}), mock.patch.object(info, 'record'):
