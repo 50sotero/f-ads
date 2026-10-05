@@ -120,6 +120,10 @@ export const landings: Landing[] = [
     copyStep: "On the post, tap Share and choose Copy link. Links with /s/ from the Reddit app work too.",
     faq: [
       {
+        q: "Do Reddit videos download with sound?",
+        a: "Yes. Reddit keeps the picture and the sound in separate files, so we fetch both and your browser joins them into one MP4 before saving. It takes a few extra seconds on long videos.",
+      },
+      {
         q: "Do Reddit app share links work?",
         a: "Yes. Links like reddit.com/r/…/s/… from the app are followed to the post automatically.",
       },
