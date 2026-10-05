@@ -11,6 +11,7 @@ detail to reproduce them (see "Failure log" below and /admin).
 import base64
 import hashlib
 import hmac
+import html
 import json
 import os
 import re
@@ -438,8 +439,9 @@ def extract(url, *, platform='unknown', source=None):
 
 
 # --- Reddit -------------------------------------------------------------------
-# Reddit refuses its post pages to most server IPs, so the browser reads the post
-# (src/lib/reddit.ts) and sends us the video's id; right-clicking a Reddit video
+# Reddit refuses its post pages and JSON to most visitors without a login, but its
+# embed page (embed.reddit.com) still names the post's video, so we read the id
+# there. The browser also tries the post JSON (src/lib/reddit.ts); right-clicking a Reddit video
 # also gives a file link with the id in it (v.redd.it/<id>/DASH_720.mp4 or
 # packaged-media.redd.it/<id>/pb/...). The video files themselves live on
 # v.redd.it, which answers servers fine, so we read its DASH manifest directly.
@@ -455,6 +457,37 @@ def reddit_video_id(url):
         return None
     first = next((part for part in parsed.path.split('/') if part), '')
     return first if REDDIT_VIDEO_ID.fullmatch(first) else None
+
+
+REDDIT_POST_PATH = re.compile(r'^(?:/r/([A-Za-z0-9_]{2,30}))?/comments/([A-Za-z0-9]{3,12})(?:/([^/?#]*))?/?$')
+REDDIT_EMBED_ID = re.compile(r'https://v\.redd\.it/([A-Za-z0-9]{5,20})')
+REDDIT_EMBED_MAX_BYTES = 3_000_000
+
+
+def reddit_post(url):
+    """(embed page URL, title from the link) for a reddit.com post link, or None."""
+    parsed = urlparse(url)
+    if not host_matches(parsed.hostname, 'reddit.com'):
+        return None
+    match = REDDIT_POST_PATH.match(parsed.path)
+    if not match:
+        return None
+    sub, post_id, slug = match.groups()
+    path = f'/r/{sub}/comments/{post_id}/' if sub else f'/comments/{post_id}/'
+    title = (slug or '').replace('_', ' ').strip().capitalize() or None
+    return f'https://embed.reddit.com{path}', title
+
+
+def reddit_embed_video_id(embed_url, timeout=10):
+    """Reddit's embed page still answers without a login and names the post's v.redd.it video."""
+    req = urllib.request.Request(embed_url, headers={'User-Agent': BROWSER_UA, 'Accept': 'text/html'})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            page = resp.read(REDDIT_EMBED_MAX_BYTES).decode('utf-8', 'replace')
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return None
+    match = REDDIT_EMBED_ID.search(html.unescape(page))
+    return match.group(1) if match else None
 
 
 def _text(value, limit):
@@ -519,7 +552,15 @@ def handle(body):
         if video_id:
             result = extract_reddit_video(video_id, reddit, source=url)
         else:
-            result = extract(resolve_share_link(url), platform=platform, source=url)
+            target = resolve_share_link(url)
+            post = reddit_post(target)
+            video_id = post and reddit_embed_video_id(post[0])
+            if video_id:
+                meta = {**(reddit or {})}
+                meta.setdefault('title', post[1])
+                result = extract_reddit_video(video_id, meta, source=url)
+            else:
+                result = extract(target, platform=platform, source=url)
         record('info', 'ok', result['platform'])
         return 200, result
     except UserError as e:

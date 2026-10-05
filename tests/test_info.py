@@ -1,6 +1,7 @@
 """Run with: python3 -m unittest discover tests"""
 
 import base64
+import io
 import json
 import os
 import sys
@@ -240,6 +241,35 @@ class RedditVideoTest(unittest.TestCase):
         self.assertEqual([f['label'] for f in out['formats']], ['720p', '480p'])
         self.assertNotIn('audio_token', out['formats'][0])
         self.assertEqual(decode(out['formats'][0]['token'])['u'], 'https://v.redd.it/ba9rghafmmth1/DASH_720.mp4')
+
+    def test_finds_a_post_video_through_the_embed_page(self):
+        page = ('<x-data data="{&quot;post&quot;:{&quot;url&quot;:&quot;https://v.redd.it/ba9rghafmmth1&quot;}}">'
+                '</x-data>').encode()
+
+        class Resp(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        with mock.patch.object(info.urllib.request, 'urlopen', return_value=Resp(page)) as opened, \
+                mock.patch.object(info, 'extract_reddit_video', return_value={'platform': 'reddit'}) as reddit, \
+                mock.patch.object(info, 'record'):
+            status, _ = info.handle(json.dumps({
+                'url': 'https://www.reddit.com/r/factorio/comments/1wy57fg/do_not_walk_on_the_belts/?share_id=x',
+            }).encode())
+        self.assertEqual(status, 200)
+        self.assertEqual(opened.call_args[0][0].full_url,
+                         'https://embed.reddit.com/r/factorio/comments/1wy57fg/')
+        self.assertEqual(reddit.call_args[0][0], 'ba9rghafmmth1')
+        self.assertEqual(reddit.call_args[0][1]['title'], 'Do not walk on the belts')
+
+    def test_post_link_parsing(self):
+        self.assertEqual(info.reddit_post('https://reddit.com/comments/1wy57fg'),
+                         ('https://embed.reddit.com/comments/1wy57fg/', None))
+        self.assertIsNone(info.reddit_post('https://www.reddit.com/r/factorio/'))
+        self.assertIsNone(info.reddit_post('https://x.com/r/a/comments/1wy57fg/'))
 
     def test_ignores_a_video_id_for_other_sites(self):
         with mock.patch.object(info, 'extract_reddit_video') as reddit, \
