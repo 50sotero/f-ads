@@ -25,6 +25,7 @@ const CODE_LABELS: Record<string, string> = {
   fetch_failed: "Video host didn't answer",
   upstream_error: "Video host refused the file",
   stream_failed: "Download stopped halfway",
+  merge_failed: "Couldn't join picture and sound",
   timeout: "Lookup timed out",
   network: "Browser lost connection",
   bad_response: "Server sent a broken answer",

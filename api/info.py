@@ -298,8 +298,8 @@ def _headers_for(fmt):
 
 
 def _is_direct(fmt):
-    # Only plain HTTP files can be streamed straight to the browser; HLS/DASH
-    # need merging, which is a phase 2 job.
+    # Only plain HTTP files can be streamed straight to the browser; HLS and
+    # segmented DASH would need joining on a server, which is a phase 2 job.
     return bool(fmt.get('url')) and fmt.get('protocol', 'https') in ('http', 'https')
 
 
@@ -323,12 +323,17 @@ def describe_formats(info):
     return ', '.join(f'{k} x{n}' for k, n in sorted(counts.items())) or 'no formats'
 
 
+# Files the browser can join into one MP4 (see src/lib/mergeAv.ts).
+MERGEABLE_VIDEO_EXTS = ('mp4',)
+MERGEABLE_AUDIO_EXTS = ('m4a', 'mp4')
+
+
 def pick_formats(info, *, platform='unknown', source=None):
     candidates = info.get('formats') or [info]
     title = info.get('title')
     expires = int(time.time()) + TOKEN_TTL_SECONDS
 
-    videos, audios = {}, {}
+    videos, video_only, audios = {}, {}, {}
     for fmt in candidates:
         if not _is_direct(fmt):
             continue
@@ -340,16 +345,15 @@ def pick_formats(info, *, platform='unknown', source=None):
             key, bucket, kind = fmt.get('height') or 0, videos, 'video'
         elif not has_video and has_audio:
             key, bucket, kind = int(fmt.get('abr') or 0), audios, 'audio'
+        elif has_video and fmt.get('ext') in MERGEABLE_VIDEO_EXTS:
+            key, bucket, kind = fmt.get('height') or 0, video_only, 'video'
         else:
             continue
         # Later formats in yt-dlp's list are better, so they win ties.
         bucket[key] = (fmt, kind)
 
-    picked = sorted(videos.items(), reverse=True) + sorted(audios.items(), reverse=True)[:1]
-    out = []
-    for _, (fmt, kind) in picked:
-        ext = fmt.get('ext') or ('m4a' if kind == 'audio' else 'mp4')
-        token = sign_token({
+    def sign(fmt, ext):
+        return sign_token({
             'u': fmt['url'],
             'h': _headers_for(fmt),
             'f': safe_filename(title, ext),
@@ -358,14 +362,31 @@ def pick_formats(info, *, platform='unknown', source=None):
             'p': platform,
             's': redact_url(source),
         })
-        out.append({
-            'kind': kind,
-            'label': _label(fmt, kind),
-            'ext': ext,
-            'height': fmt.get('height'),
-            'filesize': fmt.get('filesize') or fmt.get('filesize_approx'),
-            'token': token,
-        })
+
+    def size(fmt):
+        return fmt.get('filesize') or fmt.get('filesize_approx')
+
+    best_audio = max(audios.items())[1][0] if audios else None
+    out = []
+    for _, (fmt, kind) in sorted(videos.items(), reverse=True):
+        ext = fmt.get('ext') or 'mp4'
+        out.append({'kind': kind, 'label': _label(fmt, kind), 'ext': ext, 'height': fmt.get('height'),
+                    'filesize': size(fmt), 'token': sign(fmt, ext)})
+
+    # Sites like Reddit keep picture and sound in separate files. When there is no
+    # file with both, offer each picture size with the best sound; the browser joins them.
+    if not videos and best_audio is not None and best_audio.get('ext') in MERGEABLE_AUDIO_EXTS:
+        audio_token = sign(best_audio, best_audio.get('ext'))
+        for _, (fmt, kind) in sorted(video_only.items(), reverse=True):
+            sizes = (size(fmt), size(best_audio))
+            out.append({'kind': kind, 'label': _label(fmt, kind), 'ext': 'mp4', 'height': fmt.get('height'),
+                        'filesize': sum(sizes) if all(sizes) else None, 'token': sign(fmt, 'mp4'),
+                        'audio_token': audio_token, 'filename': safe_filename(title, 'mp4')})
+
+    if best_audio is not None:
+        ext = best_audio.get('ext') or 'm4a'
+        out.append({'kind': 'audio', 'label': _label(best_audio, 'audio'), 'ext': ext, 'height': None,
+                    'filesize': size(best_audio), 'token': sign(best_audio, ext)})
     return out
 
 

@@ -145,6 +145,31 @@ class PickFormatsTest(unittest.TestCase):
         self.assertEqual(top['h'], {'User-Agent': 'UA', 'Cookie': 'a=b'})
         self.assertEqual(top['f'], 'My clip 1.mp4')
 
+    def test_separate_picture_and_sound_are_offered_for_merging(self):
+        # Reddit: a video-only fallback, single-file DASH video and audio, and HLS.
+        data = {
+            'title': 'post',
+            'formats': [
+                {'url': 'https://v/fallback', 'protocol': 'https', 'height': 720, 'vcodec': 'avc1', 'acodec': 'none', 'ext': 'mp4'},
+                {'url': 'https://v/hls', 'protocol': 'm3u8_native', 'height': 720, 'vcodec': 'avc1', 'acodec': 'mp4a'},
+                {'url': 'https://v/DASH_480.mp4', 'protocol': 'https', 'height': 480, 'vcodec': 'avc1', 'acodec': 'none',
+                 'ext': 'mp4', 'filesize': 1000},
+                {'url': 'https://v/DASH_720.mp4', 'protocol': 'https', 'height': 720, 'vcodec': 'avc1', 'acodec': 'none',
+                 'ext': 'mp4', 'filesize': 3000},
+                {'url': 'https://v/DASH_AUDIO_64.mp4', 'protocol': 'https', 'vcodec': 'none', 'acodec': 'mp4a', 'abr': 64, 'ext': 'm4a'},
+                {'url': 'https://v/DASH_AUDIO_128.mp4', 'protocol': 'https', 'vcodec': 'none', 'acodec': 'mp4a', 'abr': 128,
+                 'ext': 'm4a', 'filesize': 500},
+            ],
+        }
+        out = info.pick_formats(data)
+        self.assertEqual([f['label'] for f in out], ['720p', '480p', 'Audio 128 kbps'])
+        top = out[0]
+        self.assertEqual(decode(top['token'])['u'], 'https://v/DASH_720.mp4')
+        self.assertEqual(decode(top['audio_token'])['u'], 'https://v/DASH_AUDIO_128.mp4')
+        self.assertEqual(top['filesize'], 3500)
+        self.assertEqual(top['filename'], 'post.mp4')
+        self.assertNotIn('audio_token', out[2])
+
     def test_single_file_info_without_formats(self):
         out = info.pick_formats({'title': 't', 'url': 'https://cdn/x', 'ext': 'mp4'})
         self.assertEqual(len(out), 1)

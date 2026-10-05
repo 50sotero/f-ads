@@ -41,6 +41,7 @@ const STORED_CODES = new Set([
   "timeout",
   "network",
   "bad_response",
+  "merge_failed",
   "user_report",
 ]);
 // Outcomes that are not a broken download: bad input, unsupported or not-yet
