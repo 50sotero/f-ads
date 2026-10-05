@@ -88,6 +88,14 @@ class ShareLinkTest(unittest.TestCase):
                     'https://x.com/a/status/1', 'https://evilfb.watch/abc'):
             self.assertIsNone(info.share_link_domains(url), url)
 
+    def test_reddit_file_links_give_the_video_id(self):
+        packaged = ('https://packaged-media.redd.it/ba9rghafmmth1/pb/m2-vp9-res_1080p.mp4'
+                    '?m=DASHPlaylist.mpd&v=1&e=1791223200&s=abc')
+        self.assertEqual(info.reddit_video_id(packaged), 'ba9rghafmmth1')
+        self.assertEqual(info.reddit_video_id('https://v.redd.it/abcde12/DASH_720.mp4?source=fallback'), 'abcde12')
+        self.assertIsNone(info.reddit_video_id('https://www.reddit.com/r/videos/comments/abc/t/'))
+        self.assertIsNone(info.reddit_video_id('https://v.redd.it/../etc'))
+
     def test_redirect_must_stay_on_platform(self):
         handler = info._StayOnPlatform(('reddit.com',))
         req = urllib.request.Request('https://redd.it/abc')
@@ -173,6 +181,55 @@ class PickFormatsTest(unittest.TestCase):
     def test_single_file_info_without_formats(self):
         out = info.pick_formats({'title': 't', 'url': 'https://cdn/x', 'ext': 'mp4'})
         self.assertEqual(len(out), 1)
+
+
+REDDIT_MPD = """<?xml version="1.0" encoding="UTF-8"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" mediaPresentationDuration="PT10S" minBufferTime="PT1.5S"
+     profiles="urn:mpeg:dash:profile:isoff-on-demand:2011" type="static"><Period duration="PT10S">
+<AdaptationSet contentType="video" subsegmentAlignment="true">
+ <Representation bandwidth="500000" codecs="avc1.4d401e" height="480" id="1" mimeType="video/mp4" width="854">
+  <BaseURL>DASH_480.mp4</BaseURL><SegmentBase indexRange="800-900"><Initialization range="0-799"/></SegmentBase>
+ </Representation>
+ <Representation bandwidth="1000000" codecs="avc1.4d401f" height="720" id="2" mimeType="video/mp4" width="1280">
+  <BaseURL>DASH_720.mp4</BaseURL><SegmentBase indexRange="800-900"><Initialization range="0-799"/></SegmentBase>
+ </Representation>
+</AdaptationSet>
+<AdaptationSet contentType="audio" subsegmentAlignment="true">
+ <Representation audioSamplingRate="48000" bandwidth="128000" codecs="mp4a.40.2" id="5" mimeType="audio/mp4">
+  <BaseURL>DASH_AUDIO_128.mp4</BaseURL><SegmentBase indexRange="700-800"><Initialization range="0-699"/></SegmentBase>
+ </Representation>
+</AdaptationSet></Period></MPD>"""
+
+
+class RedditVideoTest(unittest.TestCase):
+    def test_reads_the_manifest_and_offers_joined_qualities(self):
+        import xml.etree.ElementTree as ET
+
+        def fake_mpd(ie, url, video_id, **kwargs):
+            base = url.rsplit('/', 1)[0] + '/'
+            return ie._parse_mpd_formats(ET.fromstring(REDDIT_MPD), mpd_base_url=base, mpd_url=url)
+
+        with mock.patch.object(info.InfoExtractor, '_extract_mpd_formats', fake_mpd), \
+                mock.patch.object(info, 'record'):
+            status, out = info.handle(json.dumps({
+                'url': 'https://www.reddit.com/r/factorio/comments/1wy57fg/do_not_walk_on_the_belts/',
+                'platform': 'reddit',
+                'reddit': {'id': 'ba9rghafmmth1', 'title': 'Do not walk on the belts',
+                           'thumbnail': 'javascript:alert(1)', 'duration': 10, 'uploader': 'someone'},
+            }).encode())
+        self.assertEqual(status, 200, out)
+        self.assertEqual(out['title'], 'Do not walk on the belts')
+        self.assertIsNone(out['thumbnail'])
+        self.assertEqual([f['label'] for f in out['formats']], ['720p', '480p', 'Audio 128 kbps'])
+        self.assertEqual(decode(out['formats'][0]['token'])['u'], 'https://v.redd.it/ba9rghafmmth1/DASH_720.mp4')
+        self.assertEqual(decode(out['formats'][0]['audio_token'])['u'],
+                         'https://v.redd.it/ba9rghafmmth1/DASH_AUDIO_128.mp4')
+
+    def test_ignores_a_video_id_for_other_sites(self):
+        with mock.patch.object(info, 'extract_reddit_video') as reddit, \
+                mock.patch.object(info, 'extract', return_value={'platform': 'x'}), mock.patch.object(info, 'record'):
+            info.handle(json.dumps({'url': 'https://x.com/a/status/1', 'reddit': {'id': 'abcdef'}}).encode())
+        reddit.assert_not_called()
 
 
 class HandleTest(unittest.TestCase):

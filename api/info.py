@@ -22,6 +22,7 @@ from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qsl, urlencode, urlparse
 
 import yt_dlp
+from yt_dlp.extractor.common import InfoExtractor
 from yt_dlp.utils import DownloadError
 from yt_dlp.version import __version__ as YTDLP_VERSION
 
@@ -432,6 +433,63 @@ def extract(url, *, platform='unknown', source=None):
     }
 
 
+# --- Reddit -------------------------------------------------------------------
+# Reddit refuses its post pages to most server IPs, so the browser reads the post
+# (src/lib/reddit.ts) and sends us the video's id; right-clicking a Reddit video
+# also gives a file link with the id in it (v.redd.it/<id>/DASH_720.mp4 or
+# packaged-media.redd.it/<id>/pb/...). The video files themselves live on
+# v.redd.it, which answers servers fine, so we read its DASH manifest directly.
+
+REDDIT_MEDIA_HOSTS = ('v.redd.it', 'packaged-media.redd.it')
+REDDIT_VIDEO_ID = re.compile(r'[A-Za-z0-9]{5,20}')
+
+
+def reddit_video_id(url):
+    """The v.redd.it id in a Reddit video file link, or None."""
+    parsed = urlparse(url)
+    if (parsed.hostname or '').lower() not in REDDIT_MEDIA_HOSTS:
+        return None
+    first = next((part for part in parsed.path.split('/') if part), '')
+    return first if REDDIT_VIDEO_ID.fullmatch(first) else None
+
+
+def _text(value, limit):
+    return value.strip()[:limit] if isinstance(value, str) and value.strip() else None
+
+
+def _clean_reddit_meta(meta):
+    """What the browser read from the post. Only plain values; never fetched."""
+    meta = meta if isinstance(meta, dict) else {}
+    thumb = _text(meta.get('thumbnail'), 2000)
+    duration = meta.get('duration')
+    return {
+        'title': _text(meta.get('title'), 300) or 'Reddit video',
+        'thumbnail': thumb if thumb and thumb.startswith('https://') else None,
+        'duration': duration if isinstance(duration, (int, float)) and 0 < duration < 86400 else None,
+        'uploader': _text(meta.get('uploader'), 100),
+    }
+
+
+def extract_reddit_video(video_id, meta, *, source):
+    meta = _clean_reddit_meta(meta)
+    manifest = f'https://v.redd.it/{video_id}/DASHPlaylist.mpd'
+    try:
+        with yt_dlp.YoutubeDL(YDL_OPTS) as ydl:
+            ie = InfoExtractor(ydl)
+            formats = ie._extract_mpd_formats(manifest, video_id, mpd_id='dash')
+            # Fills in protocol, ext and the rest the same way a normal lookup does.
+            info = ydl.process_ie_result({'id': video_id, 'title': meta['title'], 'formats': formats},
+                                         download=False)
+    except DownloadError as e:
+        raise UserError('We could not find a video at that link.', status=422, code='not_found',
+                        detail=_strip_ansi(str(e)))
+    formats = pick_formats(info, platform='reddit', source=source)
+    if not formats:
+        raise UserError('This video can not be downloaded directly yet.', status=422,
+                        code='no_direct_formats', detail=describe_formats(info))
+    return {**meta, 'site': 'Reddit', 'platform': 'reddit', 'formats': formats}
+
+
 # --- Request handling --------------------------------------------------------
 
 def handle(body):
@@ -449,7 +507,15 @@ def handle(body):
     url = None
     try:
         url = validate_url(raw)
-        result = extract(resolve_share_link(url), platform=platform, source=url)
+        reddit = data.get('reddit') if isinstance(data.get('reddit'), dict) else None
+        video_id = reddit_video_id(url) or (
+            reddit.get('id') if reddit and isinstance(reddit.get('id'), str)
+            and REDDIT_VIDEO_ID.fullmatch(reddit['id']) and host_matches(urlparse(url).hostname, 'reddit.com')
+            else None)
+        if video_id:
+            result = extract_reddit_video(video_id, reddit, source=url)
+        else:
+            result = extract(resolve_share_link(url), platform=platform, source=url)
         record('info', 'ok', result['platform'])
         return 200, result
     except UserError as e:

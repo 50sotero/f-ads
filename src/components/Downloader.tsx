@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { downloadMerged } from "@/lib/mergeAv";
 import { detect, normalizeUrl, type Platform } from "@/lib/platforms";
+import { isRedditPost, lookupRedditPost, type RedditVideo } from "@/lib/reddit";
 import { PlatformIcon } from "./PlatformIcon";
 import { PlatformStrip } from "./PlatformStrip";
 
@@ -83,11 +84,22 @@ export function Downloader({ placeholder = "Paste a link from X, TikTok, Instagr
       return;
     }
     setState({ status: "loading" });
+    // Reddit blocks most servers, so the browser reads the post (see src/lib/reddit.ts).
+    let reddit: RedditVideo | undefined;
+    if (found?.id === "reddit" && isRedditPost(target)) {
+      const post = await lookupRedditPost(target);
+      if (post && "link" in post) {
+        const elsewhere = detect(post.link);
+        if (elsewhere && elsewhere.id !== "reddit") return lookup(post.link);
+      } else if (post) {
+        reddit = post.video;
+      }
+    }
     try {
       const res = await fetch("/api/info", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url: target, platform: found?.id ?? null }),
+        body: JSON.stringify({ url: target, platform: found?.id ?? null, reddit }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data) {
