@@ -167,7 +167,7 @@
 .tip {
   position: absolute;
   z-index: 5;
-  top: 72px;
+  top: 142px;
   right: 22px;
   left: 22px;
   padding: 8px 12px;
@@ -205,6 +205,22 @@
 }
 
 .upgradeFlash span { color: #9beaf0; font-size: 10px; }
+
+.weaponUnlocked { display: grid; min-width: 200px; gap: 4px; padding: 12px 20px; border: 2px solid #ffe787; border-radius: 20px; background: linear-gradient(145deg, #7950b6, #20365d); text-align: center; }
+.weaponUnlocked span { color: #ffe787; font-size: 9px; white-space: nowrap; }
+.weaponUnlocked strong { font-size: 27px; letter-spacing: 0; }
+.weaponUnlocked small { color: #fff; font-size: 11px; letter-spacing: 0; font-weight: 500; }
+.weaponCard { position: absolute; top: 68px; left: 13px; z-index: 5; display: flex; gap: 8px; align-items: center; width: 160px; padding: 8px 10px 11px; border: 1px solid #a6e8ff; border-radius: 14px; background: rgba(16, 51, 76, .85); color: white; box-shadow: 0 3px 0 rgba(4, 30, 51, .2); pointer-events: none; }
+.weaponCard[data-weapon="2"] { border-color: #ffcf67; background: rgba(108, 59, 28, .9); }
+.weaponCard[data-weapon="3"] { border-color: #d8baff; background: rgba(72, 39, 114, .9); }
+.weaponIcon { display: grid; flex: 0 0 27px; height: 32px; place-items: center; border-radius: 8px; color: #153548; background: #8ce8ff; font-size: 25px; font-weight: 700; }
+.weaponCard[data-weapon="2"] .weaponIcon { background: #ffcf67; }
+.weaponCard[data-weapon="3"] .weaponIcon { background: #d8baff; }
+.weaponCard > div > span { display: block; color: #d6f3ff; font-size: 8px; letter-spacing: .06em; font-weight: 600; }
+.weaponCard strong { display: block; font-size: 17px; line-height: 1.1; }
+.weaponCard small { display: block; font-size: 8px; white-space: nowrap; opacity: .85; }
+.weaponProgress { position: absolute; left: 11px; bottom: 4px; right: 11px; height: 3px; border-radius: 3px; overflow: hidden; background: rgba(255,255,255,.2); }
+.weaponProgress i { display: block; height: 100%; border-radius: inherit; background: #ffdc55; transition: width 100ms linear; }
 
 .assaultStats {
   position: absolute;

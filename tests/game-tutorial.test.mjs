@@ -35,7 +35,14 @@ test("tutorial checks new actions for each lesson and completes once", () => {
   game.t = 12;
   assert.equal(advanceTutorial(progress, game), true);
   assert.equal(progress.step, 3);
-  assert.equal(progress.completedAt, 12);
+  assert.equal(game.assault.weaponTargetsEnabled, true);
+  assert.equal(progress.completedAt, Infinity, "collecting a cannon must not finish weapon training");
+  assert.equal(advanceTutorial(progress, game), false);
+  game.assault.weaponLevel = 2;
+  game.t = 15;
+  assert.equal(advanceTutorial(progress, game), true);
+  assert.equal(progress.step, 4);
+  assert.equal(progress.completedAt, 15);
   assert.equal(advanceTutorial(progress, game), false);
 });
 

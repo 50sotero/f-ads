@@ -92,6 +92,18 @@ export type Pop = { x: number; y: number; t: number; color: number; text?: strin
 
 export type AssaultPickup = { id: number; x: number; y: number; w: number; value: number };
 
+export const WEAPONS = [
+  { name: "Scout", description: "Steady single shots", burst: 1, burstGap: 0, cycle: 1 / 7.5 },
+  { name: "Repeater", description: "Three-shot bursts", burst: 3, burstGap: 0.07, cycle: 0.3 },
+  { name: "Cyclone", description: "Rapid continuous fire", burst: 1, burstGap: 0, cycle: 1 / 13.5 },
+] as const;
+
+export function weaponForLevel(level: number) {
+  return WEAPONS[Math.max(0, Math.min(WEAPONS.length - 1, Math.floor(level) - 1))];
+}
+
+export type WeaponTarget = { x: number; y: number; w: number; h: number; hp: number; maxHp: number; hitFlash: number };
+
 /**
  * State consumed by the assault renderer. The first seven fields are kept
  * deliberately small and serializable so the UI can read them without knowing
@@ -108,6 +120,16 @@ export type AssaultState = {
   advance: number;
   /** Number of cannon barrels / parallel streams, clamped to 1..5. */
   tier: number;
+  /** Weapon evolution is separate from the number of cannons collected. */
+  weaponLevel: number;
+  weaponFlash: number;
+  weaponTarget: WeaponTarget | null;
+  weaponTargetsEnabled: boolean;
+  weaponTargetTimer: number;
+  /** Shots remaining in the current burst. Releasing fire cancels it. */
+  burstRemaining: number;
+  /** Last fired barrel and its sequence, used for individual recoil. */
+  barrelShots: number[];
   /** Brief visual feedback after a pickup or milestone upgrade. */
   upgradeFlash: number;
   pickups: AssaultPickup[];
@@ -249,6 +271,13 @@ function makeAssaultState(level: Level): AssaultState {
     travel: 0,
     advance: 0,
     tier: 1,
+    weaponLevel: 1,
+    weaponFlash: 0,
+    weaponTarget: config.practice ? null : makeWeaponTarget(1),
+    weaponTargetsEnabled: !config.practice,
+    weaponTargetTimer: 0,
+    burstRemaining: 0,
+    barrelShots: [0, 0, 0, 0, 0],
     upgradeFlash: 0,
     pickups: config.practice ? practicePickups : campaignPickups,
     reserve: Math.max(0, Math.floor(config.reserve)),
@@ -723,7 +752,6 @@ function stepLegacy(g: Game, dt: number) {
 const ASSAULT_TRANSITION_SECONDS = 0.95;
 const ASSAULT_TRAVEL_PER_BOSS = 240;
 const ASSAULT_RED_CAP = 650;
-const ASSAULT_FIRE_RATE = 7.5;
 const ASSAULT_BLUE_SPEED = 98;
 const ASSAULT_CHAMP_SPEED = 66;
 
@@ -739,6 +767,44 @@ export function cannonBarrelOffsets(tier: number) {
   return Array.from({ length: count }, (_, index) => (index - (count - 1) / 2) * CANNON_BARREL_SPACING);
 }
 
+function makeWeaponTarget(weaponLevel: number): WeaponTarget {
+  const hp = weaponLevel === 1 ? 14 : 24;
+  return { x: 307, y: 472, w: 62, h: 36, hp, maxHp: hp, hitFlash: 0 };
+}
+
+function updateWeaponTarget(g: Game, dt: number) {
+  const assault = g.assault!;
+  assault.weaponFlash = Math.max(0, assault.weaponFlash - dt * 0.5);
+  if (assault.weaponTarget) {
+    assault.weaponTarget.hitFlash = Math.max(0, assault.weaponTarget.hitFlash - dt * 7);
+  } else if (assault.weaponLevel < WEAPONS.length && assault.weaponTargetsEnabled) {
+    assault.weaponTargetTimer -= dt;
+    if (assault.weaponTargetTimer <= 0) assault.weaponTarget = makeWeaponTarget(assault.weaponLevel);
+  }
+}
+
+function resolveWeaponTarget(g: Game) {
+  const assault = g.assault!, target = assault.weaponTarget;
+  if (!target) return;
+  for (const unit of g.blue) {
+    if (unit.dead || unit.y < target.y - target.h / 2 || unit.y > target.y + target.h / 2 + unit.r || Math.abs(unit.x - target.x) > target.w / 2 + unit.r) continue;
+    target.hp = Math.max(0, target.hp - (unit.big ? 5 : 1));
+    target.hitFlash = 1;
+    unit.dead = true;
+    pop(g, unit.x, unit.y, 1);
+    if (target.hp === 0) {
+      assault.weaponLevel = Math.min(WEAPONS.length, assault.weaponLevel + 1);
+      assault.weaponFlash = 1;
+      assault.weaponTarget = null;
+      assault.weaponTargetTimer = 2.5;
+      assault.burstRemaining = 0;
+      g.cooldown = 0;
+      pop(g, target.x, target.y, 1, "WEAPON UP!");
+      break;
+    }
+  }
+}
+
 function updateAssaultPickups(g: Game, dt: number) {
   const assault = g.assault;
   const config = g.level.assault;
@@ -752,9 +818,14 @@ function updateAssaultPickups(g: Game, dt: number) {
       assault.pickupsCollected++;
       const before = assault.tier;
       assault.tier = Math.max(1, Math.min(5, assault.tier + Math.max(1, pickup.value)));
-      assault.upgradeFlash = 1;
-      pop(g, g.cannonX, CANNON_Y - 30, 0, "UPGRADE");
-      if (assault.tier > before) pop(g, g.cannonX, CANNON_Y - 42, 0, `+${assault.tier - before}`);
+      if (assault.tier > before) {
+        assault.upgradeFlash = 1;
+        pop(g, g.cannonX, CANNON_Y - 30, 0, "UPGRADE");
+        pop(g, g.cannonX, CANNON_Y - 42, 0, `+${assault.tier - before}`);
+      } else {
+        g.charge = Math.min(CHARGE_MAX, g.charge + 10);
+        pop(g, g.cannonX, CANNON_Y - 30, 0, "+CHARGE");
+      }
       continue;
     }
     if (pickup.y < H + 40) keep.push(pickup);
@@ -778,17 +849,22 @@ function updateAssaultCannon(g: Game, dt: number) {
   g.targetX = Math.max(edge, Math.min(W - edge, g.targetX));
   g.cannonX += Math.max(-maxMove, Math.min(maxMove, g.targetX - g.cannonX));
   g.cooldown -= dt;
+  if (!g.firing) assault.burstRemaining = 0;
   if (!g.firing || g.cooldown > 0) {
     if (!g.firing) g.cooldown = Math.max(g.cooldown, 0);
     return;
   }
-  g.cooldown += 1 / ASSAULT_FIRE_RATE;
+  const weapon = weaponForLevel(assault.weaponLevel);
+  if (assault.burstRemaining === 0) assault.burstRemaining = weapon.burst;
+  assault.burstRemaining--;
+  g.cooldown += assault.burstRemaining > 0 ? weapon.burstGap : weapon.cycle - weapon.burstGap * (weapon.burst - 1);
   if (g.cooldown < 0) g.cooldown = 0;
   const volley = offsets.length;
   for (let k = 0; k < volley && g.blue.length < MAX_UNITS; k++) {
     const offset = offsets[k];
     g.blue.push({ x: g.cannonX + offset + (g.rand() - 0.5) * 0.8, y: CANNON_Y - 22, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false });
     g.stats.fired++;
+    assault.barrelShots[k]++;
     g.charge = Math.min(CHARGE_MAX, g.charge + 1);
   }
 }
@@ -1047,9 +1123,11 @@ function finishAssaultEncounter(g: Game) {
   for (const r of g.red) if (!r.dead) pop(g, r.x, r.y, 1);
   g.red = [];
 
-  if (assault.tier < 5) assault.tier++;
-  assault.upgradeFlash = 1;
-  pop(g, active.x, active.y - 30, 0, "UPGRADE");
+  if (assault.tier < 5) {
+    assault.tier++;
+    assault.upgradeFlash = 1;
+    pop(g, active.x, active.y - 30, 0, "UPGRADE");
+  }
   if (assault.encounter >= assault.encounters - 1) {
     g.status = "won";
     g.blue = g.blue.filter((u) => !u.dead);
@@ -1094,6 +1172,7 @@ function stepAssault(g: Game, dt: number) {
   updateAssaultCannon(g, dt);
   updateAssaultGatesAndSpinners(g, dt);
   updateAssaultPickups(g, dt);
+  updateWeaponTarget(g, dt);
   updateAssaultBossSlam(g, dt);
 
   if (assault.phase === "advance") {
@@ -1104,6 +1183,7 @@ function stepAssault(g: Game, dt: number) {
     if (assault.transition <= 0) assault.phase = "battle";
   } else {
     updateAssaultBlue(g, dt);
+    resolveWeaponTarget(g);
     updateAssaultRed(g, dt);
     if (g.status === "playing") {
       resolveAssaultFights(g);
@@ -1111,6 +1191,10 @@ function stepAssault(g: Game, dt: number) {
       if (!g.level.assault?.practice && active && active.hp > 0) {
         assault.bossTimer -= dt;
         if (assault.bossTimer <= 0) {
+          // Several runners fit across the giant's front. Resolve a small
+          // contact batch so a dense crowd attacks together instead of taking
+          // turns at one fixed service slot and backing up to the cannon.
+          let contacts = 0;
           for (const u of g.blue) {
             if (u.dead) continue;
             if (Math.abs(u.x - active.x) > active.w / 2 + u.r) continue;
@@ -1122,7 +1206,7 @@ function stepAssault(g: Game, dt: number) {
             u.dead = true;
             assault.bossTimer = 0.025;
             pop(g, u.x, u.y, 0, u.big ? "BOOM" : undefined);
-            break;
+            if (++contacts >= 3 || active.hp <= 0) break;
           }
         }
       }

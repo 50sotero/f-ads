@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { CANNON_Y, MAX_UNITS, W, cannonBarrelOffsets, surgeActive, type Game, type Unit } from "./engine";
+import { CANNON_Y, MAX_UNITS, W, cannonBarrelOffsets, surgeActive, weaponForLevel, type Game, type Unit } from "./engine";
 import { createHordeGeometry, createMobGeometry, createSiegeCannon, createWarden } from "./assaultArt";
 
 // The simulation uses a moving local battlefield. The road and scenery stay in
@@ -216,15 +216,32 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const combined = geo(mergeGeometries(parts)); parts.forEach((part) => part.dispose());
     return new THREE.Mesh(combined, paintedMaterial);
   }
-  const cannon = Array.from({ length: 5 }, () => {
-    const value = createSiegeCannon(false);
-    for (const group of [value.barrel, value.group]) {
+  function bakeCannon(group: THREE.Group) {
+    for (const child of group.children) if (child instanceof THREE.Group) bakeCannon(child);
+    if (group.children.some((child) => child instanceof THREE.Mesh && child.name !== "muzzle-opening")) {
       const combined = paintedMesh(group, false);
       for (const child of [...group.children]) if (child instanceof THREE.Mesh && child.name !== "muzzle-opening") group.remove(child);
       group.add(combined);
     }
-    value.group.traverse((object) => { object.castShadow = false; }); stage.add(value.group); return value;
+  }
+  const cannon = Array.from({ length: 5 }, () => {
+    const value = createSiegeCannon(false); bakeCannon(value.group);
+    value.group.traverse((object) => { object.castShadow = false; }); stage.add(value.group);
+    return { ...value, shots: 0, recoil: 0 };
   });
+
+  const weaponCrate = new THREE.Group(); stage.add(weaponCrate);
+  const crateGold = standard(0xffc53e, { roughness: 0.42 });
+  const crateBlue = standard(0x25416d, { roughness: 0.54 });
+  box(weaponCrate, crateBlue, 0, 0.8, 0, 2.95, 1.6, 3.24);
+  box(weaponCrate, crateGold, 0, 1.64, 0, 3.06, 0.16, 3.35);
+  box(weaponCrate, crateGold, 0, 0.13, 0, 3.06, 0.24, 3.35);
+  for (const x of [-1.4, 1.4]) box(weaponCrate, crateGold, x, 0.86, 1.66, 0.19, 1.25, 0.14);
+  const crateCount = makeLabel("14", 2.7, 1.35, "#ffffff", 139); crateCount.sprite.position.set(0, 0.92, 1.75); weaponCrate.add(crateCount.sprite);
+  const crateTitle = makeLabel("UPGRADE", 3.55, 0.92, "#ffe579", 107); crateTitle.sprite.position.set(0, 3.75, 0); weaponCrate.add(crateTitle.sprite);
+  const prize = createSiegeCannon(false); bakeCannon(prize.group); prize.group.scale.setScalar(1.55); prize.group.rotation.y = Math.PI - 0.3;
+  prize.group.position.set(0, 1.75, -0.25); weaponCrate.add(prize.group); bake(weaponCrate);
+  let crateHp = -1, crateMax = -1;
   const chassis = new THREE.Group(); stage.add(chassis);
   const deck = mesh(chassis, geo(new THREE.CapsuleGeometry(0.32, 0.7, 2, 8).rotateZ(Math.PI / 2)), standard(0x173e64), 0, 0.24, 0.2, 1, 0.65, 1.65);
   const bumper = box(chassis, standard(0xffce45), 0, 0.35, 0.8, 1, 0.13, 0.15);
@@ -252,10 +269,12 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const material = standard(color, { roughness: 0.44, vertexColors: true });
     material.onBeforeCompile = (shader) => {
       shader.uniforms.runTime = animationTime;
-      shader.vertexShader = `uniform float runTime; attribute float faceMask; attribute float stridePart; attribute vec2 runMotion; varying float vFaceMask;\n${shader.vertexShader}`.replace("#include <beginnormal_vertex>", `
+      shader.vertexShader = `uniform float runTime; attribute float faceMask; attribute float stridePart; attribute vec3 runMotion; varying float vFaceMask;\n${shader.vertexShader}`.replace("#include <beginnormal_vertex>", `
         #include <beginnormal_vertex>
-        float stride = sin(runTime * 12.0 + runMotion.x) * runMotion.y;
-        float limbAngle = stride * sign(stridePart) * (abs(stridePart) > 1.5 ? 0.65 : -0.55);
+        float cadence = 17.0 + sin(runMotion.x * 3.7) * 1.4;
+        float stride = sin(runTime * cadence + runMotion.x) * runMotion.y;
+        float limbAngle = stride * sign(stridePart) * (abs(stridePart) > 1.5 ? 0.95 : -0.8);
+        if (abs(stridePart) > 0.5 && abs(stridePart) < 1.5) limbAngle += runMotion.z * (0.8 + sin(runTime * 14.0 + runMotion.x + stridePart * 1.57) * 0.55);
         float limbCos = cos(limbAngle), limbSin = sin(limbAngle);
         objectNormal.yz = mat2(limbCos, limbSin, -limbSin, limbCos) * objectNormal.yz;
       `).replace("#include <begin_vertex>", `
@@ -266,15 +285,16 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
           transformed.yz = mat2(limbCos, limbSin, -limbSin, limbCos) * vec2(position.y - pivot, position.z);
           transformed.y += pivot;
         }
-        transformed.y += abs(stride) * 0.05;
-        transformed.x += stride * 0.012 * position.y;
+        transformed.y += abs(stride) * 0.075;
+        transformed.y += (0.5 + 0.5 * sin(runTime * 3.0 + runMotion.x)) * 0.02 * (1.0 - runMotion.y);
+        transformed.x += stride * 0.02 * position.y;
       `);
       shader.fragmentShader = `varying float vFaceMask;\n${shader.fragmentShader}`.replace("#include <color_fragment>", `
         #include <color_fragment>
         diffuseColor.rgb = mix(diffuseColor.rgb, vColor.rgb, vFaceMask);
       `);
     };
-    material.customProgramCacheKey = () => "assault-jointed-run-v3"; return material;
+    material.customProgramCacheKey = () => "assault-run-and-brawl-v5"; return material;
   }
   const mobGeometry = geo(createMobGeometry()), reserveGeometry = geo(createHordeGeometry());
   const friendMaterial = crowdMaterial(BLUE), enemyMaterial = crowdMaterial(RED);
@@ -283,7 +303,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const reserves = new THREE.InstancedMesh(reserveGeometry, enemyMaterial, 2400);
   for (const object of [friends, enemies, reserves]) {
     object.frustumCulled = false; object.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    object.geometry.setAttribute("runMotion", new THREE.InstancedBufferAttribute(new Float32Array(object.instanceMatrix.count * 2), 2).setUsage(THREE.DynamicDrawUsage));
+    object.geometry.setAttribute("runMotion", new THREE.InstancedBufferAttribute(new Float32Array(object.instanceMatrix.count * 3), 3).setUsage(THREE.DynamicDrawUsage));
     stage.add(object);
   }
   const shadowSource = document.createElement("canvas"); shadowSource.width = shadowSource.height = 32;
@@ -325,13 +345,18 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
           const delta = Math.atan2(Math.sin(target - state.angle), Math.cos(target - state.angle));
           state.angle += delta * Math.min(1, elapsed * 14);
         }
-        state.run += (Math.min(1, speed / 7) - state.run) * Math.min(1, elapsed * 12);
+        state.run += (Math.min(1, speed / (enemy ? 1.8 : 7)) - state.run) * Math.min(1, elapsed * 12);
       }
       state.x = unit.x; state.y = unit.y; state.time = time; motion.set(unit, state);
-      runMotion.setXY(i, state.phase, shotFlight > 0 ? 0.15 : state.run);
+      const boss = currentGame?.bases[currentGame.assault?.encounter ?? 0];
+      const front = currentGame?.assault?.frontline ?? boss?.y ?? 300;
+      const fighting = shotFlight === 0 && state.run < 0.55 && (Math.abs(unit.y - front) < 32 || !!boss && Math.abs(unit.y - boss.y - boss.h / 2) < 25) ? (0.55 - state.run) / 0.55 : 0;
+      runMotion.setXYZ(i, state.phase, shotFlight > 0 ? 0.15 : state.run, fighting);
       dummy.position.set(wx(unit.x) + curve(z), 0.025 + shotFlight, z);
-      dummy.rotation.set(shotFlight > 0 ? -0.35 * Math.sin(flight * Math.PI) : 0, state.angle, 0);
-      dummy.scale.setScalar(size); dummy.updateMatrix(); object.setMatrixAt(i, dummy.matrix);
+      dummy.rotation.order = "YXZ";
+      dummy.rotation.set(shotFlight > 0 ? -0.42 * Math.sin(flight * Math.PI) : -0.14 * state.run, state.angle, 0);
+      const landing = flight >= 1 ? Math.max(0, 1 - (time - state.launchedAt - 0.34) / 0.12) : 0;
+      dummy.scale.set(size * (1 + landing * 0.1), size * (1 - landing * 0.16), size * (1 + landing * 0.1)); dummy.updateMatrix(); object.setMatrixAt(i, dummy.matrix);
       object.setColorAt(i, color.setHex(unit.big ? (enemy ? 0xffbaa1 : 0xa8f4ff) : 0xffffff));
       dummy.position.y = 0.025; dummy.rotation.set(0, 0, 0); dummy.scale.set(size * 0.9, 1, size * 0.7); dummy.updateMatrix(); shadows.setMatrixAt(shadowCount++, dummy.matrix);
     }
@@ -377,7 +402,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const value = tags[tagCursor++ % tags.length]; value.write(text, fill); value.age = 0; value.y = 2.8; value.sprite.position.set(x, value.y, z);
   }
   const seenPops = new WeakSet<object>();
-  let currentGame: Game | null = null, shot = 0, recoil = 0, shake = 0, previousTier = 1, winAt = -1, reserveCount = -1, reserveEncounter = -1, previousTravel = -1;
+  let currentGame: Game | null = null, shot = 0, shake = 0, previousTier = 1, previousWeapon = 1, winAt = -1, reserveCount = -1, reserveEncounter = -1, previousTravel = -1;
   let previousStatus = "playing", frameTime = 0, shadowAt = 0, previousPulse = 0, wasRushing = false;
   const projected = new THREE.Vector3();
   function updateCamera() {
@@ -392,6 +417,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     dt = Math.min(dt, 0.05); frameTime += dt;
     if (currentGame !== game) {
       currentGame = game; shot = game.stats.fired; previousTier = game.assault?.tier ?? 1;
+      previousWeapon = game.assault?.weaponLevel ?? 1; crateHp = crateMax = -1;
+      cannon.forEach((value, i) => { value.shots = game.assault?.barrelShots[i] ?? 0; value.recoil = 0; });
       shadowAt = 0;
       theme = game.level.assault?.theme ?? "fork"; travel = (game.assault?.travel ?? 0) * SZ;
       bridges.visible = theme === "bridge"; bendGeometry(worldBends); previousTravel = travel;
@@ -403,6 +430,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     }
     const assault = game.assault;
     const encounter = assault?.encounter ?? 0, tier = assault?.tier ?? 1;
+    const weaponLevel = assault?.weaponLevel ?? 1;
     const barrelOffsets = cannonBarrelOffsets(tier);
     travel = (assault?.travel ?? 0) * SZ; stage.position.z = -travel;
     if (travel !== previousTravel) { reserveCount = -1; previousTravel = travel; }
@@ -424,22 +452,48 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     previousPulse = pulse;
     animationTime.value = game.t;
     shake = Math.max(0, shake - dt * 7);
-    recoil = Math.max(0, recoil - dt * 9);
     const fired = game.stats.fired > shot;
-    if (fired) { recoil = 1; shot = game.stats.fired; }
+    if (fired) shot = game.stats.fired;
     if (tier > previousTier) {
       const x = wx(game.cannonX) + curve(0);
       burst(x, 0.6, 0, 0xffd33c, 45, 1.5); ring(x, 0, 0xffdb39, 3); previousTier = tier;
     }
+    if (weaponLevel > previousWeapon) {
+      const x = wx(game.cannonX) + curve(0);
+      burst(x, 1, 0, 0xffdc54, 65, 1.8); ring(x, 0, 0xffdc54, 5);
+      tag(weaponForLevel(weaponLevel).name.toUpperCase(), x, -2, "#ffea86");
+      if (crateHp >= 0) burst(weaponCrate.position.x, 1.4, weaponCrate.position.z, 0xffcd4e, 35, 1.2);
+      previousWeapon = weaponLevel; shake = Math.max(shake, 0.6);
+    }
+    const target = assault?.weaponTarget;
+    weaponCrate.visible = !!target;
+    if (target) {
+      const z = wz(target.y);
+      weaponCrate.position.set(wx(target.x) + curve(z), 0, z);
+      weaponCrate.rotation.z = Math.sin(game.t * 65) * target.hitFlash * 0.035;
+      weaponCrate.scale.setScalar(1 + target.hitFlash * 0.035);
+      if (crateHp !== target.hp || crateMax !== target.maxHp) {
+        if (crateHp >= 0 && crateMax === target.maxHp && target.hp < crateHp) burst(weaponCrate.position.x, 1.4, z + 1.6, 0xffec86, 6, 0.5);
+        crateCount.write(`${target.hp}`); crateHp = target.hp; crateMax = target.maxHp;
+      }
+      prize.setWeapon(weaponLevel + 1); prize.group.position.y = 1.8 + Math.sin(game.t * 3) * 0.08;
+      prize.rotor.rotation.z = game.t * 3;
+    }
     cannon.forEach((value, i) => {
       value.group.visible = i < tier;
+      value.setWeapon(weaponLevel);
+      value.recoil = Math.max(0, value.recoil - dt * 15);
+      const shots = assault?.barrelShots[i] ?? game.stats.fired;
+      const barrelFired = shots > value.shots;
+      if (barrelFired) { value.recoil = 1; value.shots = shots; }
       const offset = barrelOffsets[i] ?? 0;
       value.group.position.set(wx(game.cannonX + offset) + curve(0), 0.02, 0);
       const pop = assault?.upgradeFlash ? Math.sin(Math.min(1, assault.upgradeFlash) * Math.PI) * 0.1 : 0;
-      value.group.scale.set(1.3 + pop, 1.3 + pop, 1.76 + pop); value.barrel.position.z = -0.08 + recoil * 0.18;
+      value.group.scale.set(1.3 + pop, 1.3 + pop, 1.76 + pop); value.barrel.position.z = -0.08 + value.recoil * 0.18;
       value.barrel.rotation.y = Math.asin(THREE.MathUtils.clamp((curve(0) - curve(wz(CANNON_Y - 22))) / 1.3585, -0.4, 0.4));
-      value.muzzle.scale.setScalar(1 + recoil * 0.12);
-      if (fired && i < tier) burst(wx(game.cannonX + offset) + curve(wz(CANNON_Y - 22)), 0.76, -1.98, 0xd9ffff, 2, 0.2);
+      value.rotor.rotation.z += dt * (game.firing ? 22 : 2);
+      value.muzzle.scale.setScalar(1 + value.recoil * 0.12);
+      if (barrelFired && i < tier) burst(wx(game.cannonX + offset) + curve(wz(CANNON_Y - 22)), 0.76, -1.98, weaponLevel === 2 ? 0xffe09d : 0xd9ffff, 2, 0.2);
     });
     chassis.position.x = wx(game.cannonX) + curve(0);
     const batteryWidth = 1.2 + ((barrelOffsets.at(-1) ?? 0) - barrelOffsets[0]) * SX;
@@ -478,6 +532,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     pickups.forEach((view, i) => {
       const pickup = assault?.pickups[i]; view.group.visible = !!pickup;
       if (!pickup) return;
+      const reward = tier >= 5 ? "★" : "+1";
+      if (view.value !== reward) { view.label.write(reward, tier >= 5 ? "#fff2a2" : "#ffffff"); view.value = reward; }
       view.group.position.set(wx(pickup.x) + curve(wz(pickup.y)), 0.03, wz(pickup.y)); view.group.scale.set(pickup.w * SX, 0.84, 1);
       view.material.emissiveIntensity = 0.4 + Math.sin(game.t * 4 + i) * 0.12;
     });
@@ -575,7 +631,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       return (low + high) / 2;
     },
     dispose() {
-      cannon.forEach((value) => value.dispose()); bosses.forEach((value) => value.art.dispose());
+      cannon.forEach((value) => value.dispose()); prize.dispose(); bosses.forEach((value) => value.art.dispose());
       geometries.forEach((value) => value.dispose()); materials.forEach((value) => value.dispose()); textures.forEach((value) => value.dispose()); renderer.dispose();
     },
   };

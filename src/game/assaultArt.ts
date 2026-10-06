@@ -126,7 +126,7 @@ function mesh(parent: THREE.Object3D, geometry: THREE.BufferGeometry, material: 
   value.castShadow = value.receiveShadow = true; parent.add(value); return value;
 }
 
-export type SiegeCannonArt = { group: THREE.Group; barrel: THREE.Group; muzzle: THREE.Mesh; dispose: () => void };
+export type SiegeCannonArt = { group: THREE.Group; barrel: THREE.Group; muzzle: THREE.Mesh; rotor: THREE.Group; setWeapon: (level: number) => void; dispose: () => void };
 
 /** A flared, hollow toy barrel on a low carriage. The muzzle faces -Z. */
 export function createSiegeCannon(includeChassis = true): SiegeCannonArt {
@@ -135,6 +135,7 @@ export function createSiegeCannon(includeChassis = true): SiegeCannonArt {
   const blue = owned.material(0x008cef, 0.3), light = owned.material(0x58dfff, 0.28);
   const dark = owned.material(0x16355d), rubber = owned.material(0x14233a, 0.8);
   const cream = owned.material(0xf7fcff, 0.28), gold = owned.material(0xffcc43, 0.32);
+  const orange = owned.material(0xff9135, 0.32), violet = owned.material(0x8851e8, 0.3);
   const cradle = owned.geometry(new RoundedBoxGeometry(0.77, 0.4, 0.72, 2, 0.16));
   mesh(group, cradle, dark, 0, 0.36, 0.04);
   const housing = owned.geometry(new RoundedBoxGeometry(0.7, 0.6, 0.76, 3, 0.25));
@@ -147,16 +148,49 @@ export function createSiegeCannon(includeChassis = true): SiegeCannonArt {
     for (const side of [-1, 1]) { mesh(group, wheel, rubber, side * 0.51, 0.3, 0.15); mesh(group, hub, gold, side * 0.52, 0.3, 0.15); }
   }
   barrel.position.set(0, 0.58, -0.08); group.add(barrel);
+  const forms = [new THREE.Group(), new THREE.Group(), new THREE.Group()];
+  barrel.add(...forms);
   // The profile doubles back inside the tube: no sphere or disk plugs its lip.
   const profile = [[0.24, 0.04], [0.28, 0.12], [0.26, 0.35], [0.255, 0.7], [0.32, 0.89], [0.32, 1.04], [0.22, 1.04], [0.215, 0.72]];
   const tube = owned.geometry(new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(r, y)), 20).rotateX(-Math.PI / 2));
-  mesh(barrel, tube, blue);
+  mesh(forms[0], tube, blue);
   const ring = owned.geometry(new THREE.TorusGeometry(0.27, 0.055, 8, 20));
-  mesh(barrel, ring, cream, 0, 0, -1.045);
-  mesh(barrel, owned.geometry(new THREE.TorusGeometry(0.263, 0.035, 6, 20)), light, 0, 0, -0.22);
-  const muzzle = mesh(barrel, owned.geometry(new THREE.CircleGeometry(0.219, 20).rotateY(Math.PI)), rubber, 0, 0, -0.73);
+  mesh(forms[0], ring, cream, 0, 0, -1.045);
+  const collar = owned.geometry(new THREE.TorusGeometry(0.263, 0.035, 6, 20));
+  mesh(forms[0], collar, light, 0, 0, -0.22);
+  const bore = owned.geometry(new THREE.CircleGeometry(0.219, 20).rotateY(Math.PI));
+  const muzzle = mesh(forms[0], bore, rubber, 0, 0, -0.73);
   muzzle.name = "muzzle-opening";
-  return { group, barrel, muzzle, dispose() { group.clear(); owned.dispose(); } };
+
+  // Repeater: a broad orange jacket, three charge rails and a gold muzzle.
+  mesh(forms[1], tube, orange, 0, 0, 0, 1.15, 1.15, 1);
+  mesh(forms[1], ring, gold, 0, 0, -1.045, 1.15, 1.15, 1);
+  mesh(forms[1], collar, dark, 0, 0, -0.25, 1.22, 1.22, 1);
+  mesh(forms[1], bore, rubber, 0, 0, -0.73, 1.15, 1.15, 1);
+  const rail = owned.geometry(new RoundedBoxGeometry(0.075, 0.085, 0.43, 2, 0.025));
+  for (const x of [-0.13, 0, 0.13]) mesh(forms[1], rail, cream, x, 0.29, -0.5);
+  const feed = owned.geometry(new RoundedBoxGeometry(0.15, 0.31, 0.34, 2, 0.06));
+  for (const side of [-1, 1]) mesh(forms[1], feed, gold, side * 0.32, -0.025, -0.28);
+
+  // Cyclone: one spinning six-chamber assembly, with a fixed violet shroud.
+  mesh(forms[2], owned.geometry(new THREE.CylinderGeometry(0.37, 0.34, 0.4, 16).rotateX(Math.PI / 2)), violet, 0, 0, -0.24);
+  mesh(forms[2], collar, gold, 0, 0, -0.16, 1.45, 1.45, 1);
+  const rotor = new THREE.Group(); forms[2].add(rotor);
+  const chamber = owned.geometry(new THREE.CylinderGeometry(0.087, 0.09, 0.76, 10).rotateX(Math.PI / 2));
+  const tip = owned.geometry(new THREE.TorusGeometry(0.078, 0.023, 5, 10));
+  const chamberBore = owned.geometry(new THREE.CircleGeometry(0.062, 10).rotateY(Math.PI));
+  for (let i = 0; i < 6; i++) {
+    const a = i / 6 * Math.PI * 2, x = Math.cos(a) * 0.21, y = Math.sin(a) * 0.21;
+    mesh(rotor, chamber, dark, x, y, -0.62);
+    mesh(rotor, tip, light, x, y, -1.015);
+    mesh(rotor, chamberBore, rubber, x, y, -1.017);
+  }
+  mesh(rotor, owned.geometry(new THREE.TorusGeometry(0.285, 0.05, 7, 20)), gold, 0, 0, -0.77);
+  const fins = owned.geometry(new RoundedBoxGeometry(0.06, 0.23, 0.4, 2, 0.025));
+  for (const side of [-1, 1]) mesh(forms[2], fins, light, side * 0.32, 0.15, -0.24);
+  function setWeapon(level: number) { forms.forEach((form, i) => { form.visible = i === Math.max(0, Math.min(2, level - 1)); }); }
+  setWeapon(1);
+  return { group, barrel, muzzle, rotor, setWeapon, dispose() { group.clear(); owned.dispose(); } };
 }
 
 export type WardenArt = { group: THREE.Group; animate: (time: number, hit: number, attack?: number) => void; dispose: () => void };
@@ -237,10 +271,11 @@ export function createWarden(variant = 0): WardenArt {
     const breathe = Math.sin(t * 2.4), sway = Math.sin(t * 1.8);
     upper.position.y = 2.25 + breathe * 0.045 - windup * 0.19;
     upper.rotation.x = -damage * 0.13 + windup * 0.13;
-    upper.rotation.z = sway * 0.013;
+    upper.rotation.z = sway * 0.013 + Math.sin(t * 9) * damage * 0.025;
     head.rotation.x = 0.04 + damage * 0.16;
     arms.forEach((arm, i) => {
-      arm.rotation.x = -0.17 + Math.sin(t * 2.4 + i * Math.PI) * 0.055 - windup * (i ? 1.8 : 0.4);
+      const jab = (0.5 + 0.5 * Math.sin(t * 5 + i * Math.PI)) * damage * 0.75;
+      arm.rotation.x = -0.17 + Math.sin(t * 2.4 + i * Math.PI) * 0.055 - jab - windup * (i ? 1.8 : 0.4);
       arm.rotation.z = (i ? 1 : -1) * (0.075 + windup * 0.19);
     });
     legs.forEach((leg, i) => { leg.rotation.x = Math.sin(t * 1.8 + i * Math.PI) * 0.025; });
