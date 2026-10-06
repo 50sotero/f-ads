@@ -88,3 +88,23 @@ test("campaign routes contain authored branches and lane changes", () => {
   assert.ok(routeShapes.size >= 6, `expected six authored route shapes, got ${routeShapes.size}`);
   assert.ok((levels[0].gates ?? []).every((gate) => gate.x === 180), "the opening route should remain approachable");
 });
+
+test("right split runners keep the nearest right panel before the boss approach", () => {
+  const game = newGame(levels[1], 17);
+  game.firing = false;
+  game.red = [];
+  game.assault.reserve = 0;
+  game.assault.horde = 0;
+  game.assault.pickups = [];
+  game.assault.weaponTarget = null;
+  game.assault.cannonTarget = null;
+  game.assault.weaponTargetsEnabled = false;
+  const runner = { x: 240, y: 520, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false };
+  game.blue.push(runner);
+
+  for (let frame = 0; frame < 120 && (runner.used & (1 << 3)) === 0; frame++) step(game, 1 / 60);
+
+  assert.equal(runner.used & (1 << 1), 1 << 1, "the launch crossed the right first branch");
+  assert.equal(runner.used & (1 << 3), 1 << 3, "the runner reached the right second branch");
+  assert.ok(runner.x > 200, `right branch guidance bent toward the left panel at x=${runner.x}`);
+});

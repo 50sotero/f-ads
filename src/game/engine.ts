@@ -1346,10 +1346,31 @@ function updateAssaultBlue(g: Game, dt: number) {
     const lateralCap = 420;
     u.vx = Math.max(-lateralCap, Math.min(lateralCap, u.vx + assaultMotion.lateral[blueIndex] * lateralScale * dt));
     if (crossedFirstGate) {
-      const nextGate = g.gates.find((gate, gateIndex) => {
-        if (u.used & (1 << gateIndex)) return false;
-        return gate.y < u.y - GATE_H * 0.5;
-      });
+      // A branch stores its panels in authored left/right order, so a plain
+      // array find can accidentally pull a right-lane runner toward the first
+      // left panel in the next row. Resolve the nearest row first, then choose
+      // the closest live multiplier within that row. Trap/overrun panels are
+      // intentionally excluded: guidance must never steer into a hazard or a
+      // panel the boss has already broken.
+      let nextGate: Gate | null = null;
+      let nextRowY = -Infinity;
+      let nextDistance = Infinity;
+      for (let gateIndex = 0; gateIndex < g.gates.length; gateIndex++) {
+        const gate = g.gates[gateIndex];
+        if (u.used & (1 << gateIndex) || gate.kind !== "x" || gate.overrun) continue;
+        if (gate.y >= u.y - GATE_H * 0.5) continue;
+        if (gate.y > nextRowY + 0.001) {
+          nextGate = gate;
+          nextRowY = gate.y;
+          nextDistance = Math.abs(gate.cx - u.x);
+        } else if (Math.abs(gate.y - nextRowY) <= 0.001) {
+          const distance = Math.abs(gate.cx - u.x);
+          if (distance < nextDistance) {
+            nextGate = gate;
+            nextDistance = distance;
+          }
+        }
+      }
       if (nextGate) {
         applyAssaultGateGuidance(u, nextGate.cx, nextGate.w, dt);
       } else if (g.gates.every((gate, gateIndex) => (u.used & (1 << gateIndex)) !== 0)) {
