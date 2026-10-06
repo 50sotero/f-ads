@@ -47,7 +47,7 @@ export type Level = {
   gates?: GateDef[];
   walls?: WallDef[];
   spinners?: SpinnerDef[];
-  /** Temporarily increases the rate at which enemy bases send regular waves. */
+  /** Temporarily accelerates regular waves: strength 1 means twice the normal rate. */
   surge?: { every: number; duration: number; strength: number; delay?: number };
 };
 

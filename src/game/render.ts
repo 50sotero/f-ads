@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { CANNON_Y, DEFENSE_Y, MAX_UNITS, W, type Game, type Unit } from "./engine";
+import { CANNON_Y, DEFENSE_Y, MAX_UNITS, W, surgeActive, trapActive, type Game, type Unit } from "./engine";
 
 // Map the unchanged simulation onto a board. Decoration has its own RNG.
 const SX = 0.04, SZ = 0.06;
@@ -8,8 +8,8 @@ const wx = (x: number) => (x - W / 2) * SX;
 const wz = (y: number) => (y - 320) * SZ;
 const BLUE = 0x1389ff, RED = 0xff4960;
 type Particle = { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; size: number; color: number; spin: number };
-type Fortress = { group: THREE.Group; bar: THREE.Mesh; label: THREE.Sprite; hp: number; dead: boolean };
-type GateView = { group: THREE.Group; panel: THREE.Mesh<THREE.BoxGeometry, THREE.MeshBasicMaterial>; label: THREE.Sprite; flash: number };
+type Fortress = { group: THREE.Group; bar: THREE.Mesh; label: THREE.Sprite; signal: THREE.Mesh; hp: number; dead: boolean };
+type GateView = { group: THREE.Group; panel: THREE.Mesh<THREE.BoxGeometry, THREE.MeshBasicMaterial>; label: THREE.Sprite; timer: THREE.Sprite | null; tint: THREE.MeshStandardMaterial | null; statusText: string; flash: number };
 export type CrowdRenderer = {
   render: (g: Game, dt: number) => void;
   resize: (width: number, height: number) => void;
@@ -48,6 +48,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const purple = mat(0xa553fb, { emissive: 0x6b20c0, emissiveIntensity: 0.35 }), teal = mat(0x2ad7cd), grass = mat(0x68cd9a);
   const foliage = [mat(0x28ab80), mat(0x43c18b), mat(0x82dca1)];
   const bark = mat(0x8b9c83), rock = mat(0xb0ccc2, { flatShading: true });
+  const surgeMaterial = ownMat(new THREE.MeshBasicMaterial({ color: 0xff4563, transparent: true, opacity: 0.65, depthWrite: false }));
   const skyCanvas = document.createElement("canvas"); skyCanvas.width = 4; skyCanvas.height = 256;
   const skyCtx = skyCanvas.getContext("2d")!;
   const gradient = skyCtx.createLinearGradient(0, 0, 0, 256);
@@ -80,7 +81,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const result = new THREE.Mesh(combined, m); result.castShadow = true; result.receiveShadow = true; group.add(result);
     }
   }
-  function label(text: string, fill: string, width: number, height: number, fontSize = 112) {
+  function label(text: string, fill: string, width: number, height: number, fontSize = 112, backing?: string) {
     const c = document.createElement("canvas"); c.width = 512; c.height = 192;
     const context = c.getContext("2d")!;
     const texture = new THREE.CanvasTexture(c); texture.colorSpace = THREE.SRGBColorSpace; textures.add(texture);
@@ -88,6 +89,10 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const sprite = new THREE.Sprite(material); sprite.scale.set(width, height, 1);
     const write = (value: string) => {
       context.clearRect(0, 0, 512, 192); context.textAlign = "center"; context.textBaseline = "middle";
+      if (backing) {
+        context.fillStyle = backing;
+        context.beginPath(); context.roundRect(18, 15, 476, 162, 45); context.fill();
+      }
       context.font = `900 ${fontSize}px "Fredoka", "Arial Rounded MT Bold", Arial, sans-serif`;
       context.lineJoin = "round"; context.strokeStyle = "rgba(12,53,93,.30)"; context.lineWidth = 9;
       context.strokeText(value, 256, 103); context.fillStyle = fill; context.fillText(value, 256, 98); texture.needsUpdate = true;
@@ -214,12 +219,16 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         obj.geometry.dispose(); geometries.delete(obj.geometry);
       }
     });
-    for (const view of gates) { view.panel.material.dispose(); materials.delete(view.panel.material); }
+    for (const view of gates) {
+      view.panel.material.dispose(); materials.delete(view.panel.material);
+      if (view.tint) { view.tint.dispose(); materials.delete(view.tint); }
+    }
     scene.remove(levelGroup); levelGroup = new THREE.Group(); scene.add(levelGroup);
     particleList.length = 0; seenPops = new WeakSet(); fired = g.stats.fired; championCount = g.stats.champions; won = false; recoil = shake = 0;
     gates = g.gates.map((gt) => {
       const group = new THREE.Group(), frame = new THREE.Group();
-      const trap = gt.kind === "trap", tint = trap ? red : purple, width = gt.w * SX;
+      const trap = gt.kind === "trap", pulseTint = trap && gt.pulse ? mat(RED, { emissive: RED, emissiveIntensity: 0.25 }) : null;
+      const tint = pulseTint ?? (trap ? red : purple), width = gt.w * SX;
       box(frame, trap ? redDark : navy, 0, 0.14, 0, width + 0.15, 0.26, 0.52);
       for (const s of [-1, 1]) {
         box(frame, white, s * width / 2, 1.2, 0, 0.13, 2.45, 0.17);
@@ -235,7 +244,10 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       panel.position.y = 1.24; group.add(panel);
       const text = label(trap ? "✕" : `×${gt.n ?? 2}`, "#ffffff", Math.min(width * 0.95, 4.3), Math.min(width * 0.4, 1.6), 144);
       text.position.set(0, 1.7, 0.13); group.add(text);
-      group.position.set(wx(gt.cx), 0, wz(gt.y)); levelGroup.add(group); return { group, panel, label: text, flash: 0 };
+      const timer = gt.pulse ? label("", "#ffffff", Math.min(3.6, width), 1, 112, "#16445e") : null;
+      if (timer) { timer.position.set(0, 3, 0); group.add(timer); }
+      group.position.set(wx(gt.cx), 0, wz(gt.y)); levelGroup.add(group);
+      return { group, panel, label: text, timer, tint: pulseTint, statusText: "", flash: 0 };
     });
     fortresses = g.bases.map((base) => {
       const group = new THREE.Group(), castle = new THREE.Group();
@@ -257,7 +269,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       box(group, navy, 0, 3.16, 0.2, 3.4, 0.31, 0.19).castShadow = false;
       const bar = box(group, gold, 0, 3.18, 0.31, 3.2, 0.19, 0.09); bar.castShadow = false;
       const text = label(`${base.hp}`, "#ffffff", 2.2, 0.82, 112); text.position.set(0, 3.75, 0.25); group.add(text);
-      group.position.set(wx(base.x), 0, wz(base.y)); levelGroup.add(group); return { group, bar, label: text, hp: base.hp, dead: false };
+      const signal = mesh(group, ownGeo(new THREE.RingGeometry(2.25, 2.4, 32).rotateX(-Math.PI / 2)), surgeMaterial, 0, 0.07, 0, 1, 1, 1);
+      signal.castShadow = false; signal.visible = false;
+      group.position.set(wx(base.x), 0, wz(base.y)); levelGroup.add(group); return { group, bar, label: text, signal, hp: base.hp, dead: false };
     });
     const obstacles = new THREE.Group(); levelGroup.add(obstacles);
     for (const wall of g.walls) {
@@ -287,12 +301,31 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     cannon.scale.set(1 + recoil * 0.04, 1 - recoil * 0.04, 1); muzzle.visible = recoil > 0.68; muzzle.scale.setScalar(0.16 + recoil * 0.16);
     gates.forEach((view, i) => {
       const gt = g.gates[i]; view.group.position.x = wx(gt.cx);
-      if (gt.flash > view.flash + 0.12) burst(wx(gt.cx), 0.65, wz(gt.y), gt.kind === "trap" ? RED : 0xd591ff, 9);
+      if (gt.flash > view.flash + 0.12) burst(wx(gt.cx), 0.65, wz(gt.y), gt.kind === "trap" ? (trapActive(gt, g.t) ? RED : 0x16d6b4) : 0xd591ff, 9);
       view.flash = gt.flash; view.panel.material.opacity = 0.28 + gt.flash * 0.27;
+      if (gt.pulse && view.tint && view.timer) {
+        const phase = ((g.t + (gt.pulse.phase ?? 0)) % gt.pulse.period + gt.pulse.period) % gt.pulse.period;
+        const active = trapActive(gt, g.t);
+        const left = Math.max(0, active ? gt.pulse.active - phase : gt.pulse.period - phase);
+        const warning = !active && left < 0.8;
+        const tint = active ? RED : warning ? 0xffbc34 : 0x16d6b4;
+        view.tint.color.setHex(tint); view.tint.emissive.setHex(tint);
+        view.tint.emissiveIntensity = warning ? 0.4 + Math.sin(time * 16) * 0.3 : 0.25;
+        view.panel.material.color.setHex(tint);
+        view.panel.material.opacity = active ? 0.4 : 0.12;
+        const text = `${active ? "ON" : warning ? "SOON" : "SAFE"} ${Math.ceil(left)}`;
+        if (text !== view.statusText) {
+          view.timer.userData.write(text);
+          view.label.userData.write(active ? "✕" : "✓");
+          view.statusText = text;
+        }
+      }
       view.label.scale.multiplyScalar((1 + gt.flash * 0.07) / (view.label.userData.pulse ?? 1)); view.label.userData.pulse = 1 + gt.flash * 0.07;
     });
     fortresses.forEach((view, i) => {
       const b = g.bases[i];
+      view.signal.visible = b.hp > 0 && surgeActive(g.level, g.t);
+      view.signal.scale.setScalar(1 + Math.sin(time * 10) * 0.07);
       if (b.hp !== view.hp) {
         if (b.hp > 0) { view.label.userData.write(String(b.hp)); burst(wx(b.x), 0.9, wz(b.y) + 1.25, 0xffd664, 4); }
         if (view.hp - b.hp >= 10) shake = Math.max(shake, 0.09); view.hp = b.hp;

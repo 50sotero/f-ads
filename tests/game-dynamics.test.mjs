@@ -19,7 +19,7 @@ test("pulsed traps have stable positive-modulo boundaries", () => {
   assert.equal(trapActive(trap, -4), true);
 });
 
-test("inactive traps let runners through and active traps spare champions", () => {
+test("inactive traps let runners through; active traps kill runners and spare champions", () => {
   const safeLevel = {
     name: "safe pulse",
     par: 1,
@@ -40,6 +40,7 @@ test("inactive traps let runners through and active traps spare champions", () =
   };
   const active = newGame(activeLevel);
   active.blue.push({ x: 180, y: 574, vx: 0, hp: 14, r: 11, big: true, used: 0, dead: false });
+  active.blue.push({ x: 180, y: 574, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false });
   step(active, 0.1);
   assert.equal(active.blue.length, 1);
   assert.equal(active.blue[0].dead, false);
@@ -47,7 +48,7 @@ test("inactive traps let runners through and active traps spare champions", () =
 });
 
 test("surges have clear start/end boundaries and only accelerate regular waves", () => {
-  const level = { name: "surge", par: 1, bases: [emptyBase], surge: { every: 5, duration: 2, strength: 1, delay: 3 } };
+  const level = { name: "surge", par: 1, bases: [{ ...emptyBase, bruteEvery: 20 }], surge: { every: 5, duration: 2, strength: 1, delay: 3 } };
   assert.equal(surgeActive(level, 2.999), false);
   assert.equal(surgeActive(level, 3), true);
   assert.equal(surgeActive(level, 4.999), true);
@@ -66,5 +67,6 @@ test("surges have clear start/end boundaries and only accelerate regular waves",
 
   assert.equal(regular.bases[0].timer, 9.8);
   assert.equal(surged.bases[0].timer, 9.6);
+  assert.ok(Number.isFinite(surged.bases[0].bruteTimer));
   assert.equal(surged.bases[0].bruteTimer, regular.bases[0].bruteTimer);
 });
