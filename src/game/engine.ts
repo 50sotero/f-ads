@@ -201,7 +201,6 @@ export type Game = {
 
 const BASE_W = 92;
 const BASE_H = 54;
-const ASSAULT_CAMPAIGN_BASE_HP_SCALE = 2;
 const BLUE_SPEED = 118;
 const CHAMP_SPEED = 72;
 const RED_SPEED = 52;
@@ -312,14 +311,6 @@ function makeAssaultState(level: Level): AssaultState {
 
 export function newGame(level: Level, seed = 1): Game {
   const assault = level.assault ? makeAssaultState(level) : null;
-  const assaultConfig = level.assault;
-  // Campaign assault levels declare enemyHp for their finite red waves. Keep
-  // custom assault fixtures and the tutorial's practice route untouched while
-  // giving the campaign giants enough health for the moving choke to read as a
-  // battle rather than a brief collision.
-  const campaignBaseHpScale = assault && assaultConfig && !assaultConfig.practice && assaultConfig.enemyHp != null
-    ? ASSAULT_CAMPAIGN_BASE_HP_SCALE
-    : 1;
   const game: Game = {
     level,
     t: 0,
@@ -332,7 +323,7 @@ export function newGame(level: Level, seed = 1): Game {
     blue: [],
     red: [],
     bases: level.bases.map((b) => {
-      const hp = Math.max(1, Math.round(b.hp * campaignBaseHpScale));
+      const hp = b.hp;
       return {
         ...b,
         hp,

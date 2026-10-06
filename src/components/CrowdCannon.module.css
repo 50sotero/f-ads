@@ -294,6 +294,30 @@
   pointer-events: none;
 }
 
+/* The battle owns the screen; persistent controls stay at the corners. */
+.hud { display: block; inset: max(14px, env(safe-area-inset-top)) 13px auto; }
+.pauseButton { position: absolute; right: 0; top: 0; width: 34px; height: 34px; border-radius: 50%; background: rgba(36, 44, 61, .45); font-size: 17px; }
+.levelPill { width: 108px; height: auto; padding: 0; gap: 5px; border: 0; border-radius: 0; background: none; box-shadow: none; backdrop-filter: none; }
+.levelPill strong { overflow: visible; color: #2bcfff; font-size: 24px; line-height: .8; letter-spacing: -.06em; -webkit-text-stroke: 1px #123854; paint-order: stroke fill; text-shadow: 0 2px 0 #123854, 0 3px 2px #123854; }
+.levelPill em { color: #ffe249; font-style: normal; font-size: 20px; }
+.levelPill > span { color: white; font-size: 9px; letter-spacing: .08em; text-shadow: 0 1px 3px #1b234b; }
+.encounterProgress { position: absolute; right: 43px; top: 4px; min-width: 52px; height: 28px; padding: 0; border: 0; background: transparent; box-shadow: none; backdrop-filter: none; align-items: end; }
+.encounterLabel { color: white; font-size: 8px; text-shadow: 0 1px 3px #172942; }
+.encounterDots { justify-content: end; }
+.weaponCard { top: auto; bottom: max(20px, env(safe-area-inset-bottom)); left: 13px; width: auto; min-width: 105px; padding: 7px 10px; gap: 6px; border-radius: 12px; background: rgba(20, 49, 74, .64); box-shadow: none; }
+.weaponCard small, .weaponCard > div > span, .weaponProgress { display: none; }
+.weaponCard strong { font-size: 13px; }
+.weaponIcon { flex-basis: 21px; height: 24px; font-size: 20px; border-radius: 6px; }
+.assaultStats { visibility: hidden; }
+.controlHint { display: none; }
+.championButton { width: 54px; height: 54px; right: 14px; bottom: max(20px, env(safe-area-inset-bottom)); box-shadow: 0 3px 0 rgba(4,30,51,.2); }
+.championCore { width: 31px; height: 31px; font-size: 18px; }
+.championLabel { font-size: 7px; bottom: -9px; }
+.tip { top: auto; bottom: 83px; left: 30px; right: 30px; background: rgba(22,35,56,.62); border: 0; font-size: 12px; }
+.upgradeFlash { top: auto; bottom: 140px; }
+.weaponUnlocked { min-width: 175px; padding: 9px 15px; border-radius: 16px; }
+.weaponUnlocked strong { font-size: 23px; }
+
 .screenOverlay {
   position: absolute;
   z-index: 10;
@@ -431,8 +455,7 @@
   .levelButton { min-height: 58px; }
   .levelButton small { font-size: 7px; }
   .modalPanel { width: min(100%, 350px); }
-  .levelPill { padding-inline: 9px; }
-  .levelPill strong { font-size: 13px; }
+  .levelPill { padding-inline: 0; }
   .encounterProgress { min-width: 73px; padding-inline: 7px; }
   .assaultStats { right: 89px; bottom: max(17px, env(safe-area-inset-bottom)); left: 10px; }
   .assaultStat { min-width: 51px; padding-inline: 7px; }

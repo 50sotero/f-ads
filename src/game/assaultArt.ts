@@ -81,25 +81,24 @@ function stridePart(geometry: THREE.BufferGeometry, part: number): THREE.BufferG
 /** Feet at zero, face toward -Z. Broad head, pear-shaped body, soft mitten limbs. */
 export function createMobGeometry(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
-  parts.push(form([[0.28, 0.02, 0.02], [0.35, 0.17, 0.15], [0.53, 0.215, 0.17], [0.73, 0.21, 0.16], [0.85, 0.13, 0.12], [0.88, 0.015, 0.015]], 8, 8, 2));
-  parts.push(placed(new THREE.SphereGeometry(0.285, 12, 8), 0, 1.07, -0.015, 1.03, 0.96, 0.94));
+  parts.push(form([[0.24, 0.03, 0.02], [0.34, 0.2, 0.16], [0.55, 0.25, 0.19], [0.75, 0.24, 0.18], [0.88, 0.13, 0.13], [0.91, 0.02, 0.02]], 8, 8, 2));
+  parts.push(placed(new THREE.SphereGeometry(0.235, 10, 7), 0, 1.04, -0.035, 0.96, 1.05, 0.92));
   for (const side of [-1, 1]) {
-    const arm = new THREE.CapsuleGeometry(0.09, 0.24, 2, 6);
-    arm.rotateZ(side * 0.2); parts.push(stridePart(placed(arm, side * 0.255, 0.57, -0.025), side));
-    parts.push(stridePart(placed(new THREE.CapsuleGeometry(0.105, 0.15, 2, 6), side * 0.117, 0.195, -0.025, 1, 1, 1.25), side * 2));
-    parts.push(tint(placed(new THREE.SphereGeometry(0.07, 6, 4), side * 0.105, 1.105, -0.268, 0.72, 1.12, 0.25), 0xffffff, true));
-    parts.push(tint(placed(new THREE.SphereGeometry(0.031, 5, 3), side * 0.105, 1.1, -0.284, 0.84, 1.22, 0.25), 0x132b50, true));
+    const arm = new THREE.CapsuleGeometry(0.105, 0.27, 2, 6);
+    arm.rotateZ(side * 0.16); parts.push(stridePart(placed(arm, side * 0.27, 0.57, -0.045), side));
+    parts.push(stridePart(placed(new THREE.CapsuleGeometry(0.11, 0.19, 2, 6), side * 0.13, 0.18, -0.045, 1, 1, 1.3), side * 2));
+    parts.push(tint(placed(new THREE.SphereGeometry(0.029, 5, 3), side * 0.08, 1.06, -0.247, 0.75, 1.4, 0.28), 0x09274f, true));
   }
   return crowdMesh(parts);
 }
 
 /** The distant reserve retains the round head and two-legged silhouette. */
 export function createHordeGeometry(): THREE.BufferGeometry {
-  const parts = [placed(new THREE.SphereGeometry(0.26, 6, 4), 0, 0.89, 0),
-    placed(new THREE.SphereGeometry(0.24, 6, 4), 0, 0.46, 0, 0.9, 1.4, 0.75)];
+  const parts = [placed(new THREE.SphereGeometry(0.235, 5, 3), 0, 0.94, 0),
+    placed(new THREE.SphereGeometry(0.25, 5, 3), 0, 0.51, 0, 0.9, 1.4, 0.75)];
   for (const side of [-1, 1]) {
-    parts.push(stridePart(placed(new THREE.CylinderGeometry(0.075, 0.075, 0.29, 4), side * 0.255, 0.48, 0), side));
-    parts.push(stridePart(placed(new THREE.CylinderGeometry(0.09, 0.09, 0.23, 4), side * 0.115, 0.115, -0.015), side * 2));
+    parts.push(stridePart(placed(new THREE.PlaneGeometry(0.15, 0.37).rotateY(Math.PI), side * 0.255, 0.49, -0.06), side));
+    parts.push(stridePart(placed(new THREE.PlaneGeometry(0.18, 0.27).rotateY(Math.PI), side * 0.115, 0.135, -0.08), side * 2));
   }
   return crowdMesh(parts);
 }
@@ -142,10 +141,16 @@ export function createSiegeCannon(includeChassis = true): SiegeCannonArt {
   mesh(group, housing, blue, 0, 0.6, 0.02);
   mesh(group, owned.geometry(new RoundedBoxGeometry(0.18, 0.08, 0.4, 2, 0.03)), cream, 0, 0.907, 0.03);
   if (includeChassis) {
-    mesh(group, owned.geometry(new RoundedBoxGeometry(1.13, 0.23, 1.03, 2, 0.1)), dark, 0, 0.2, 0.13);
-    const wheel = owned.geometry(new THREE.CylinderGeometry(0.3, 0.3, 0.2, 16).rotateZ(Math.PI / 2));
-    const hub = owned.geometry(new THREE.CylinderGeometry(0.14, 0.14, 0.21, 12).rotateZ(Math.PI / 2));
-    for (const side of [-1, 1]) { mesh(group, wheel, rubber, side * 0.51, 0.3, 0.15); mesh(group, hub, gold, side * 0.52, 0.3, 0.15); }
+    const chassisRed = owned.material(0xee4c5a, 0.4);
+    mesh(group, owned.geometry(new RoundedBoxGeometry(1.3, 0.24, 1.4, 2, 0.1)), chassisRed, 0, 0.29, 0.13);
+    mesh(group, owned.geometry(new THREE.SphereGeometry(1, 16, 12)), blue, 0, 0.61, 0.2, 0.53, 0.43, 0.52);
+    const fender = owned.geometry(new RoundedBoxGeometry(0.28, 0.47, 1.13, 3, 0.13));
+    const wheel = owned.geometry(new THREE.CylinderGeometry(0.23, 0.23, 0.18, 12).rotateZ(Math.PI / 2));
+    const hub = owned.geometry(new THREE.CylinderGeometry(0.095, 0.095, 0.19, 10).rotateZ(Math.PI / 2));
+    for (const side of [-1, 1]) {
+      mesh(group, fender, blue, side * 0.52, 0.54, 0.05);
+      for (const z of [-0.3, 0.49]) { mesh(group, wheel, rubber, side * 0.58, 0.23, z); mesh(group, hub, cream, side * 0.585, 0.23, z); }
+    }
   }
   barrel.position.set(0, 0.58, -0.08); group.add(barrel);
   const forms = [new THREE.Group(), new THREE.Group(), new THREE.Group()];
@@ -195,90 +200,77 @@ export function createSiegeCannon(includeChassis = true): SiegeCannonArt {
 
 export type WardenArt = { group: THREE.Group; animate: (time: number, hit: number, attack?: number) => void; dispose: () => void };
 
-const PALETTES = [
-  { body: 0xff7638, brow: 0xd44726, gloves: 0xffcc38, shorts: 0x333d75 },
-  { body: 0xad65fa, brow: 0x6539b0, gloves: 0x81e9dc, shorts: 0x303a6c },
-  { body: 0xff5064, brow: 0xbc254d, gloves: 0xffb94a, shorts: 0x39315e },
-];
-
-/** Broad-shouldered prizefighter: small head, tapered trunk and planted stance. */
+/** A low, broad guardian with oversized hands and a continuous rounded back. */
 export function createWarden(variant = 0): WardenArt {
-  const palette = PALETTES[((variant % 3) + 3) % 3], owned = resources(), group = new THREE.Group();
+  const owned = resources(), group = new THREE.Group();
   group.name = "warden";
-  const body = owned.material(palette.body, 0.48), brow = owned.material(palette.brow);
-  const gloves = owned.material(palette.gloves, 0.34), shorts = owned.material(palette.shorts);
-  const white = owned.material(0xfff6dc), pupil = owned.material(0x202c4a), mouth = owned.material(0x863a43);
-  const round = (w: number, h: number, d: number, r: number) => owned.geometry(new RoundedBoxGeometry(w, h, d, 2, r));
-
-  const legShape = owned.geometry(form([[-1.05, 0.31, 0.32], [-0.82, 0.43, 0.39], [-0.25, 0.48, 0.43], [0.25, 0.5, 0.45], [0.43, 0.16, 0.18]], 12, 12));
-  const legs = [-1, 1].map((side) => {
-    const leg = new THREE.Group(); leg.position.set(side * 0.67, 1.42, 0); group.add(leg);
-    mesh(leg, legShape, body);
-    mesh(leg, round(1.08, 0.64, 1.5, 0.26), shorts, 0, -1.08, 0.26);
-    mesh(leg, round(1.09, 0.13, 1.52, 0.06), white, 0, -1.355, 0.26);
+  const body = owned.material([0xffce19, 0xffb71b, 0xffdc39][variant % 3], 0.35);
+  const cuff = owned.material(0xec582a, 0.4), trim = owned.material(0x633954, 0.46);
+  const eye = owned.material(0x3b2340), ivory = owned.material(0xffedb0);
+  const ball = owned.geometry(new THREE.SphereGeometry(1, 20, 14));
+  const round = (w: number, h: number, d: number, r: number) => owned.geometry(new RoundedBoxGeometry(w, h, d, 3, r));
+  const feet = [-1, 1].map(side => {
+    const leg = new THREE.Group(); leg.position.set(side * 0.76, 0.73, -0.08); group.add(leg);
+    mesh(leg, ball, body, 0, 0.38, 0, 0.58, 0.85, 0.62);
+    mesh(leg, round(1.25, 0.62, 1.63, 0.28), body, 0, -0.4, 0.44);
     return leg;
   });
-  mesh(group, owned.geometry(form([[1.31, 0.68, 0.53], [1.53, 1.01, 0.65], [1.94, 1.13, 0.67], [2.2, 0.97, 0.6]], 16, 9)), shorts);
-  mesh(group, owned.geometry(form([[2.05, 0.98, 0.61], [2.18, 1.03, 0.64], [2.3, 1.03, 0.64]], 16, 4)), white);
-
-  const upper = new THREE.Group(); upper.position.y = 2.25; group.add(upper);
-  const torso = owned.geometry(form([[-0.15, 0.86, 0.53], [0.3, 1.09, 0.61], [1.05, 1.59, 0.77], [1.72, 1.97, 0.86], [2.12, 1.83, 0.77], [2.44, 1.19, 0.58], [2.53, 0.3, 0.2]], 24, 25, 2.65));
-  const chest = torso.getAttribute("position");
-  for (let i = 0; i < chest.count; i++) {
-    const x = chest.getX(i), y = chest.getY(i), z = chest.getZ(i);
-    if (z > 0) {
-      const pec = Math.exp(-Math.pow((Math.abs(x) - 0.8) / 0.65, 2) - Math.pow((y - 1.7) / 0.43, 2));
-      chest.setZ(i, z + pec * 0.16 * Math.min(1, z / 0.6));
-    }
-  }
-  torso.computeVertexNormals();
-  mesh(upper, torso, body);
-
-  const head = new THREE.Group(); head.position.set(0, 2.65, 0.36); upper.add(head);
-  mesh(head, owned.geometry(form([[-0.35, 0.24, 0.3], [-0.23, 0.63, 0.58], [0.2, 0.74, 0.64], [0.66, 0.72, 0.6], [0.89, 0.5, 0.42], [0.95, 0.04, 0.04]], 20, 18, 3)), body);
-  // One broad headband and a forward face remain readable from the high camera.
-  mesh(head, owned.geometry(form([[0.57, 0.735, 0.618], [0.68, 0.72, 0.605], [0.78, 0.67, 0.567]], 20, 5, 3)), white);
+  const upper = new THREE.Group(); upper.position.y = 1.43; group.add(upper);
+  const back = owned.geometry(form([
+    [-0.3, 0.59, 0.45, 0, 0.02], [0.1, 1.1, 0.76, 0, -0.02],
+    [0.85, 1.71, 1.06, 0, -0.11], [1.55, 2.3, 1.14, 0, -0.15],
+    [2.08, 2.3, 1.04, 0, -0.24], [2.54, 1.61, 0.84, 0, -0.32],
+    [2.8, 0.7, 0.51, 0, -0.3], [2.86, 0.06, 0.05, 0, -0.3],
+  ], 24, 24, 2.05));
+  mesh(upper, back, body);
+  const head = new THREE.Group(); head.position.set(0, 1.79, 0.88); upper.add(head);
+  mesh(head, ball, body, 0, 0, 0, 0.85, 0.86, 0.79);
   for (const side of [-1, 1]) {
-    mesh(head, round(0.31, 0.25, 0.095, 0.06), white, side * 0.295, 0.23, 0.639);
-    mesh(head, round(0.115, 0.16, 0.04, 0.035), pupil, side * 0.278, 0.208, 0.695);
-    const eyebrow = mesh(head, round(0.41, 0.13, 0.14, 0.05), brow, side * 0.3, 0.403, 0.65);
-    eyebrow.rotation.z = side * 0.12;
+    mesh(head, ball, eye, side * 0.25, 0.04, 0.736, 0.068, 0.13, 0.033);
+    mesh(head, ball, ivory, side * 0.27, 0.095, 0.764, 0.02, 0.028, 0.014);
   }
-  mesh(head, round(0.24, 0.2, 0.21, 0.075), body, 0, 0.075, 0.7);
-  mesh(head, round(0.39, 0.085, 0.07, 0.032), mouth, 0, -0.13, 0.61);
-
-  const armShape = owned.geometry(form([[0.43, 0.09, 0.08], [0.28, 0.61, 0.62], [-0.13, 0.74, 0.69, 0.13], [-0.7, 0.59, 0.56, 0.32, 0.07], [-1.13, 0.5, 0.51, 0.39, 0.15], [-1.64, 0.49, 0.49, 0.37, 0.28], [-1.78, 0.18, 0.2, 0.36, 0.3]], 16, 22));
-  const glove = round(1.32, 1.28, 1.3, 0.43), cuff = round(1.07, 0.33, 1.04, 0.13);
-  const arms = [-1, 1].map((side) => {
-    const arm = new THREE.Group(); arm.position.set(side * 1.7, 1.94, 0.02); upper.add(arm);
+  mesh(head, round(0.27, 0.18, 0.22, 0.08), body, 0, -0.17, 0.75);
+  // Three rounded crown plates give the original character a clear silhouette.
+  for (const [i, z] of [-0.16, 0.08, 0.32].entries()) {
+    const crest = mesh(head, round(0.19, 0.28 + i * 0.05, 0.26, 0.08), trim, 0, 0.77, z);
+    crest.rotation.x = -0.25;
+  }
+  const armShape = owned.geometry(form([
+    [0.35, 0.08, 0.08], [0.18, 0.64, 0.67], [-0.36, 0.79, 0.77, 0.2, 0.1],
+    [-0.9, 0.66, 0.65, 0.44, 0.3], [-1.39, 0.64, 0.62, 0.53, 0.48],
+    [-1.68, 0.48, 0.45, 0.5, 0.59], [-1.76, 0.08, 0.08, 0.5, 0.59],
+  ], 16, 18, 2));
+  const arms = [-1, 1].map(side => {
+    const arm = new THREE.Group(); arm.position.set(side * 1.96, 1.9, 0.12); upper.add(arm);
     const shape = armShape.clone();
     if (side < 0) {
-      // Mirror positions and triangle winding, retaining correct outward normals.
       shape.scale(-1, 1, 1); const index = shape.getIndex()!;
       for (let i = 0; i < index.count; i += 3) { const a = index.getX(i); index.setX(i, index.getX(i + 2)); index.setX(i + 2, a); }
     }
     mesh(arm, owned.geometry(shape), body);
-    mesh(arm, cuff, white, side * 0.37, -1.57, 0.27);
-    mesh(arm, glove, gloves, side * 0.39, -2.12, 0.43);
-    mesh(arm, round(0.42, 0.65, 0.63, 0.2), gloves, -side * 0.13, -1.92, 0.78);
+    mesh(arm, round(1.43, 0.57, 1.35, 0.23), cuff, side * 0.48, -1.32, 0.47);
+    mesh(arm, round(1.46, 1.0, 1.18, 0.39), body, side * 0.49, -1.91, 0.69);
+    // Separate rounded fingers read as a hand from the high camera.
+    for (let finger = 0; finger < 4; finger++) {
+      mesh(arm, ball, body, side * 0.49 + (finger - 1.5) * 0.31, -2.21, 1.09, 0.205, 0.42, 0.27);
+    }
+    mesh(arm, ball, body, -side * 0.23, -1.8, 1.01, 0.27, 0.42, 0.29);
     return arm;
   });
-
   function animate(time: number, hit: number, attack = 0) {
     const t = Number.isFinite(time) ? time : 0;
-    const damage = THREE.MathUtils.clamp(Number.isFinite(hit) ? hit : 0, 0, 1);
-    const windup = THREE.MathUtils.clamp(Number.isFinite(attack) ? attack : 0, 0, 1);
-    const breathe = Math.sin(t * 2.4), sway = Math.sin(t * 1.8);
-    upper.position.y = 2.25 + breathe * 0.045 - windup * 0.19;
-    upper.rotation.x = -damage * 0.13 + windup * 0.13;
-    upper.rotation.z = sway * 0.013 + Math.sin(t * 9) * damage * 0.025;
-    head.rotation.x = 0.04 + damage * 0.16;
+    const damage = THREE.MathUtils.clamp(hit || 0, 0, 1), windup = THREE.MathUtils.clamp(attack || 0, 0, 1);
+    const stride = Math.sin(t * 4.2);
+    upper.position.y = 1.43 + Math.abs(stride) * 0.07 - windup * 0.13;
+    upper.rotation.x = 0.13 - damage * 0.12 + windup * 0.22;
+    upper.rotation.z = stride * 0.028 + Math.sin(t * 36) * damage * 0.025;
+    head.rotation.x = -0.15 + damage * 0.12;
     arms.forEach((arm, i) => {
-      const jab = (0.5 + 0.5 * Math.sin(t * 5 + i * Math.PI)) * damage * 0.75;
-      arm.rotation.x = -0.17 + Math.sin(t * 2.4 + i * Math.PI) * 0.055 - jab - windup * (i ? 1.8 : 0.4);
-      arm.rotation.z = (i ? 1 : -1) * (0.075 + windup * 0.19);
+      arm.rotation.x = -0.26 + Math.sin(t * 4.2 + i * Math.PI) * 0.19 - windup * 1.3;
+      arm.rotation.z = (i ? 1 : -1) * (0.11 + windup * 0.12);
     });
-    legs.forEach((leg, i) => { leg.rotation.x = Math.sin(t * 1.8 + i * Math.PI) * 0.025; });
+    feet.forEach((leg, i) => { leg.rotation.x = Math.sin(t * 4.2 + i * Math.PI) * 0.18; });
+    body.emissive.setHex(0xfff9cd); body.emissiveIntensity = damage * 0.22;
   }
   animate(0, 0);
   return { group, animate, dispose() { group.clear(); owned.dispose(); } };

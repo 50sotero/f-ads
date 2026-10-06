@@ -514,8 +514,8 @@ export function CrowdCannon() {
   const weapon = weaponForLevel(assault.weaponLevel);
   const tutorialLesson = tutorialStep !== null && tutorialStep < tutorialLessons.length ? tutorialLessons[tutorialStep] : null;
   const contextualHint = tutorialStep === null && levelIndex === 0
-    ? hud.time < 3.6 ? "Blue +1 gates add cannons. Drag left to collect them."
-      : hud.time < 8 && assault.weaponLevel === 1 ? "Shoot the gold target on the right to upgrade your weapon." : null
+    ? hud.time < 4 ? "Shoot the left lock to release +1 cannons."
+      : hud.time < 8 && assault.weaponLevel === 1 ? "Break the right lock to upgrade your weapon." : null
     : null;
   const hasNext = levelIndex + 1 < levels.length;
   const firstUnbeaten = Math.max(0, levels.findIndex((_, index) => !save.stars[index]));
@@ -565,7 +565,7 @@ export function CrowdCannon() {
         <>
           <div className={styles.hud}>
             <button type="button" className={styles.pauseButton} data-testid="pause-game" onClick={() => { screenRef.current = "paused"; setScreen("paused"); }} aria-label="Pause game"><span aria-hidden="true">Ⅱ</span></button>
-            <div className={styles.levelPill} data-testid="assault-hud"><span>{tutorialStep !== null ? `TRAINING ${Math.min(tutorialLessons.length, tutorialStep + 1)} / ${tutorialLessons.length}` : `LEVEL ${levelIndex + 1}`}</span><strong>{tutorialStep !== null ? "Training ground" : level.name}</strong></div>
+            <div className={styles.levelPill} data-testid="assault-hud"><strong>CROWD<br /><em>CANNON</em></strong><span>{tutorialStep !== null ? `TRAINING ${Math.min(tutorialLessons.length, tutorialStep + 1)} / ${tutorialLessons.length}` : `LEVEL ${levelIndex + 1}`}</span></div>
             <div className={styles.encounterProgress} data-testid="encounter-progress" role="progressbar" aria-label="Boss assault progress" aria-valuemin={1} aria-valuemax={assault.encounters} aria-valuenow={Math.min(assault.encounters, assault.encounter + 1)}>
               <span className={styles.encounterLabel}>BOSS {Math.min(assault.encounters, assault.encounter + 1)} / {assault.encounters}</span>
               <span className={styles.encounterDots} aria-hidden="true">{Array.from({ length: assault.encounters }, (_, index) => <i key={index} data-done={index < assault.encounter} data-current={index === assault.encounter} />)}</span>
