@@ -18,7 +18,7 @@ const DT = 1 / 60;
 
 type Save = { stars: number[]; muted: boolean; tutorialDone: boolean };
 type Screen = "menu" | "playing" | "paused" | "won" | "lost" | "trained";
-type SoundKind = "shot" | "pop" | "hit" | "champ" | "win" | "lose";
+type SoundKind = "shot" | "pop" | "hit" | "champ" | "upgrade" | "win" | "lose";
 type AssaultHud = {
   encounter: number;
   encounters: number;
@@ -106,9 +106,9 @@ function subscribe(listener: () => void) {
 }
 
 /** Tiny synth blips keep the arcade feel without loading sound assets. */
-function useSound(muted: boolean) {
+function useSound(muted: boolean, weaponLevel: number) {
   const contextRef = useRef<AudioContext | null>(null);
-  const lastRef = useRef<Record<SoundKind, number>>({ shot: 0, pop: 0, hit: 0, champ: 0, win: 0, lose: 0 });
+  const lastRef = useRef<Record<SoundKind, number>>({ shot: 0, pop: 0, hit: 0, champ: 0, upgrade: 0, win: 0, lose: 0 });
   useEffect(() => () => {
     void contextRef.current?.close();
     contextRef.current = null;
@@ -118,7 +118,7 @@ function useSound(muted: boolean) {
     (kind: SoundKind) => {
       if (muted || typeof window === "undefined") return;
       const now = performance.now();
-      const gap = kind === "shot" ? 95 : kind === "pop" ? 110 : kind === "hit" ? 120 : 0;
+      const gap = kind === "shot" ? 45 : kind === "pop" ? 110 : kind === "hit" ? 120 : 0;
       if (now - lastRef.current[kind] < gap) return;
       lastRef.current[kind] = now;
 
@@ -130,10 +130,11 @@ function useSound(muted: boolean) {
         const context = contextRef.current;
         if (context.state === "suspended") void context.resume();
         const notes: Record<SoundKind, [number, number, OscillatorType][]> = {
-          shot: [[240, 0.045, "sine"]],
+          shot: [[220 + weaponLevel * 60, 0.045, weaponLevel === 3 ? "triangle" : "sine"]],
           pop: [[660 + Math.random() * 200, 0.06, "triangle"]],
           hit: [[140, 0.08, "square"]],
           champ: [[330, 0.12, "sawtooth"], [495, 0.15, "sawtooth"]],
+          upgrade: [[440, 0.1, "triangle"], [660, 0.1, "triangle"], [880, 0.22, "triangle"]],
           win: [[523, 0.14, "triangle"], [659, 0.14, "triangle"], [784, 0.3, "triangle"]],
           lose: [[300, 0.2, "sawtooth"], [200, 0.35, "sawtooth"]],
         };
@@ -155,7 +156,7 @@ function useSound(muted: boolean) {
         // Audio is an enhancement; browsers can reject a context before a gesture.
       }
     },
-    [muted],
+    [muted, weaponLevel],
   );
 }
 
@@ -192,7 +193,7 @@ export function CrowdCannon() {
   const [rendererError, setRendererError] = useState<string | null>(null);
   const [rendererNonce, setRendererNonce] = useState(0);
   const [hud, setHud] = useState<HudState>({ crowd: 0, time: 0, charge: 0, assault: defaultAssault() });
-  const sound = useSound(save.muted);
+  const sound = useSound(save.muted, hud.assault.weaponLevel);
   const screenRef = useRef(screen);
   const levelRef = useRef(levelIndex);
   const soundRef = useRef(sound);
@@ -263,7 +264,7 @@ export function CrowdCannon() {
     let shown: Game | null = null;
     let hudAt = 0;
     let needsDraw = true;
-    let seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0 };
+    let seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0, weapon: 1 };
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
       renderer.resize(Math.max(1, rect.width), Math.max(1, rect.height));
@@ -294,7 +295,7 @@ export function CrowdCannon() {
         needsDraw = true;
         accumulator = 0;
         endAt = 0;
-        seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0 };
+        seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0, weapon: 1 };
       }
 
       if (screenRef.current === "playing") {
@@ -315,7 +316,8 @@ export function CrowdCannon() {
         if (game.stats.multiplied > seen.multiplied) soundRef.current("pop");
         if (game.stats.baseHits > seen.baseHits) soundRef.current("hit");
         if (game.stats.champions > seen.champions) soundRef.current("champ");
-        seen = { fired: game.stats.fired, multiplied: game.stats.multiplied, baseHits: game.stats.baseHits, champions: game.stats.champions };
+        if ((game.assault?.weaponLevel ?? 1) > seen.weapon) soundRef.current("upgrade");
+        seen = { fired: game.stats.fired, multiplied: game.stats.multiplied, baseHits: game.stats.baseHits, champions: game.stats.champions, weapon: game.assault?.weaponLevel ?? 1 };
         const training = tutorialRef.current;
         if (training) {
           if (advanceTutorial(training, game)) {
