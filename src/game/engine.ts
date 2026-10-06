@@ -203,6 +203,14 @@ export type AssaultState = {
   waveTimer: number;
   /** Number of units already placed from the currently deploying wave. */
   waveSpawned: number;
+  /** Number of red impacts the cannon line can absorb before the run ends. */
+  integrity: number;
+  /** Starting integrity for the current run; public so HUDs can render pips. */
+  maxIntegrity: number;
+  /** Brief visual/audio feedback after a defender reaches the line. */
+  breachFlash: number;
+  /** Total defenders that have touched the line during this run. */
+  breaches: number;
 };
 
 export type Status = "playing" | "won" | "lost";
@@ -351,6 +359,10 @@ function makeAssaultState(level: Level): AssaultState {
     slamTimer: Math.max(0.1, config.slamEvery ?? Infinity),
     waveTimer: 0,
     waveSpawned: 0,
+    integrity: 3,
+    maxIntegrity: 3,
+    breachFlash: 0,
+    breaches: 0,
   };
 }
 
@@ -402,6 +414,32 @@ export function launchChampion(g: Game) {
   g.stats.champions++;
   g.blue.push({ x: g.cannonX, y: CANNON_Y - 26, vx: 0, hp: 14, r: 11, big: true, used: 0, dead: false });
   return true;
+}
+
+export type AssaultLoadout = { tier: number; weaponLevel: number; charge: number };
+
+/**
+ * Applies a persisted starter loadout before a campaign run begins. Keeping
+ * this beside the simulation's weapon target creation avoids UI code having to
+ * reach into private target details when a player has earned a new starter
+ * cannon or weapon. Practice remains fixed to the teaching state.
+ */
+export function applyStartingLoadout(g: Game, loadout: AssaultLoadout) {
+  const assault = g.assault;
+  if (!assault || g.level.assault?.practice || g.status !== "playing") return g;
+  const tier = Math.max(1, Math.min(3, Math.floor(loadout.tier || 1)));
+  const weaponLevel = Math.max(1, Math.min(WEAPONS.length, Math.floor(loadout.weaponLevel || 1)));
+  assault.tier = tier;
+  assault.startingTier = tier;
+  assault.weaponLevel = weaponLevel;
+  g.charge = Math.max(0, Math.min(CHARGE_MAX, Math.floor(loadout.charge || 0)));
+  assault.weaponTarget = weaponLevel < WEAPONS.length ? makeWeaponTarget(weaponLevel) : null;
+  assault.weaponTargetsEnabled = weaponLevel < WEAPONS.length;
+  assault.weaponTargetTimer = 0;
+  assault.burstRemaining = 0;
+  g.cooldown = 0;
+  assault.barrelShots.fill(0);
+  return g;
 }
 
 function pop(g: Game, x: number, y: number, color: number, text?: string) {
@@ -1126,16 +1164,27 @@ const ASSAULT_BOSS_PRESSURE_DELAY = 3;
 const ASSAULT_BOSS_PRESSURE_SPEED = 12;
 const ASSAULT_BOSS_PRESSURE_TRAVEL = 120;
 
-/** Applies a soft inward force once a runner has entered the battle corridor. */
+/**
+ * Keeps a crowd flowing toward the next visible panel after it has crossed a
+ * previous one. This replaces the old always-on pull toward the boss centre:
+ * a side route now bends because there is an actual panel there, rather than
+ * because an invisible corridor magnet changed the player's launch decision.
+ */
+function applyAssaultGateGuidance(u: Unit, targetX: number, targetW: number, dt: number) {
+  const safeHalf = Math.max(18, targetW / 2 - u.r - 12);
+  const offset = targetX - u.x;
+  if (Math.abs(offset) <= safeHalf) return;
+  const desired = Math.max(-150, Math.min(150, offset * 3.1));
+  u.vx += (desired - u.vx) * Math.min(1, dt * 4.5);
+}
+
+/** Enemy formations still converge on the active giant's visible footprint. */
 function applyAssaultCorridorPressure(u: Unit, centerX: number, dt: number) {
   const half = Math.max(20, ASSAULT_CORRIDOR_HALF - u.r);
   const offset = u.x - centerX;
   const penetration = Math.abs(offset) - half;
   if (penetration <= 0) return;
   const towardCenter = offset < 0 ? 1 : -1;
-  // Dampen an outward drift before adding the inward force. Position remains
-  // owned by move(), so a side shot eases back into the lane rather than
-  // snapping to a hidden target column.
   if (u.vx * towardCenter < 0) u.vx *= Math.exp(-10 * dt);
   u.vx += towardCenter * Math.min(10000, penetration * 180) * dt;
 }
@@ -1286,15 +1335,30 @@ function updateAssaultBlue(g: Game, dt: number) {
     // previous target-following code made every in-flight unit swing toward the
     // latest pointer position and made the controls feel like remote steering.
     const lane = Math.max(-4, Math.min(4, u.lane ?? 0));
-    const crossedFirstGate = assault.phase === "battle" && g.gates.length > 0 && (u.used & 1) !== 0;
+    const crossedFirstGate = assault.phase === "battle" && g.gates.some((_, gateIndex) => (u.used & (1 << gateIndex)) !== 0);
     // Before the first actual gate, keep the launch decision readable. Once a
-    // runner has crossed it, reduce the sideways impulse and ease the unit
-    // back into the active boss's narrow battle corridor.
+    // runner has crossed a panel, guide it only toward the next panel that is
+    // visibly ahead. Panels sharing one y coordinate are a genuine branch;
+    // they are skipped here so a left choice cannot be magnetised into the
+    // other branch before it has even cleared the split.
     u.vx *= Math.exp(-3 * dt);
     const lateralScale = crossedFirstGate ? 1 : 0.2;
     const lateralCap = 420;
     u.vx = Math.max(-lateralCap, Math.min(lateralCap, u.vx + assaultMotion.lateral[blueIndex] * lateralScale * dt));
-    if (crossedFirstGate) applyAssaultCorridorPressure(u, active.x, dt);
+    if (crossedFirstGate) {
+      const nextGate = g.gates.find((gate, gateIndex) => {
+        if (u.used & (1 << gateIndex)) return false;
+        return gate.y < u.y - GATE_H * 0.5;
+      });
+      if (nextGate) {
+        applyAssaultGateGuidance(u, nextGate.cx, nextGate.w, dt);
+      } else if (g.gates.every((gate, gateIndex) => (u.used & (1 << gateIndex)) !== 0)) {
+        // Once a runner has cleared the authored route, the living boss is
+        // the visible destination. A restrained footprint pull keeps the
+        // broad center route cohesive without steering between panels.
+        applyAssaultCorridorPressure(u, active.x, dt);
+      }
+    }
     let dy = -(u.big ? ASSAULT_CHAMP_SPEED : ASSAULT_BLUE_SPEED) * dt
       * assaultMotion.forward[blueIndex] * (u.pace ?? 1);
 
@@ -1388,6 +1452,7 @@ function updateAssaultRed(g: Game, dt: number) {
   const assault = g.assault!;
   const config = g.level.assault!;
   if (config.practice) return;
+  assault.breachFlash = Math.max(0, assault.breachFlash - dt * 3.5);
   if (assault.phase === "battle" && assault.reserve > 0) {
     assault.spawnTimer -= dt;
     const activeTarget = Math.min(ASSAULT_RED_CAP, Math.max(0, assault.horde));
@@ -1418,9 +1483,21 @@ function updateAssaultRed(g: Game, dt: number) {
       continue;
     }
     if (u.y >= DEFENSE_Y) {
-      g.status = "lost";
-      pop(g, u.x, u.y, 1, "OUCH");
-      return;
+      // A breach is a hit against the cannon line, not an instant full reset.
+      // Consume the defender that made contact so a packed wave cannot delete
+      // the whole army in one frame. Brutes are dangerous enough to cost two
+      // pips, while runners and guards each cost one.
+      const damage = u.big || u.kind === "brute" ? 2 : 1;
+      assault.breaches++;
+      assault.integrity = Math.max(0, assault.integrity - damage);
+      assault.breachFlash = 1;
+      u.dead = true;
+      pop(g, u.x, u.y, 1, damage > 1 ? "BRUTE BREACH" : "BREACH");
+      if (assault.integrity <= 0) {
+        g.status = "lost";
+        pop(g, u.x, u.y, 1, "LINE DOWN");
+        return;
+      }
     }
   }
   let front = -Infinity;
@@ -1609,6 +1686,7 @@ function stepAssault(g: Game, dt: number) {
     assault.upgradeFlash = Math.max(0, assault.upgradeFlash - dt * 2.4);
     assault.bossWarning = 0;
     assault.bossPulse = Math.max(0, assault.bossPulse - dt * 4);
+    assault.breachFlash = Math.max(0, assault.breachFlash - dt * 3.5);
     return;
   }
   g.t += dt;
