@@ -9,7 +9,7 @@ export const levels: Level[] = [
     name: "Split Decision",
     tip: "Follow the purple gates. The ×3 side is worth the detour.",
     par: 16,
-    bases: [{ x: 180, y: 100, hp: 150, every: 2.6, group: 4, delay: 1.2 }],
+    bases: [{ x: 180, y: 100, hp: 375, every: 2.6, group: 6, delay: 1.2 }],
     gates: [
       { x: 180, y: 548, w: 56, kind: "trap" },
       { x: 94, y: 430, w: 116, kind: "x", n: 2, move: { range: 18, speed: 0.8 } },
@@ -23,8 +23,8 @@ export const levels: Level[] = [
   {
     name: "Moving Targets",
     tip: "The high-value gate slides. Track its glow before you fire.",
-    par: 19,
-    bases: [{ x: 180, y: 96, hp: 210, every: 2.35, group: 5 }],
+    par: 25,
+    bases: [{ x: 180, y: 96, hp: 420, every: 2.35, group: 7 }],
     gates: [
       { x: 180, y: 548, w: 56, kind: "trap" },
       { x: 92, y: 452, w: 112, kind: "x", n: 2, move: { range: 32, speed: 1.2, phase: 0.3 } },
@@ -38,10 +38,10 @@ export const levels: Level[] = [
   {
     name: "Crossfire",
     tip: "Two bases trade waves. Build a crowd before you commit to a side.",
-    par: 23,
+    par: 28,
     bases: [
-      { x: 78, y: 96, hp: 185, every: 2.55, group: 5, delay: 0.8 },
-      { x: 282, y: 96, hp: 185, every: 2.55, group: 5, delay: 2.2 },
+      { x: 78, y: 96, hp: 370, every: 2.55, group: 7, delay: 0.8 },
+      { x: 282, y: 96, hp: 370, every: 2.55, group: 7, delay: 2.2 },
     ],
     gates: [
       { x: 180, y: 548, w: 56, kind: "trap" },
@@ -59,8 +59,8 @@ export const levels: Level[] = [
   {
     name: "Switchback",
     tip: "The wall forces a lane change. Use the moving ×3 to stay ahead.",
-    par: 38,
-    bases: [{ x: 180, y: 92, hp: 1920, every: 2.2, group: 6, bruteEvery: 10, bruteHp: 18 }],
+    par: 30,
+    bases: [{ x: 180, y: 92, hp: 1056, every: 2.2, group: 8, bruteEvery: 10, bruteHp: 18 }],
     gates: [
       { x: 180, y: 548, w: 56, kind: "trap" },
       { x: 274, y: 486, w: 118, kind: "x", n: 3, move: { range: 23, speed: 1.1, phase: 1 } },
@@ -80,7 +80,7 @@ export const levels: Level[] = [
     name: "Pulse Run",
     tip: "Red traps blink off. Read the safe window, then send the crowd through.",
     par: 38,
-    bases: [{ x: 180, y: 92, hp: 1280, every: 2.1, group: 6, bruteEvery: 10, bruteHp: 18 }],
+    bases: [{ x: 180, y: 92, hp: 2560, every: 2.1, group: 8, bruteEvery: 10, bruteHp: 18 }],
     gates: [
       { x: 180, y: 548, w: 56, kind: "trap" },
       { x: 88, y: 488, w: 122, kind: "x", n: 2 },
@@ -96,8 +96,8 @@ export const levels: Level[] = [
   {
     name: "Rotor Alley",
     tip: "Rotors punish the middle. Thread the moving gates and keep the sides clear.",
-    par: 33,
-    bases: [{ x: 180, y: 90, hp: 920, every: 1.95, group: 7, bruteEvery: 8, bruteHp: 22 }],
+    par: 35,
+    bases: [{ x: 180, y: 90, hp: 1840, every: 1.95, group: 9, bruteEvery: 8, bruteHp: 22 }],
     gates: [
       { x: 180, y: 548, w: 56, kind: "trap" },
       { x: 74, y: 500, w: 104, kind: "x", n: 2, move: { range: 18, speed: 1.4 } },
@@ -117,11 +117,11 @@ export const levels: Level[] = [
   {
     name: "Three Doors",
     tip: "Every door leads somewhere different. The center is safe, the sides pay out.",
-    par: 42,
+    par: 38,
     bases: [
-      { x: 70, y: 92, hp: 360, every: 2.3, group: 6, bruteEvery: 12, bruteHp: 22, delay: 0.8 },
-      { x: 180, y: 82, hp: 375, every: 2.5, group: 5, delay: 1.7 },
-      { x: 290, y: 92, hp: 360, every: 2.3, group: 6, bruteEvery: 12, bruteHp: 22, delay: 2.6 },
+      { x: 70, y: 92, hp: 720, every: 2.3, group: 8, bruteEvery: 12, bruteHp: 22, delay: 0.8 },
+      { x: 180, y: 82, hp: 750, every: 2.5, group: 7, delay: 1.7 },
+      { x: 290, y: 92, hp: 720, every: 2.3, group: 8, bruteEvery: 12, bruteHp: 22, delay: 2.6 },
     ],
     gates: [
       { x: 68, y: 488, w: 86, kind: "x", n: 3, move: { range: 18, speed: 1.1 } },
@@ -138,10 +138,10 @@ export const levels: Level[] = [
   {
     name: "Bridgeworks",
     tip: "Walls leave narrow bridges. Change sides before the next gate closes.",
-    par: 54,
+    par: 58,
     bases: [
-      { x: 92, y: 92, hp: 330, every: 2.05, group: 7, bruteEvery: 10, bruteHp: 24 },
-      { x: 268, y: 92, hp: 330, every: 2.05, group: 7, bruteEvery: 10, bruteHp: 24, delay: 2.5 },
+      { x: 92, y: 92, hp: 561, every: 2.05, group: 9, bruteEvery: 10, bruteHp: 24 },
+      { x: 268, y: 92, hp: 561, every: 2.05, group: 9, bruteEvery: 10, bruteHp: 24, delay: 2.5 },
     ],
     gates: [
       { x: 82, y: 506, w: 92, kind: "x", n: 2 },
@@ -163,8 +163,8 @@ export const levels: Level[] = [
   {
     name: "Red Alert",
     tip: "The red banner means a surge. Clear the lane before the next wave.",
-    par: 34,
-    bases: [{ x: 180, y: 88, hp: 1240, every: 1.55, group: 8, bruteEvery: 7.5, bruteHp: 25, delay: 0.4 }],
+    par: 40,
+    bases: [{ x: 180, y: 88, hp: 2480, every: 1.55, group: 10, bruteEvery: 7.5, bruteHp: 25, delay: 0.4 }],
     gates: [
       { x: 86, y: 500, w: 112, kind: "x", n: 3, move: { range: 26, speed: 1.25 } },
       { x: 274, y: 500, w: 112, kind: "x", n: 2, move: { range: 26, speed: 1.25, phase: 2.5 } },
@@ -179,10 +179,10 @@ export const levels: Level[] = [
   {
     name: "Twin Keep",
     tip: "Staggered keeps share the track. Split the crowd, then finish the wounded side.",
-    par: 34,
+    par: 42,
     bases: [
-      { x: 70, y: 86, hp: 516, every: 1.95, group: 7, bruteEvery: 9, bruteHp: 26, delay: 0.8 },
-      { x: 290, y: 86, hp: 516, every: 1.95, group: 7, bruteEvery: 9, bruteHp: 26, delay: 3.2 },
+      { x: 70, y: 86, hp: 774, every: 1.95, group: 9, bruteEvery: 9, bruteHp: 26, delay: 0.8 },
+      { x: 290, y: 86, hp: 774, every: 1.95, group: 9, bruteEvery: 9, bruteHp: 26, delay: 3.2 },
     ],
     gates: [
       { x: 70, y: 516, w: 102, kind: "x", n: 3, move: { range: 15, speed: 1.4 } },
@@ -201,8 +201,8 @@ export const levels: Level[] = [
   {
     name: "Gauntlet",
     tip: "Every section changes the route. Keep the crowd moving and save your champion for the brutes.",
-    par: 31,
-    bases: [{ x: 180, y: 86, hp: 396, every: 1.9, group: 7, bruteEvery: 8, bruteHp: 22 }],
+    par: 38,
+    bases: [{ x: 180, y: 86, hp: 792, every: 1.9, group: 9, bruteEvery: 8, bruteHp: 22 }],
     gates: [
       { x: 180, y: 548, w: 56, kind: "trap" },
       { x: 78, y: 522, w: 102, kind: "x", n: 2, move: { range: 23, speed: 1.2 } },
@@ -226,10 +226,10 @@ export const levels: Level[] = [
   {
     name: "Iron Keep",
     tip: "The final keep surges twice as hard. Chain the safe multipliers and break both towers.",
-    par: 65,
+    par: 60,
     bases: [
-      { x: 72, y: 84, hp: 400, every: 1.9, group: 8, bruteEvery: 8.5, bruteHp: 24, delay: 0.8 },
-      { x: 288, y: 84, hp: 400, every: 1.9, group: 8, bruteEvery: 8.5, bruteHp: 24, delay: 3.4 },
+      { x: 72, y: 84, hp: 720, every: 1.9, group: 10, bruteEvery: 8.5, bruteHp: 24, delay: 0.8 },
+      { x: 288, y: 84, hp: 720, every: 1.9, group: 10, bruteEvery: 8.5, bruteHp: 24, delay: 3.4 },
     ],
     gates: [
       { x: 72, y: 528, w: 106, kind: "x", n: 2, move: { range: 15, speed: 1.3 } },

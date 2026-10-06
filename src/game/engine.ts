@@ -8,7 +8,7 @@ export const CANNON_Y = 596;
 export const DEFENSE_Y = 572;
 export const GATE_H = 16;
 export const MAX_UNITS = 900;
-export const FIRE_RATE = 7;
+export const FIRE_RATE = 11;
 export const CHARGE_MAX = 30;
 
 export type GateDef = {
@@ -98,6 +98,10 @@ const BLUE_SPEED = 118;
 const CHAMP_SPEED = 72;
 const RED_SPEED = 52;
 const BRUTE_SPEED = 30;
+const FLOW_CELL = 20;
+const FLOW_COLS = Math.ceil(W / FLOW_CELL);
+const FLOW_ROWS = Math.ceil(H / FLOW_CELL) + 2;
+const FLOW_ACCEL = 120;
 
 /** A modulo that stays in the [0, period) range for negative times too. */
 function positiveModulo(value: number, period: number) {
@@ -218,6 +222,63 @@ function hitsSpinner(g: Game, u: Unit) {
   return false;
 }
 
+type FlowEntry = { unit: Unit; index: number };
+
+/**
+ * Finds a bounded lateral push for each crowd member using a spatial grid.
+ *
+ * Multiplication can place dozens of units in the same few rows. A full
+ * pairwise pass would become quadratic near MAX_UNITS, so each unit only
+ * inspects neighbouring cells. The result is acceleration rather than a
+ * direct position edit; the normal wall-aware mover still owns edge and wall
+ * collisions, which keeps the flow stable around obstacles.
+ */
+function flowPush(units: Unit[]) {
+  const cells: Array<FlowEntry[] | undefined> = new Array(FLOW_COLS * FLOW_ROWS);
+  const push = new Float32Array(units.length);
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i];
+    if (u.dead) continue;
+    const col = Math.max(0, Math.min(FLOW_COLS - 1, Math.floor(u.x / FLOW_CELL)));
+    const row = Math.max(0, Math.min(FLOW_ROWS - 1, Math.floor((u.y + FLOW_CELL) / FLOW_CELL)));
+    (cells[row * FLOW_COLS + col] ??= []).push({ unit: u, index: i });
+  }
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i];
+    if (u.dead) continue;
+    const col = Math.max(0, Math.min(FLOW_COLS - 1, Math.floor(u.x / FLOW_CELL)));
+    const row = Math.max(0, Math.min(FLOW_ROWS - 1, Math.floor((u.y + FLOW_CELL) / FLOW_CELL)));
+    let lateral = 0;
+    for (let dr = -2; dr <= 2; dr++) {
+      const rr = row + dr;
+      if (rr < 0 || rr >= FLOW_ROWS) continue;
+      for (let dc = -2; dc <= 2; dc++) {
+        const cc = col + dc;
+        if (cc < 0 || cc >= FLOW_COLS) continue;
+        const cell = cells[rr * FLOW_COLS + cc];
+        if (!cell) continue;
+        for (const other of cell) {
+          if (other.index === i || other.unit.dead) continue;
+          const dx = u.x - other.unit.x;
+          const dy = u.y - other.unit.y;
+          const desired = u.r + other.unit.r + 2.4;
+          if (Math.abs(dy) >= desired) continue;
+          const distance2 = dx * dx + dy * dy;
+          if (distance2 >= desired * desired) continue;
+          const distance = Math.sqrt(distance2);
+          const side = Math.abs(dx) > 0.15 ? Math.sign(dx) : i < other.index ? -1 : 1;
+          const proximity = 1 - distance / desired;
+          const rowWeight = 1 - Math.abs(dy) / desired;
+          lateral += side * proximity * rowWeight;
+        }
+      }
+    }
+    if ((u.x <= u.r + 1 && lateral < 0) || (u.x >= W - u.r - 1 && lateral > 0)) lateral = 0;
+    push[i] = Math.max(-1.25, Math.min(1.25, lateral)) * FLOW_ACCEL;
+  }
+  return push;
+}
+
 /** Moves a unit vertically by dy, sliding it around any wall in the way. */
 function move(g: Game, u: Unit, dy: number, dt: number) {
   const nx = Math.max(u.r, Math.min(W - u.r, u.x + u.vx * dt));
@@ -286,7 +347,9 @@ export function step(g: Game, dt: number) {
 
   // Crowd
   const spawned: Unit[] = [];
-  for (const u of g.blue) {
+  const blueFlow = flowPush(g.blue);
+  for (let blueIndex = 0; blueIndex < g.blue.length; blueIndex++) {
+    const u = g.blue[blueIndex];
     if (u.dead) continue;
     const target = nearestBase(g, u.x, u.y);
     if (target && u.y < g.steerY) {
@@ -296,6 +359,7 @@ export function step(g: Game, dt: number) {
     } else {
       u.vx *= 1 - Math.min(1, dt * 3);
     }
+    u.vx = Math.max(-130, Math.min(130, u.vx + blueFlow[blueIndex] * dt));
     // Anyone who drifts past a base without hitting it walks sideways into it.
     let dy = -(u.big ? CHAMP_SPEED : BLUE_SPEED) * dt;
     if (target && u.y + dy < target.y) {
@@ -322,9 +386,12 @@ export function step(g: Game, dt: number) {
       const copies = u.big ? (n - 1) * 3 : n - 1;
       for (let k = 0; k < copies; k++) {
         if (g.blue.length + spawned.length >= MAX_UNITS) break;
-        const off = (k + 1) * 6 * (k % 2 === 0 ? 1 : -1) * (u.big ? 1.6 : 1);
+        const side = k % 2 === 0 ? 1 : -1;
+        const distance = 8 + Math.floor(k / 2) * 7;
+        const off = side * distance * (u.big ? 1.7 : 1);
+        const row = Math.floor(k / 4);
         const x = Math.max(gt.cx - gt.w / 2 + 3, Math.min(gt.cx + gt.w / 2 - 3, u.x + off + (g.rand() - 0.5) * 3));
-        spawned.push({ x, y: u.y - g.rand() * 6, vx: 0, hp: 1, r: 4.2, big: false, used: u.used, dead: false });
+        spawned.push({ x, y: u.y - row * 7 - g.rand() * 5, vx: side * (u.big ? 28 : 18), hp: 1, r: 4.2, big: false, used: u.used, dead: false });
         g.stats.multiplied++;
       }
     }
@@ -364,9 +431,14 @@ export function step(g: Game, dt: number) {
     b.timer -= dt * (surgeActive(g.level, g.t) ? 1 + Math.max(0, g.level.surge?.strength ?? 0) : 1);
     if (b.timer <= 0) {
       b.timer += b.every * rage;
+      const columns = Math.min(6, Math.max(3, Math.ceil(Math.sqrt(b.group))));
       for (let k = 0; k < b.group; k++) {
-        const x = b.x + (k - (b.group - 1) / 2) * 9 + (g.rand() - 0.5) * 4;
-        g.red.push({ x, y: b.y + b.h / 2 + 6 + g.rand() * 8, vx: 0, hp: 1, r: 4.4, big: false, used: 0, dead: false });
+        const row = Math.floor(k / columns);
+        const rowCount = Math.min(columns, b.group - row * columns);
+        const column = k % columns;
+        const x = b.x + (column - (rowCount - 1) / 2) * 10 + (g.rand() - 0.5) * 4;
+        const y = b.y + b.h / 2 + 6 + row * 10 + g.rand() * 5;
+        g.red.push({ x, y, vx: 0, hp: 1, r: 4.4, big: false, used: 0, dead: false });
       }
     }
     b.bruteTimer -= dt;
@@ -376,12 +448,15 @@ export function step(g: Game, dt: number) {
     }
   }
 
-  for (const u of g.red) {
+  const redFlow = flowPush(g.red);
+  for (let redIndex = 0; redIndex < g.red.length; redIndex++) {
+    const u = g.red[redIndex];
     if (u.dead) continue;
     if (u.y > 300) {
       const want = Math.max(-60, Math.min(60, (g.cannonX - u.x) * 1.2));
       u.vx += (want - u.vx) * Math.min(1, dt * 2);
     }
+    u.vx = Math.max(-90, Math.min(90, u.vx + redFlow[redIndex] * dt));
     move(g, u, (u.big ? BRUTE_SPEED : RED_SPEED) * dt, dt);
     if (!u.big && hitsSpinner(g, u)) {
       u.dead = true;
