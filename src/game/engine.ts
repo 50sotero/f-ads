@@ -20,6 +20,8 @@ export type GateDef = {
   n?: number;
   /** Slides left and right around x by range px; speed in radians per second. */
   move?: { range: number; speed: number; phase?: number };
+  /** Optional timing window for traps. A trap is harmful for `active` seconds per period. */
+  pulse?: { period: number; active: number; phase?: number };
 };
 export type WallDef = { x: number; y: number; w: number; h: number };
 export type SpinnerDef = { x: number; y: number; r: number; speed: number };
@@ -45,6 +47,8 @@ export type Level = {
   gates?: GateDef[];
   walls?: WallDef[];
   spinners?: SpinnerDef[];
+  /** Temporarily increases the rate at which enemy bases send regular waves. */
+  surge?: { every: number; duration: number; strength: number; delay?: number };
 };
 
 export type Unit = {
@@ -94,6 +98,41 @@ const BLUE_SPEED = 118;
 const CHAMP_SPEED = 72;
 const RED_SPEED = 52;
 const BRUTE_SPEED = 30;
+
+/** A modulo that stays in the [0, period) range for negative times too. */
+function positiveModulo(value: number, period: number) {
+  return ((value % period) + period) % period;
+}
+
+/**
+ * Returns whether a trap is currently dangerous.
+ *
+ * Plain traps are always on. Pulsed traps are on for `active` seconds at the
+ * start of every `period`, with `phase` shifting that window in time. The
+ * helper deliberately uses a positive modulo so previews and boundary checks
+ * behave the same for negative and positive timestamps.
+ */
+export function trapActive(gate: GateDef, time: number) {
+  if (gate.kind !== "trap") return false;
+  if (!gate.pulse) return true;
+  const period = Math.max(0.0001, gate.pulse.period);
+  const active = Math.max(0, Math.min(period, gate.pulse.active));
+  if (active <= 0) return false;
+  if (active >= period) return true;
+  const phase = gate.pulse.phase ?? 0;
+  return positiveModulo(time + phase, period) < active;
+}
+
+/** Returns whether an enemy spawn surge is active at this game time. */
+export function surgeActive(level: Level, time: number) {
+  const surge = level.surge;
+  if (!surge) return false;
+  const every = Math.max(0.0001, surge.every);
+  const duration = Math.max(0, Math.min(every, surge.duration));
+  if (duration <= 0 || time < (surge.delay ?? 8)) return false;
+  if (duration >= every) return true;
+  return positiveModulo(time - (surge.delay ?? 8), every) < duration;
+}
 
 function mulberry32(seed: number) {
   let a = seed >>> 0;
@@ -273,7 +312,7 @@ export function step(g: Game, dt: number) {
       u.used |= 1 << i;
       gt.flash = 1;
       if (gt.kind === "trap") {
-        if (!u.big) {
+        if (trapActive(gt, g.t) && !u.big) {
           u.dead = true;
           pop(g, u.x, u.y, 2);
         }
@@ -319,7 +358,10 @@ export function step(g: Game, dt: number) {
     b.hitFlash = Math.max(0, b.hitFlash - dt * 5);
     if (b.hp <= 0) continue;
     const rage = 0.55 + 0.45 * (b.hp / b.maxHp);
-    b.timer -= dt;
+    // Surges only accelerate regular wave timing. Brute timers intentionally
+    // remain on their normal cadence so a surge stays readable rather than
+    // stacking every enemy pressure source at once.
+    b.timer -= dt * (surgeActive(g.level, g.t) ? 1 + Math.max(0, g.level.surge?.strength ?? 0) : 1);
     if (b.timer <= 0) {
       b.timer += b.every * rage;
       for (let k = 0; k < b.group; k++) {
