@@ -10,6 +10,7 @@ export function Header() {
         </Link>
         <nav className="flex gap-5 text-sm text-muted">
           <Link href="/#how" className="hover:text-ink">How it works</Link>
+          <Link href="/play" className="hover:text-ink">Play</Link>
           <Link href="/#advertise" className="hover:text-ink">Advertise</Link>
         </nav>
       </div>
