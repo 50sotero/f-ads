@@ -54,6 +54,8 @@ export type AssaultDef = {
   enemyHp?: number;
   gateValues?: number[];
   pickupEvery?: number;
+  /** Seconds between nonlethal active-boss slams; omitted for early routes. */
+  slamEvery?: number;
 };
 export type Level = {
   name: string;
@@ -131,6 +133,12 @@ export type AssaultState = {
   bossTimer: number;
   /** Total blue +1 gates collected, including pickups after reaching tier 5. */
   pickupsCollected: number;
+  /** 0..1 windup signal during the active boss's 0.8-second warning. */
+  bossWarning: number;
+  /** 1 at impact, then decays for renderer impact feedback. */
+  bossPulse: number;
+  /** Internal countdown until the next optional boss slam. */
+  slamTimer: number;
 };
 
 export type Status = "playing" | "won" | "lost";
@@ -254,6 +262,9 @@ function makeAssaultState(level: Level): AssaultState {
     nextPickupId: config.practice ? 2 : 5,
     bossTimer: 0,
     pickupsCollected: 0,
+    bossWarning: 0,
+    bossPulse: 0,
+    slamTimer: Math.max(0.1, config.slamEvery ?? Infinity),
   };
 }
 
@@ -849,9 +860,14 @@ function packAssaultBlueAgainstBoss(g: Game) {
   const active = g.bases[assault.encounter];
   if (!active || active.hp <= 0) return;
   const front = active.y + active.h / 2;
+  let allGatesMask = 0;
+  for (let i = 0; i < Math.min(31, g.gates.length); i++) allGatesMask |= 1 << i;
   const lanes: Unit[][] = Array.from({ length: 9 }, () => []);
   for (const u of g.blue) {
     if (u.dead || u.y < active.y - active.h / 2 || u.y > front + 132) continue;
+    // Keep runners that have not crossed the chain in their own approach
+    // formation. Repacking them beside the boss would skip the gate route.
+    if (allGatesMask && (u.used & allGatesMask) !== allGatesMask) continue;
     if (Math.abs(u.x - active.x) > active.w / 2 + 8) continue;
     const slot = Math.max(0, Math.min(8, Math.round((u.lane ?? 0) + 4)));
     lanes[slot].push(u);
@@ -859,8 +875,10 @@ function packAssaultBlueAgainstBoss(g: Game) {
   for (const lane of lanes) {
     lane.sort((a, b) => a.y - b.y);
     for (let i = 0; i < lane.length; i++) {
-      const minimumY = front + 4.2 + i * 7.2;
+      const queueEnd = CANNON_Y - lane[i].r - 2;
+      const minimumY = Math.min(queueEnd, front + 4.2 + i * 7.2);
       if (lane[i].y < minimumY) lane[i].y = minimumY;
+      else if (lane[i].y > queueEnd) lane[i].y = queueEnd;
     }
   }
 }
@@ -881,6 +899,7 @@ function updateAssaultRed(g: Game, dt: number) {
   }
   const active = g.bases[assault.encounter];
   const redFlow = flowPush(g.red);
+  const surgeSpeed = surgeActive(g.level, g.t) ? 1 + Math.max(0, g.level.surge?.strength ?? 0) : 1;
   for (let redIndex = 0; redIndex < g.red.length; redIndex++) {
     const u = g.red[redIndex];
     if (u.dead) continue;
@@ -888,7 +907,7 @@ function updateAssaultRed(g: Game, dt: number) {
     const want = Math.max(-80, Math.min(80, (active.x + laneOffset - u.x) * 1.3));
     u.vx += (want - u.vx) * Math.min(1, dt * 2.2);
     u.vx = Math.max(-100, Math.min(100, u.vx + redFlow[redIndex] * dt));
-    move(g, u, config.speed * (u.big ? 0.74 : 1) * dt, dt);
+    move(g, u, config.speed * surgeSpeed * (u.big ? 0.74 : 1) * dt, dt);
     if (!u.big && hitsSpinner(g, u)) {
       u.dead = true;
       pop(g, u.x, u.y, 1);
@@ -950,6 +969,31 @@ function resolveAssaultFights(g: Game) {
   }
 }
 
+function updateAssaultBossSlam(g: Game, dt: number) {
+  const assault = g.assault!;
+  const config = g.level.assault!;
+  assault.bossPulse = Math.max(0, assault.bossPulse - dt * 4);
+  assault.bossWarning = 0;
+  if (config.practice || assault.phase !== "battle" || !config.slamEvery) return;
+  const active = g.bases[assault.encounter];
+  if (!active || active.hp <= 0) return;
+  const every = Math.max(1, config.slamEvery);
+  assault.slamTimer -= dt;
+  if (assault.slamTimer <= 0) {
+    assault.slamTimer += every;
+    assault.bossPulse = 1;
+    pop(g, active.x, active.y - active.h / 2 - 10, 1, "SLAM");
+    const front = active.y + active.h / 2;
+    const targets = g.blue
+      .filter((u) => !u.dead && u.y >= active.y - active.h / 2 && u.y <= front + 112 && Math.abs(u.x - active.x) <= active.w / 2 + 30)
+      .sort((a, b) => a.y - b.y)
+      .slice(0, 16);
+    for (const u of targets) u.y = Math.min(CANNON_Y - u.r - 2, u.y + 10);
+    return;
+  }
+  if (assault.slamTimer < 0.8) assault.bossWarning = Math.max(0, Math.min(1, 1 - assault.slamTimer / 0.8));
+}
+
 function finishAssaultEncounter(g: Game) {
   const assault = g.assault!;
   if (assault.phase !== "battle") return;
@@ -980,6 +1024,9 @@ function finishAssaultEncounter(g: Game) {
   assault.frontline = assault.horde > 0 ? 372 : CANNON_Y - 26;
   assault.spawnTimer = 1.1;
   assault.bossTimer = 0;
+  assault.bossWarning = 0;
+  assault.bossPulse = 0;
+  assault.slamTimer = Math.max(1, g.level.assault?.slamEvery ?? Infinity);
   for (const gt of g.gates) {
     if (gt.kind === "x") gt.n = Math.min(9, Math.max(2, (gt.n ?? 2) + 1));
   }
@@ -998,12 +1045,15 @@ function stepAssault(g: Game, dt: number) {
     for (const p of g.pops) p.t += dt;
     g.pops = g.pops.filter((p) => p.t < 0.8);
     assault.upgradeFlash = Math.max(0, assault.upgradeFlash - dt * 2.4);
+    assault.bossWarning = 0;
+    assault.bossPulse = Math.max(0, assault.bossPulse - dt * 4);
     return;
   }
   g.t += dt;
   updateAssaultCannon(g, dt);
   updateAssaultGatesAndSpinners(g, dt);
   updateAssaultPickups(g, dt);
+  updateAssaultBossSlam(g, dt);
 
   if (assault.phase === "advance") {
     const portion = Math.min(dt, assault.transition);

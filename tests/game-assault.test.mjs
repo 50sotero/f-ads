@@ -62,3 +62,45 @@ test("assault bosses advance sequentially and preserve future boss health", () =
   assert.equal(g.bases[1].hp, 5);
   assert.equal(g.status, "playing");
 });
+
+test("dense post-chain queue stays above the cannon and leaves pre-chain runners alone", () => {
+  const g = newGame(assaultLevel({
+    bases: [{ x: 125, y: 300, hp: 999999, every: 9999, group: 0 }],
+    assault: { horde: 0, reserve: 0, speed: 16, theme: "bridge" },
+  }));
+  const postChain = [];
+  for (let i = 0; i < 899; i++) {
+    postChain.push({
+      x: 125 + ((i % 9) - 4) * 4,
+      y: 440,
+      vx: 0,
+      hp: 1,
+      r: 4.2,
+      big: false,
+      used: 0b111,
+      dead: false,
+      lane: (i % 9) - 4,
+    });
+  }
+  const preChain = { x: 125, y: 440, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false, lane: 0 };
+  g.blue.push(...postChain, preChain);
+  step(g, 1 / 60);
+  assert.ok(g.blue.every((u) => u.y <= CANNON_Y - u.r - 2));
+  assert.ok(preChain.y < 450, `pre-chain runner was repacked at y=${preChain.y}`);
+});
+
+test("boss slam exposes a warning, pulses once, and does not kill the crowd", () => {
+  const g = newGame(assaultLevel({
+    bases: [{ x: 125, y: 300, hp: 999999, every: 9999, group: 0 }],
+    assault: { horde: 0, reserve: 0, speed: 16, theme: "fork", slamEvery: 1 },
+  }));
+  g.firing = false;
+  for (let i = 0; i < 15; i++) step(g, 1 / 60);
+  assert.ok(g.assault);
+  assert.ok(g.assault.bossWarning > 0 && g.assault.bossWarning <= 1);
+  for (let i = 0; i < 45; i++) step(g, 1 / 60);
+  assert.equal(g.assault.bossPulse, 1);
+  assert.ok(g.pops.some((p) => p.text === "SLAM"));
+  assert.equal(g.blue.length, 0);
+  assert.equal(g.status, "playing");
+});
