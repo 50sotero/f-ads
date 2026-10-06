@@ -234,14 +234,14 @@ export function createSiegeCannon(): SiegeCannonArt {
   const rimMaterial = ownMaterial(resources, new THREE.MeshStandardMaterial({ color: 0xf7f1e3, roughness: 0.42, metalness: 0.04 }));
 
   const chassisGeometry = ownGeometry(resources, new THREE.CapsuleGeometry(0.34, 0.64, 3, 10).rotateZ(Math.PI / 2));
-  const wheelGeometry = ownGeometry(resources, new THREE.CylinderGeometry(0.32, 0.32, 0.2, 12));
-  const hubGeometry = ownGeometry(resources, new THREE.CylinderGeometry(0.115, 0.115, 0.225, 10));
+  const wheelGeometry = ownGeometry(resources, new THREE.CylinderGeometry(0.37, 0.37, 0.2, 12));
+  const hubGeometry = ownGeometry(resources, new THREE.CylinderGeometry(0.13, 0.13, 0.25, 10));
   const turretGeometry = ownGeometry(resources, new THREE.SphereGeometry(0.47, 12, 7));
-  const tubeGeometry = ownGeometry(resources, new THREE.CylinderGeometry(0.205, 0.24, 0.94, 12));
-  const capGeometry = ownGeometry(resources, new THREE.SphereGeometry(0.22, 10, 6));
-  const rimGeometry = ownGeometry(resources, new THREE.TorusGeometry(0.228, 0.052, 8, 16));
-  const boreGeometry = ownGeometry(resources, new THREE.CylinderGeometry(0.165, 0.165, 0.018, 16));
-  const collarGeometry = ownGeometry(resources, new THREE.TorusGeometry(0.228, 0.032, 7, 14));
+  const tubeGeometry = ownGeometry(resources, new THREE.CylinderGeometry(0.24, 0.28, 0.94, 12));
+  const capGeometry = ownGeometry(resources, new THREE.SphereGeometry(0.25, 10, 6));
+  const rimGeometry = ownGeometry(resources, new THREE.TorusGeometry(0.27, 0.065, 8, 16));
+  const boreGeometry = ownGeometry(resources, new THREE.CylinderGeometry(0.2, 0.2, 0.024, 16));
+  const collarGeometry = ownGeometry(resources, new THREE.TorusGeometry(0.27, 0.038, 7, 14));
 
   // Grounded chassis and a rounded cyan turret.
   const chassis = makeMesh(group, chassisGeometry, navy, 0, 0.25, 0.08, 0.88, 0.55, 0.8);
@@ -249,14 +249,14 @@ export function createSiegeCannon(): SiegeCannonArt {
   makeMesh(group, turretGeometry, cyan, 0, 0.53, 0.12, 1.0, 0.64, 0.86);
 
   for (const side of [-1, 1]) {
-    const wheel = makeMesh(group, wheelGeometry, navy, side * 0.42, 0.32, 0.18, 1, 1, 1, 0, 0, Math.PI / 2);
+    const wheel = makeMesh(group, wheelGeometry, navy, side * 0.42, 0.37, 0.18, 1, 1, 1, 0, 0, Math.PI / 2);
     wheel.scale.set(1.0, 1.0, 1.0);
-    makeMesh(group, hubGeometry, gold, side * 0.50, 0.32, 0.18, 1, 1, 1, 0, 0, Math.PI / 2);
+    makeMesh(group, hubGeometry, gold, side * 0.50, 0.37, 0.18, 1, 1, 1, 0, 0, Math.PI / 2);
   }
 
   const barrel = new THREE.Group();
   barrel.name = "recoil-barrel";
-  barrel.position.set(0, 0.63, -0.08);
+  barrel.position.set(0, 0.58, -0.08);
   group.add(barrel);
 
   // The cylinder axis is Y by default; rotate it so the weapon points -Z.
@@ -296,7 +296,7 @@ type WardenPalette = {
 };
 
 const WARDEN_PALETTES: WardenPalette[] = [
-  { body: 0xb9632f, bodyLight: 0xd88a43, bodyDark: 0x864329, armor: 0x5d3740, armorLight: 0x84515a, eye: 0xffd15d, mouth: 0x301b23 },
+  { body: 0xd78332, bodyLight: 0xf0ad54, bodyDark: 0x99532d, armor: 0x7d4d2c, armorLight: 0xb97838, eye: 0xffd15d, mouth: 0x301b23 },
   { body: 0xc89958, bodyLight: 0xe3bd79, bodyDark: 0x927044, armor: 0x6e5040, armorLight: 0x9d7653, eye: 0xffe28a, mouth: 0x39251e },
   { body: 0xc95848, bodyLight: 0xe27c5d, bodyDark: 0x8c3840, armor: 0x5b3345, armorLight: 0x8d4e58, eye: 0xffb14f, mouth: 0x321b2e },
 ];
@@ -336,8 +336,8 @@ export function createWarden(variant = 0): WardenArt {
   const headGeometry = ownGeometry(resources, new THREE.SphereGeometry(1, 12, 8));
   const jawGeometry = ownGeometry(resources, new THREE.CapsuleGeometry(0.68, 0.44, 3, 10));
   const limbGeometry = ownGeometry(resources, new THREE.CapsuleGeometry(0.33, 0.86, 3, 8));
-  const forearmGeometry = ownGeometry(resources, new THREE.CapsuleGeometry(0.38, 0.72, 3, 8));
-  const fistGeometry = ownGeometry(resources, new THREE.SphereGeometry(0.62, 10, 7));
+  const forearmGeometry = ownGeometry(resources, new THREE.CapsuleGeometry(0.44, 0.9, 3, 8));
+  const fistGeometry = ownGeometry(resources, new THREE.SphereGeometry(0.74, 10, 7));
   const footGeometry = ownGeometry(resources, new THREE.SphereGeometry(1, 10, 6));
   const shoulderGeometry = ownGeometry(resources, new THREE.SphereGeometry(1, 10, 6));
   const browGeometry = ownGeometry(resources, new THREE.BoxGeometry(0.66, 0.18, 0.2));
@@ -364,7 +364,7 @@ export function createWarden(variant = 0): WardenArt {
   torso.name = "torso";
   torso.position.set(0, 3.12, 0);
   group.add(torso);
-  makeMesh(torso, torsoGeometry, body, 0, 0, 0, 1.68, 1.52, 0.9);
+  makeMesh(torso, torsoGeometry, body, 0, 0, 0, 1.6, 1.68, 0.9);
   // A raised chest plane breaks up the pear silhouette and catches a warm rim
   // light without a texture.
   makeMesh(torso, chestGeometry, bodyLight, 0, 0.26, 0.73, 1.18, 0.78, 0.24);
@@ -378,7 +378,7 @@ export function createWarden(variant = 0): WardenArt {
   head.name = "head";
   head.position.set(0, 5.67, 0.05);
   group.add(head);
-  makeMesh(head, headGeometry, body, 0, 0, 0, 1.26, 1.13, 0.92);
+  makeMesh(head, headGeometry, body, 0, 0, 0, 1.14, 1.18, 0.92);
   makeMesh(head, jawGeometry, bodyLight, 0, -0.49, 0.17, 1.02, 0.62, 0.72, Math.PI / 2);
 
   // Brow plates are slanted in opposite directions, framing two glowing eyes.
@@ -393,8 +393,8 @@ export function createWarden(variant = 0): WardenArt {
   const crest = makeMesh(head, crestGeometry, armorLight, 0, 1.05, 0.02, 1.35, 0.95, 0.78);
   crest.rotation.x = -0.24;
 
-  const leftShoulder = makeMesh(group, shoulderGeometry, armor, -1.62, 4.05, 0, 0.77, 0.58, 0.75, 0, 0, -0.12);
-  const rightShoulder = makeMesh(group, shoulderGeometry, armor, 1.62, 4.05, 0, 0.77, 0.58, 0.75, 0, 0, 0.12);
+  const leftShoulder = makeMesh(group, shoulderGeometry, armor, -1.7, 4.05, 0, 0.86, 0.54, 0.82, 0, 0, -0.12);
+  const rightShoulder = makeMesh(group, shoulderGeometry, armor, 1.7, 4.05, 0, 0.86, 0.54, 0.82, 0, 0, 0.12);
   leftShoulder.name = "left-shoulder-guard";
   rightShoulder.name = "right-shoulder-guard";
 
@@ -402,22 +402,22 @@ export function createWarden(variant = 0): WardenArt {
   const rightArm = new THREE.Group();
   leftArm.name = "left-arm";
   rightArm.name = "right-arm";
-  leftArm.position.set(-1.63, 3.56, 0);
-  rightArm.position.set(1.63, 3.56, 0);
+  leftArm.position.set(-1.72, 3.56, 0);
+  rightArm.position.set(1.72, 3.56, 0);
   group.add(leftArm, rightArm);
-  makeMesh(leftArm, limbGeometry, body, 0, -0.53, 0, 1.08, 1.18, 1.0, 0, 0, -0.12);
-  makeMesh(rightArm, limbGeometry, body, 0, -0.53, 0, 1.08, 1.18, 1.0, 0, 0, 0.12);
-  makeMesh(leftArm, forearmGeometry, bodyLight, 0, -1.36, 0.06, 1.04, 0.9, 1.0, 0, 0, -0.08);
-  makeMesh(rightArm, forearmGeometry, bodyLight, 0, -1.36, 0.06, 1.04, 0.9, 1.0, 0, 0, 0.08);
-  const leftFist = makeMesh(leftArm, fistGeometry, body, 0, -2.05, 0.2, 1.07, 0.92, 1.0);
-  const rightFist = makeMesh(rightArm, fistGeometry, body, 0, -2.05, 0.2, 1.07, 0.92, 1.0);
+  makeMesh(leftArm, limbGeometry, body, 0, -0.53, 0, 1.2, 1.18, 1.08, 0, 0, -0.12);
+  makeMesh(rightArm, limbGeometry, body, 0, -0.53, 0, 1.2, 1.18, 1.08, 0, 0, 0.12);
+  makeMesh(leftArm, forearmGeometry, bodyLight, 0, -1.42, 0.06, 1.08, 0.92, 1.04, 0, 0, -0.08);
+  makeMesh(rightArm, forearmGeometry, bodyLight, 0, -1.42, 0.06, 1.08, 0.92, 1.04, 0, 0, 0.08);
+  const leftFist = makeMesh(leftArm, fistGeometry, body, 0, -2.2, 0.2, 1.08, 0.96, 1.04);
+  const rightFist = makeMesh(rightArm, fistGeometry, body, 0, -2.2, 0.2, 1.08, 0.96, 1.04);
   leftFist.name = "left-fist";
   rightFist.name = "right-fist";
   for (const side of [-1, 1]) {
     const fist = side < 0 ? leftFist : rightFist;
     for (let i = -1; i <= 1; i++) {
-      const knuckle = makeMesh(fist, knuckleGeometry, bodyDark, i * 0.2, 0.2, 0.57, 1, 0.88, 0.72);
-      knuckle.position.x = i * 0.2;
+      const knuckle = makeMesh(fist, knuckleGeometry, bodyDark, i * 0.23, 0.2, 0.68, 1.08, 0.94, 0.82);
+      knuckle.position.x = i * 0.23;
     }
   }
 
