@@ -79,3 +79,24 @@ test("rapid fire stays inside the unit cap and a new run starts with Scout", () 
   assert.equal(game.stats.fired, 2);
   assert.equal(newGame(level).assault.weaponLevel, 1);
 });
+
+test("the left pickup lane stays locked until its cannon target breaks", () => {
+  const game = newGame(level);
+  game.assault.weaponLevel = 3;
+  game.assault.weaponTarget = null;
+  game.assault.pickupTimer = 999;
+  game.assault.pickups = [
+    { id: 1, x: 55, y: 500, w: 70, value: 1 },
+    { id: 2, x: 55, y: 465, w: 70, value: 1 },
+  ];
+  game.cannonX = game.targetX = 55;
+  tick(game, 0.5);
+  assert.deepEqual(game.assault.pickups.map((pickup) => pickup.y), [500, 465]);
+  game.firing = true;
+  tick(game, 2);
+
+  assert.equal(game.assault.cannonTarget, null);
+  assert.ok(game.pops.some((p) => p.text === "BREAK!"));
+  assert.ok(game.assault.pickups.length >= 2);
+  assert.ok(game.assault.pickups.every((pickup, index) => pickup.y > [500, 465][index]));
+});

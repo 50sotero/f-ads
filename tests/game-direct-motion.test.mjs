@@ -33,7 +33,7 @@ test("red forward spacing uses the enemy travel direction", () => {
 
 test("cannon barrel offsets are centered and match every assault volley", () => {
   assert.deepEqual(cannonBarrelOffsets(1), [0]);
-  assert.deepEqual(cannonBarrelOffsets(5), [-48, -24, 0, 24, 48]);
+  assert.deepEqual(cannonBarrelOffsets(5), [-24, 0, 24, -12, 12]);
 
   const game = newGame(assaultLevel());
   game.assault.tier = 5;
@@ -44,7 +44,7 @@ test("cannon barrel offsets are centered and match every assault volley", () => 
   const offsets = cannonBarrelOffsets(game.assault.tier);
   for (const [index, unit] of game.blue.entries()) {
     assert.ok(Math.abs(unit.x - (game.cannonX + offsets[index])) <= 0.4, `shot ${index} left the visible barrel`);
-    assert.ok(unit.y < CANNON_Y - 22);
+    assert.ok(unit.y < CANNON_Y);
   }
 });
 
@@ -103,18 +103,37 @@ test("far-side shots keep moving after they miss the boss lane", () => {
   }
 });
 
-test("sustained fire forms several rows instead of a boss-edge pile", () => {
+test("sustained fire stays in a central multi-row corridor while the boss advances", () => {
   const game = newGame(assaultLevel({
     bases: [{ x: 180, y: 300, hp: 99999, every: 9999, group: 0 }],
   }));
   game.firing = true;
   for (let frame = 0; frame < 600; frame++) step(game, 1 / 60);
-  const front = game.bases[0].y + game.bases[0].h / 2;
+  const boss = game.bases[0];
+  const postChain = game.blue.filter((unit) => (unit.used & 1) !== 0);
+  const central = postChain.filter((unit) => Math.abs(unit.x - boss.x) <= 96);
+  const front = boss.y + boss.h / 2;
   const touching = game.blue.filter((unit) => unit.y >= front && unit.y <= front + 8);
   const occupiedRows = new Set(game.blue.map((unit) => Math.floor(unit.y / 8)));
   assert.ok(game.blue.length > 100, "fixture did not build sustained crowd pressure");
-  assert.ok(touching.length < 50, `${touching.length} runners overlapped at the boss edge`);
-  assert.ok(occupiedRows.size > 12, "crowd did not form a multi-row queue");
+  assert.ok(postChain.length > 100, "fixture did not cross the first gate");
+  assert.ok(central.length / postChain.length > 0.9, "post-gate crowd spilled across the full road");
+  assert.ok(touching.length < 100, `${touching.length} runners overlapped at the boss edge`);
+  assert.ok(occupiedRows.size > 20, "crowd did not form a multi-row queue");
+  assert.ok(boss.y > 300 && boss.y <= 372, `boss pressure moved to an invalid y=${boss.y}`);
+});
+
+test("boss pressure waits for the opening before advancing its authoritative base", () => {
+  const game = newGame(assaultLevel({
+    bases: [{ x: 180, y: 300, hp: 99999, every: 9999, group: 0 }],
+    gates: [],
+  }));
+  game.firing = false;
+  for (let frame = 0; frame < 294; frame++) step(game, 1 / 60);
+  assert.equal(game.bases[0].y, 300);
+  for (let frame = 0; frame < 36; frame++) step(game, 1 / 60);
+  assert.ok(game.bases[0].y > 300);
+  assert.ok(game.bases[0].y <= 372);
 });
 
 test("surviving runners keep their positions during a boss transition", () => {

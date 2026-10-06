@@ -128,6 +128,8 @@ export type AssaultState = {
   weaponTarget: WeaponTarget | null;
   weaponTargetsEnabled: boolean;
   weaponTargetTimer: number;
+  /** Shootable lock that releases the campaign's left +1 pickup lane. */
+  cannonTarget: WeaponTarget | null;
   /** Shots remaining in the current burst. Releasing fire cancels it. */
   burstRemaining: number;
   /** Last fired barrel and its sequence, used for individual recoil. */
@@ -155,6 +157,10 @@ export type AssaultState = {
   nextPickupId: number;
   /** Short contact interval keeps each giant readable as a battlefront. */
   bossTimer: number;
+  /** Time spent in the current boss battle, used for delayed lane pressure. */
+  bossTime: number;
+  /** Base y at the start of the current encounter before the boss advances. */
+  bossOriginY: number;
   /** Total blue +1 gates collected, including pickups after reaching tier 5. */
   pickupsCollected: number;
   /** 0..1 windup signal during the active boss's 0.8-second warning. */
@@ -278,6 +284,7 @@ function makeAssaultState(level: Level): AssaultState {
     weaponTarget: config.practice ? null : makeWeaponTarget(1),
     weaponTargetsEnabled: !config.practice,
     weaponTargetTimer: 0,
+    cannonTarget: config.practice ? null : makeCannonTarget(),
     burstRemaining: 0,
     barrelShots: [0, 0, 0, 0, 0],
     upgradeFlash: 0,
@@ -292,6 +299,8 @@ function makeAssaultState(level: Level): AssaultState {
     pickupTimer: Math.max(3, config.pickupEvery ?? 9),
     nextPickupId: config.practice ? 2 : 5,
     bossTimer: 0,
+    bossTime: 0,
+    bossOriginY: level.bases[0]?.y ?? 300,
     pickupsCollected: 0,
     bossWarning: 0,
     bossPulse: 0,
@@ -771,14 +780,32 @@ const ASSAULT_CHAMP_SPEED = 66;
  */
 export const CANNON_BARREL_SPACING = 24;
 
+const CANNON_BARREL_LAYOUTS = [
+  [{ x: 0, y: -12 }],
+  [{ x: -12, y: -12 }, { x: 12, y: -12 }],
+  [{ x: -24, y: -12 }, { x: 0, y: -12 }, { x: 24, y: -12 }],
+  [{ x: -24, y: -12 }, { x: 24, y: -12 }, { x: -12, y: 4 }, { x: 12, y: 4 }],
+  [{ x: -24, y: -12 }, { x: 0, y: -12 }, { x: 24, y: -12 }, { x: -12, y: 4 }, { x: 12, y: 4 }],
+] as const;
+
+/** Logical barrel positions relative to the shared flight-spawn reference. */
+export function cannonBarrelPositions(tier: number) {
+  const index = Math.max(0, Math.min(CANNON_BARREL_LAYOUTS.length - 1, Math.floor(tier) - 1));
+  return CANNON_BARREL_LAYOUTS[index].map((position) => ({ ...position }));
+}
+
 export function cannonBarrelOffsets(tier: number) {
-  const count = Math.max(1, Math.min(5, Math.floor(tier)));
-  return Array.from({ length: count }, (_, index) => (index - (count - 1) / 2) * CANNON_BARREL_SPACING);
+  return cannonBarrelPositions(tier).map((position) => position.x);
 }
 
 function makeWeaponTarget(weaponLevel: number): WeaponTarget {
   const hp = weaponLevel === 1 ? 14 : 24;
   return { x: 307, y: 472, w: 62, h: 36, hp, maxHp: hp, hitFlash: 0 };
+}
+
+function makeCannonTarget(): WeaponTarget {
+  const hp = 20;
+  return { x: 55, y: 510, w: 58, h: 34, hp, maxHp: hp, hitFlash: 0 };
 }
 
 function updateWeaponTarget(g: Game, dt: number) {
@@ -814,12 +841,40 @@ function resolveWeaponTarget(g: Game) {
   }
 }
 
+function resolveCannonTarget(g: Game) {
+  const assault = g.assault!;
+  const target = assault.cannonTarget;
+  if (!target) return;
+  for (const unit of g.blue) {
+    if (unit.dead || unit.y < target.y - target.h / 2 || unit.y > target.y + target.h / 2 + unit.r || Math.abs(unit.x - target.x) > target.w / 2 + unit.r) continue;
+    target.hp = Math.max(0, target.hp - (unit.big ? 5 : 1));
+    target.hitFlash = 1;
+    unit.dead = true;
+    pop(g, unit.x, unit.y, 0);
+    if (target.hp === 0) {
+      assault.cannonTarget = null;
+      pop(g, target.x, target.y, 0, "BREAK!");
+      break;
+    }
+  }
+}
+
 function updateAssaultPickups(g: Game, dt: number) {
   const assault = g.assault;
   const config = g.level.assault;
   if (!assault || !config) return;
   const keep: AssaultPickup[] = [];
   for (const pickup of assault.pickups) {
+    // Only hold the pickups staged behind the lock. A pickup already below
+    // the target may be a player-created/test pickup or a release that has
+    // reached the cannon line and must remain collectable.
+    const lockBottom = assault.cannonTarget
+      ? assault.cannonTarget.y + assault.cannonTarget.h / 2
+      : -Infinity;
+    if (assault.cannonTarget && pickup.x < 150 && pickup.y < lockBottom) {
+      keep.push(pickup);
+      continue;
+    }
     // The side gate travels toward the cannon's y line while staying in its
     // lane. The player must steer over it; this preserves the blue +1 choice.
     pickup.y += 36 * dt;
@@ -853,8 +908,8 @@ function updateAssaultCannon(g: Game, dt: number) {
   const assault = g.assault;
   if (!assault) return;
   const maxMove = 620 * dt;
-  const offsets = cannonBarrelOffsets(assault.tier);
-  const edge = 22 + Math.max(...offsets.map((offset) => Math.abs(offset)));
+  const positions = cannonBarrelPositions(assault.tier);
+  const edge = 22 + Math.max(...positions.map((position) => Math.abs(position.x)));
   g.targetX = Math.max(edge, Math.min(W - edge, g.targetX));
   g.cannonX += Math.max(-maxMove, Math.min(maxMove, g.targetX - g.cannonX));
   g.cooldown -= dt;
@@ -868,10 +923,10 @@ function updateAssaultCannon(g: Game, dt: number) {
   assault.burstRemaining--;
   g.cooldown += assault.burstRemaining > 0 ? weapon.burstGap : weapon.cycle - weapon.burstGap * (weapon.burst - 1);
   if (g.cooldown < 0) g.cooldown = 0;
-  const volley = offsets.length;
+  const volley = positions.length;
   for (let k = 0; k < volley && g.blue.length < MAX_UNITS; k++) {
-    const offset = offsets[k];
-    g.blue.push({ x: g.cannonX + offset + (g.rand() - 0.5) * 0.8, y: CANNON_Y - 22, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false });
+    const position = positions[k];
+    g.blue.push({ x: g.cannonX + position.x + (g.rand() - 0.5) * 0.8, y: CANNON_Y - 22 + position.y, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false });
     g.stats.fired++;
     assault.barrelShots[k]++;
     g.charge = Math.min(CHARGE_MAX, g.charge + 1);
@@ -893,6 +948,35 @@ const ASSAULT_RED_LATERAL_ACCEL = 520;
 const ASSAULT_MAX_NEIGHBOURS = 48;
 const ASSAULT_MAX_CELL_SAMPLES = 8;
 const ASSAULT_RED_SPEED_SCALE = 0.85;
+const ASSAULT_CORRIDOR_HALF = 72;
+const ASSAULT_BOSS_PRESSURE_DELAY = 5;
+const ASSAULT_BOSS_PRESSURE_SPEED = 4.5;
+const ASSAULT_BOSS_PRESSURE_TRAVEL = 72;
+
+/** Applies a soft inward force once a runner has entered the battle corridor. */
+function applyAssaultCorridorPressure(u: Unit, centerX: number, dt: number) {
+  const half = Math.max(20, ASSAULT_CORRIDOR_HALF - u.r);
+  const offset = u.x - centerX;
+  const penetration = Math.abs(offset) - half;
+  if (penetration <= 0) return;
+  const towardCenter = offset < 0 ? 1 : -1;
+  // Dampen an outward drift before adding the inward force. Position remains
+  // owned by move(), so a side shot eases back into the lane rather than
+  // snapping to a hidden target column.
+  if (u.vx * towardCenter < 0) u.vx *= Math.exp(-10 * dt);
+  u.vx += towardCenter * Math.min(10000, penetration * 180) * dt;
+}
+
+function updateAssaultBossPressure(g: Game, dt: number) {
+  const assault = g.assault!;
+  if (g.level.assault?.practice || assault.phase !== "battle") return;
+  const active = g.bases[assault.encounter];
+  if (!active || active.hp <= 0) return;
+  assault.bossTime += dt;
+  if (assault.bossTime <= ASSAULT_BOSS_PRESSURE_DELAY) return;
+  const limit = assault.bossOriginY + ASSAULT_BOSS_PRESSURE_TRAVEL;
+  active.y = Math.min(limit, active.y + ASSAULT_BOSS_PRESSURE_SPEED * dt);
+}
 
 /**
  * Returns a soft forward-speed limit from actual nearby neighbours.
@@ -1008,14 +1092,15 @@ function updateAssaultBlue(g: Game, dt: number) {
     // previous target-following code made every in-flight unit swing toward the
     // latest pointer position and made the controls feel like remote steering.
     const lane = Math.max(-4, Math.min(4, u.lane ?? 0));
-    // Gate copies get a small lateral impulse to fan out. Let that impulse
-    // settle quickly so multiplication creates a readable spread rather than
-    // sending runners on permanent sideways diagonals through later gates.
+    const crossedFirstGate = g.gates.length > 0 && (u.used & 1) !== 0;
+    // Before the first actual gate, keep the launch decision readable. Once a
+    // runner has crossed it, reduce the sideways impulse and ease the unit
+    // back into the active boss's narrow battle corridor.
     u.vx *= Math.exp(-3 * dt);
-    // Keep gate approach readable, then let the stronger crowd pressure open
-    // the final battle queue once the last panel is behind the runner.
-    const lateralScale = u.y <= lastGateY + GATE_H ? 1 : 0.2;
-    u.vx = Math.max(-420, Math.min(420, u.vx + assaultMotion.lateral[blueIndex] * lateralScale * dt));
+    const lateralScale = crossedFirstGate ? 1 : 0.2;
+    const lateralCap = 420;
+    u.vx = Math.max(-lateralCap, Math.min(lateralCap, u.vx + assaultMotion.lateral[blueIndex] * lateralScale * dt));
+    if (crossedFirstGate) applyAssaultCorridorPressure(u, active.x, dt);
     let dy = -(u.big ? ASSAULT_CHAMP_SPEED : ASSAULT_BLUE_SPEED) * dt
       * assaultMotion.forward[blueIndex] * (u.pace ?? 1);
 
@@ -1108,6 +1193,7 @@ function updateAssaultRed(g: Game, dt: number) {
       assault.spawnTimer += Math.max(0.55, 1.65 - assault.encounter * 0.08);
     }
   }
+  const active = g.bases[assault.encounter];
   const assaultMotion = assaultForwardSlots(g.red, 1);
   const surgeSpeed = surgeActive(g.level, g.t) ? 1 + Math.max(0, g.level.surge?.strength ?? 0) : 1;
   for (let redIndex = 0; redIndex < g.red.length; redIndex++) {
@@ -1118,6 +1204,7 @@ function updateAssaultRed(g: Game, dt: number) {
     // made the red horde look like nine synchronized rails.
     u.vx *= Math.exp(-2.8 * dt);
     u.vx = Math.max(-180, Math.min(180, u.vx + assaultMotion.lateral[redIndex] * (ASSAULT_RED_LATERAL_ACCEL / ASSAULT_LATERAL_ACCEL) * dt));
+    if (active) applyAssaultCorridorPressure(u, active.x, dt);
     move(g, u, config.speed * surgeSpeed * ASSAULT_RED_SPEED_SCALE * (u.big ? 0.74 : 1) * (u.pace ?? 1) * assaultMotion.forward[redIndex] * dt, dt);
     if (!u.big && hitsSpinner(g, u)) {
       u.dead = true;
@@ -1237,6 +1324,8 @@ function finishAssaultEncounter(g: Game) {
   assault.frontline = assault.horde > 0 ? 372 : CANNON_Y - 26;
   assault.spawnTimer = 1.1;
   assault.bossTimer = 0;
+  assault.bossTime = 0;
+  assault.bossOriginY = g.bases[assault.encounter]?.y ?? active.y;
   assault.bossWarning = 0;
   assault.bossPulse = 0;
   assault.slamTimer = Math.max(1, g.level.assault?.slamEvery ?? Infinity);
@@ -1267,6 +1356,7 @@ function stepAssault(g: Game, dt: number) {
   updateAssaultGatesAndSpinners(g, dt);
   updateAssaultPickups(g, dt);
   updateWeaponTarget(g, dt);
+  updateAssaultBossPressure(g, dt);
   updateAssaultBossSlam(g, dt);
 
   if (assault.phase === "advance") {
@@ -1277,6 +1367,7 @@ function stepAssault(g: Game, dt: number) {
     if (assault.transition <= 0) assault.phase = "battle";
   } else {
     updateAssaultBlue(g, dt);
+    resolveCannonTarget(g);
     resolveWeaponTarget(g);
     updateAssaultRed(g, dt);
     if (g.status === "playing") {
