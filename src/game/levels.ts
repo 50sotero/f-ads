@@ -59,7 +59,7 @@ export const levels: Level[] = [
   {
     name: "Switchback",
     tip: "The wall forces a lane change. Use the moving ×3, then cash in at ×4.",
-    par: 30,
+    par: 40,
     bases: [{ x: 180, y: 92, hp: 3168, every: 6.6, group: 16, bruteEvery: 10, bruteHp: 18 }],
     gates: [
       { x: 180, y: 548, w: 56, kind: "trap" },
@@ -79,7 +79,7 @@ export const levels: Level[] = [
   {
     name: "Pulse Run",
     tip: "Red traps blink off. Read the safe window, then send the crowd through.",
-    par: 38,
+    par: 32,
     bases: [{ x: 180, y: 92, hp: 4480, every: 4.2, group: 16, bruteEvery: 10, bruteHp: 18 }],
     gates: [
       { x: 180, y: 548, w: 56, kind: "trap" },
@@ -96,7 +96,7 @@ export const levels: Level[] = [
   {
     name: "Rotor Alley",
     tip: "Rotors punish the middle. Thread the moving gates and keep the sides clear.",
-    par: 35,
+    par: 38,
     bases: [{ x: 180, y: 90, hp: 4600, every: 2.925, group: 18, bruteEvery: 8, bruteHp: 22 }],
     gates: [
       { x: 180, y: 548, w: 56, kind: "trap" },
@@ -117,7 +117,7 @@ export const levels: Level[] = [
   {
     name: "Three Doors",
     tip: "Every door leads somewhere different. The center is safe, the sides pay out.",
-    par: 38,
+    par: 46,
     bases: [
       { x: 70, y: 92, hp: 2520, every: 3.45, group: 16, bruteEvery: 12, bruteHp: 22, delay: 0.8 },
       { x: 180, y: 82, hp: 2625, every: 3.75, group: 14, delay: 1.7 },
@@ -138,7 +138,7 @@ export const levels: Level[] = [
   {
     name: "Bridgeworks",
     tip: "Walls leave narrow bridges. Change sides before the next gate closes.",
-    par: 58,
+    par: 27,
     bases: [
       { x: 92, y: 92, hp: 561, every: 3.075, group: 18, bruteEvery: 10, bruteHp: 24 },
       { x: 268, y: 92, hp: 561, every: 3.075, group: 18, bruteEvery: 10, bruteHp: 24, delay: 2.5 },
@@ -163,7 +163,7 @@ export const levels: Level[] = [
   {
     name: "Red Alert",
     tip: "The red banner means a surge. Clear the lane before the next wave.",
-    par: 40,
+    par: 32,
     bases: [{ x: 180, y: 88, hp: 6200, every: 2.325, group: 20, bruteEvery: 7.5, bruteHp: 25, delay: 0.4 }],
     gates: [
       { x: 86, y: 500, w: 112, kind: "x", n: 3, move: { range: 26, speed: 1.25 } },
@@ -178,8 +178,8 @@ export const levels: Level[] = [
   },
   {
     name: "Twin Keep",
-    tip: "Staggered keeps share the track. Split the crowd, then finish the wounded side.",
-    par: 42,
+    tip: "The right ×5 pays more. Split the crowd, then finish the wounded keep.",
+    par: 43,
     bases: [
       { x: 70, y: 86, hp: 2322, every: 2.925, group: 18, bruteEvery: 9, bruteHp: 26, delay: 0.8 },
       { x: 290, y: 86, hp: 2322, every: 2.925, group: 18, bruteEvery: 9, bruteHp: 26, delay: 3.2 },
@@ -201,8 +201,8 @@ export const levels: Level[] = [
   {
     name: "Gauntlet",
     tip: "Every section changes the route. Keep the crowd moving and save your champion for the brutes.",
-    par: 38,
-    bases: [{ x: 180, y: 86, hp: 792, every: 1.9, group: 9, bruteEvery: 8, bruteHp: 22 }],
+    par: 32,
+    bases: [{ x: 180, y: 86, hp: 1584, every: 3.8, group: 27, bruteEvery: 8, bruteHp: 22 }],
     gates: [
       { x: 180, y: 548, w: 56, kind: "trap" },
       { x: 78, y: 522, w: 102, kind: "x", n: 2, move: { range: 23, speed: 1.2 } },
@@ -214,7 +214,7 @@ export const levels: Level[] = [
       { x: 180, y: 292, w: 112, kind: "x", n: 2, move: { range: 98, speed: 0.95, phase: 1.6 } },
       { x: 80, y: 214, w: 112, kind: "trap", move: { range: 20, speed: 1.4 }, pulse: { period: 4.8, active: 1.8, phase: 2.6 } },
       { x: 280, y: 214, w: 112, kind: "x", n: 3, move: { range: 20, speed: 1.4, phase: 2.8 } },
-      { x: 180, y: 154, w: 180, kind: "x", n: 2 },
+      { x: 180, y: 154, w: 180, kind: "x", n: 5 },
     ],
     spinners: [
       { x: 58, y: 174, r: 42, speed: 2.5 },
@@ -225,11 +225,11 @@ export const levels: Level[] = [
   },
   {
     name: "Iron Keep",
-    tip: "The final keep surges twice as hard. Chain the safe multipliers and break both towers.",
-    par: 60,
+    tip: "Build an army through ×8. Keep moving through the surges and break both towers.",
+    par: 33,
     bases: [
-      { x: 72, y: 84, hp: 720, every: 1.9, group: 10, bruteEvery: 8.5, bruteHp: 24, delay: 0.8 },
-      { x: 288, y: 84, hp: 720, every: 1.9, group: 10, bruteEvery: 8.5, bruteHp: 24, delay: 3.4 },
+      { x: 72, y: 84, hp: 1980, every: 3.8, group: 30, bruteEvery: 8.5, bruteHp: 24, delay: 0.8 },
+      { x: 288, y: 84, hp: 1980, every: 3.8, group: 30, bruteEvery: 8.5, bruteHp: 24, delay: 3.4 },
     ],
     gates: [
       { x: 72, y: 528, w: 106, kind: "x", n: 2, move: { range: 15, speed: 1.3 } },
@@ -240,7 +240,7 @@ export const levels: Level[] = [
       { x: 180, y: 324, w: 90, kind: "x", n: 2, move: { range: 120, speed: 0.8, phase: 1.3 } },
       { x: 72, y: 252, w: 112, kind: "trap", move: { range: 12, speed: 1.5, phase: 1.9 }, pulse: { period: 4.1, active: 1.35, phase: 2.7 } },
       { x: 288, y: 252, w: 112, kind: "x", n: 3, move: { range: 12, speed: 1.5, phase: 4.9 } },
-      { x: 180, y: 184, w: 190, kind: "x", n: 2 },
+      { x: 180, y: 184, w: 190, kind: "x", n: 8 },
     ],
     walls: [
       { x: 36, y: 292, w: 116, h: 30 },
