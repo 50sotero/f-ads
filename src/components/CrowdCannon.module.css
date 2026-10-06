@@ -49,7 +49,7 @@
 .tutorialCoach {
   position: absolute;
   z-index: 6;
-  inset: 67px 10px auto;
+  inset: 92px 10px auto;
   padding: 12px 13px;
   border: 2px solid #fff;
   border-radius: 18px;
@@ -71,14 +71,14 @@
 .lessonProgress i[data-done="true"] { background: #28bb9b; }
 .trainingRow { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 12px; color: #5b7e8b; font-size: 10px; line-height: 1.3; }
 .trainingRow button { flex: 0 0 auto; padding: 7px 0 7px 4px; color: #7b3dc4; font-weight: 700; text-decoration: underline; cursor: pointer; }
-.trainingRecap { display: grid; gap: 11px; margin-top: 20px; text-align: left; list-style: none; font-size: 13px; color: #315c71; }
+.trainingRecap { display: grid; gap: 11px; margin-top: 20px; text-align: left; list-style: none; font-size: 13px; color: #c3dce3; }
 .trainingRecap li { display: flex; align-items: center; gap: 9px; }
-.trainingRecap span { display: grid; width: 26px; height: 26px; flex-shrink: 0; place-items: center; border-radius: 8px; background: #e4d3ff; color: #7b3dc4; font-weight: 700; }
+.trainingRecap span { display: grid; width: 26px; height: 26px; flex-shrink: 0; place-items: center; border-radius: 8px; background: rgba(177, 121, 255, 0.24); color: #d8b7ff; font-weight: 700; }
 
 .surgeBanner {
   position: absolute;
   z-index: 4;
-  top: 66px;
+  top: 92px;
   left: 50%;
   display: flex;
   align-items: center;
@@ -106,9 +106,11 @@
   z-index: 5;
   inset: 12px 12px auto;
   display: grid;
-  grid-template-columns: 42px 1fr auto;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
   align-items: center;
   gap: 8px;
+  row-gap: 6px;
   pointer-events: none;
 }
 
@@ -116,7 +118,7 @@
 .levelPill,
 .hudStats {
   border: 1px solid rgba(255, 255, 255, 0.55);
-  background: rgba(7, 49, 77, 0.78);
+  background: rgba(5, 38, 63, 0.82);
   box-shadow: 0 4px 0 rgba(4, 30, 51, 0.18), 0 9px 22px rgba(3, 44, 69, 0.15);
   backdrop-filter: blur(9px);
 }
@@ -212,7 +214,7 @@
 }
 
 .hudStat strong {
-  font-size: 15px;
+  font-size: clamp(17px, 4.5vw, 21px);
   font-weight: 700;
   line-height: 1;
 }
@@ -225,10 +227,58 @@
   line-height: 1;
 }
 
+.castleProgress {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 9px 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(4, 38, 57, 0.72);
+  box-shadow: 0 4px 15px rgba(3, 37, 58, 0.14);
+  color: rgba(232, 250, 251, 0.82);
+  backdrop-filter: blur(8px);
+}
+
+.castleProgressTrack {
+  flex: 1;
+  min-width: 35px;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.castleProgressTrack span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ffc95b, #ff6b6e);
+  box-shadow: 0 0 10px rgba(255, 174, 76, 0.44);
+  transition: width 160ms ease-out;
+}
+
+.castleProgressLabel {
+  flex: 0 0 auto;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+.castleProgressLabel strong {
+  margin-right: 3px;
+  color: #ffe18a;
+  font-size: 11px;
+}
+
 .tip {
   position: absolute;
   z-index: 5;
-  top: 75px;
+  top: 95px;
   right: 22px;
   left: 22px;
   padding: 9px 13px;
@@ -341,61 +391,104 @@
   justify-content: center;
   overflow: auto;
   padding: 18px;
-  background: linear-gradient(180deg, rgba(6, 44, 71, 0.54), rgba(4, 25, 49, 0.72));
-  backdrop-filter: blur(4px);
+  background: linear-gradient(180deg, rgba(3, 22, 40, 0.28), rgba(2, 17, 35, 0.66));
+  backdrop-filter: blur(2px) saturate(1.05);
 }
 
 .menuOverlay {
   align-items: flex-start;
-  padding-top: 22px;
+  padding: clamp(14px, 4vh, 30px) 14px 24px;
 }
 
 .menuPanel,
 .modalPanel {
-  width: min(100%, 362px);
-  border: 1px solid rgba(255, 255, 255, 0.68);
+  width: min(100%, 410px);
+  border: 1px solid rgba(194, 239, 247, 0.28);
   border-radius: 24px;
-  background: rgba(248, 253, 253, 0.96);
-  box-shadow: 0 22px 52px rgba(1, 29, 50, 0.34), 0 4px 0 rgba(2, 39, 60, 0.16);
-  color: #092b46;
+  background: linear-gradient(145deg, rgba(6, 34, 56, 0.91), rgba(7, 62, 79, 0.79));
+  box-shadow: 0 24px 60px rgba(1, 11, 24, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  color: #effcff;
+  backdrop-filter: blur(14px) saturate(1.12);
 }
 
 .menuPanel {
-  padding: 21px 18px 16px;
+  padding: 16px 18px 15px;
   animation: panelIn 320ms cubic-bezier(0.2, 0.78, 0.28, 1.2) both;
+}
+
+.menuTopline,
+.modalTopline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 22px;
+}
+
+.homeLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid rgba(181, 239, 244, 0.25);
+  border-radius: 999px;
+  color: #c9f5f4;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.homeLink:hover,
+.homeLink:focus-visible {
+  border-color: rgba(181, 239, 244, 0.62);
+  background: rgba(139, 238, 237, 0.12);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.menuMeta {
+  color: rgba(204, 240, 244, 0.68);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 .brandLockup {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  color: #0a729a;
+  margin-top: 10px;
+  color: #8be8ef;
   line-height: 0.96;
 }
 
 .brandLockup > span {
-  color: #ec6a55;
+  color: #ff9c84;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.2em;
 }
 
 .brandLockup strong {
-  color: #092b46;
-  font-size: clamp(30px, 9vw, 40px);
+  color: #f3ffff;
+  font-size: clamp(31px, 9vw, 42px);
   font-weight: 700;
   letter-spacing: -0.06em;
+  text-shadow: 0 3px 0 rgba(0, 17, 32, 0.24);
 }
 
 .brandLockup em {
-  color: #0aa1bd;
+  color: #86edf0;
   font-style: normal;
 }
 
 .menuLead {
   max-width: 300px;
-  margin: 11px 0 15px;
-  color: #4d6f7f;
+  margin: 8px 0 13px;
+  color: #b9d3dc;
   font-size: 13px;
   line-height: 1.32;
 }
@@ -404,11 +497,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 54px;
+  min-height: 51px;
   padding: 9px 13px;
-  border: 1px solid #c6e6e8;
+  border: 1px solid rgba(139, 232, 238, 0.28);
   border-radius: 15px;
-  background: linear-gradient(115deg, #e6fbf9, #f7ffff);
+  background: linear-gradient(115deg, rgba(78, 210, 211, 0.16), rgba(152, 238, 224, 0.06));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .progressCard > div {
@@ -418,17 +512,18 @@
 }
 
 .progressCard span {
-  color: #438191;
+  color: #a5d1d7;
   font-size: 9px;
 }
 
 .progressCard strong {
-  font-size: 18px;
+  color: #f8ffff;
+  font-size: 20px;
   line-height: 1;
 }
 
 .progressCard small {
-  color: #6d8993;
+  color: #a5d1d7;
   font-size: 10px;
   font-weight: 600;
 }
@@ -459,16 +554,16 @@
 
 .primaryAction {
   border: 1px solid #bb324e;
-  background: linear-gradient(145deg, #ff6f76, #e34364);
-  box-shadow: 0 4px 0 #ac2e50, 0 8px 15px rgba(196, 52, 80, 0.23);
+  background: linear-gradient(145deg, #ff796e, #e14662);
+  box-shadow: 0 4px 0 #9d2e50, 0 9px 22px rgba(220, 70, 96, 0.27), inset 0 1px 0 rgba(255, 255, 255, 0.24);
   color: #fff;
 }
 
 .secondaryAction {
-  border: 1px solid #b5dce1;
-  background: #e6f8f8;
-  box-shadow: 0 3px 0 #a2ccd1;
-  color: #0a5170;
+  border: 1px solid rgba(139, 232, 238, 0.42);
+  background: rgba(115, 224, 224, 0.13);
+  box-shadow: 0 3px 0 rgba(32, 111, 125, 0.7);
+  color: #e0ffff;
 }
 
 .ghostAction {
@@ -476,7 +571,7 @@
   justify-content: center;
   border: 1px solid transparent;
   background: transparent;
-  color: #538091;
+  color: #b7e1e2;
   font-size: 13px;
 }
 
@@ -487,8 +582,8 @@
 .levelHeader {
   display: flex;
   justify-content: space-between;
-  margin: 19px 1px 8px;
-  color: #5f8793;
+  margin: 16px 1px 8px;
+  color: #a6cfd6;
 }
 
 .levelGrid {
@@ -519,10 +614,10 @@
 }
 
 .levelOpen {
-  border: 1px solid #9cdae0;
-  background: linear-gradient(145deg, #f5ffff, #d7f3f2);
-  box-shadow: 0 3px 0 #a4d8dc;
-  color: #0b4c6b;
+  border: 1px solid rgba(108, 224, 229, 0.68);
+  background: linear-gradient(145deg, rgba(39, 153, 171, 0.78), rgba(10, 91, 115, 0.92));
+  box-shadow: 0 3px 0 rgba(3, 51, 75, 0.68), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  color: #f3ffff;
   cursor: pointer;
 }
 
@@ -532,9 +627,9 @@
 }
 
 .levelLocked {
-  border: 1px solid #d7e7e7;
-  background: #e9f1f1;
-  color: #a4b8ba;
+  border: 1px solid rgba(160, 205, 210, 0.16);
+  background: rgba(170, 211, 215, 0.08);
+  color: rgba(208, 235, 237, 0.4);
   cursor: not-allowed;
 }
 
@@ -546,11 +641,15 @@
 .levelButton small {
   max-width: 100%;
   overflow: hidden;
-  color: #64838c;
+  color: rgba(223, 249, 249, 0.76);
   font-size: 7px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.levelLocked small {
+  color: rgba(208, 233, 235, 0.42);
 }
 
 .levelButton .stars {
@@ -574,14 +673,14 @@
   margin: 14px auto 0;
   border: 0;
   background: transparent;
-  color: #5f8190;
+  color: #c0e4e6;
   font: 600 11px/1 "Fredoka", sans-serif;
   cursor: pointer;
 }
 
 .soundButton:hover,
 .soundButton:focus-visible {
-  color: #0c5f7d;
+  color: #f0ffff;
   outline: none;
 }
 
@@ -601,7 +700,7 @@
 .stars {
   display: inline-flex;
   gap: 1px;
-  color: #b8d0d1;
+  color: rgba(208, 236, 237, 0.36);
   font-size: 16px;
   line-height: 1;
   white-space: nowrap;
@@ -609,12 +708,12 @@
 
 .star {
   display: inline-block;
-  color: #b8d0d1;
+  color: rgba(208, 236, 237, 0.36);
 }
 
 .starOn {
-  color: #f3b83e;
-  text-shadow: 0 1px 0 #cc8f22;
+  color: #ffd76b;
+  text-shadow: 0 1px 0 #9b681e, 0 0 10px rgba(255, 215, 107, 0.2);
 }
 
 .starReveal {
@@ -623,28 +722,29 @@
 
 .modalPanel {
   max-width: 330px;
-  padding: 27px 22px 20px;
+  padding: 22px 21px 18px;
   text-align: center;
   animation: panelIn 300ms cubic-bezier(0.2, 0.78, 0.28, 1.2) both;
 }
 
 .modalKicker {
   display: block;
-  color: #26889e;
+  color: #91e6eb;
 }
 
 .modalPanel h2 {
   margin: 5px 0 7px;
-  color: #092b46;
-  font-size: 32px;
+  color: #f4ffff;
+  font-size: 34px;
   letter-spacing: -0.04em;
   line-height: 1;
+  text-shadow: 0 3px 0 rgba(0, 17, 32, 0.24);
 }
 
 .modalPanel p {
   margin: 0 auto;
   max-width: 260px;
-  color: #5e7d88;
+  color: #c3dce3;
   font-size: 13px;
   line-height: 1.35;
 }
@@ -674,14 +774,14 @@
   min-height: 24px;
   padding: 5px 10px;
   border-radius: 999px;
-  background: #d8faf0;
-  color: #15866e;
+  background: rgba(118, 235, 203, 0.18);
+  color: #98f1d5;
   font-size: 9px;
 }
 
 .loseBadge {
-  background: #ffe0e1;
-  color: #cc4960;
+  background: rgba(255, 122, 139, 0.2);
+  color: #ffadb7;
 }
 
 .resultStars {
@@ -693,7 +793,7 @@
 .resultTime {
   display: block;
   margin-top: 6px;
-  color: #6a858d;
+  color: #afd1d7;
   font-size: 12px;
   font-weight: 600;
 }
@@ -781,333 +881,6 @@
   50% { box-shadow: 0 7px 0 rgba(4, 30, 51, 0.24), 0 10px 25px rgba(4, 34, 55, 0.28), 0 0 0 9px rgba(255, 224, 103, 0); }
 }
 
-@media (max-width: 440px) {
-  .gameShell {
-    width: 100%;
-    height: min(780px, calc(100dvh - 116px));
-    min-height: 540px;
-    border-width: 3px;
-    border-radius: 24px;
-  }
-
-  .gameShell::before { border-radius: 21px; }
-  .menuOverlay { align-items: flex-start; padding: 14px 10px; }
-  .menuPanel { padding: 18px 14px 13px; border-radius: 21px; }
-  .menuLead { margin-top: 8px; margin-bottom: 11px; font-size: 12px; }
-  .levelButton { min-height: 57px; }
-  .levelButton small { font-size: 6px; }
-  .hud { top: 9px; right: 9px; left: 9px; }
-  .levelPill { padding-inline: 9px; }
-  .levelPill strong { font-size: 13px; }
-  .hudStats { padding-inline: 5px; }
-  .hudStat + .hudStat { margin-left: 4px; padding-left: 4px; }
-  .championButton { right: 13px; bottom: 42px; }
-  .controlHint { right: 89px; bottom: 13px; font-size: 7px; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .menuPanel, .modalPanel, .tip, .starReveal, .championReady { animation: none; }
-  .confetti { display: none; }
-}
-
-/* The play field should read like a living arcade cabinet: the scene stays
-   visible while controls float above it in a small amount of glassy chrome. */
-.screenOverlay {
-  background: linear-gradient(180deg, rgba(3, 22, 40, 0.28), rgba(2, 17, 35, 0.66));
-  backdrop-filter: blur(2px) saturate(1.05);
-}
-
-.menuOverlay {
-  align-items: flex-start;
-  padding: clamp(14px, 4vh, 30px) 14px 24px;
-}
-
-.menuPanel,
-.modalPanel {
-  border-color: rgba(194, 239, 247, 0.28);
-  background: linear-gradient(145deg, rgba(6, 34, 56, 0.91), rgba(7, 62, 79, 0.79));
-  box-shadow: 0 24px 60px rgba(1, 11, 24, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  color: #effcff;
-  backdrop-filter: blur(14px) saturate(1.12);
-}
-
-.menuPanel {
-  width: min(100%, 410px);
-  padding: 16px 18px 15px;
-}
-
-.menuTopline,
-.modalTopline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 22px;
-}
-
-.homeLink {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 4px 8px;
-  border: 1px solid rgba(181, 239, 244, 0.25);
-  border-radius: 999px;
-  color: #c9f5f4;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  text-decoration: none;
-  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
-}
-
-.homeLink:hover,
-.homeLink:focus-visible {
-  border-color: rgba(181, 239, 244, 0.62);
-  background: rgba(139, 238, 237, 0.12);
-  outline: none;
-  transform: translateY(-1px);
-}
-
-.menuMeta {
-  color: rgba(204, 240, 244, 0.68);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.brandLockup {
-  margin-top: 10px;
-  color: #8be8ef;
-}
-
-.brandLockup > span {
-  color: #ff9c84;
-}
-
-.brandLockup strong {
-  color: #f3ffff;
-  font-size: clamp(31px, 9vw, 42px);
-  text-shadow: 0 3px 0 rgba(0, 17, 32, 0.24);
-}
-
-.brandLockup em {
-  color: #86edf0;
-}
-
-.menuLead {
-  margin-top: 8px;
-  margin-bottom: 13px;
-  color: #b9d3dc;
-}
-
-.progressCard {
-  min-height: 51px;
-  border-color: rgba(139, 232, 238, 0.28);
-  background: linear-gradient(115deg, rgba(78, 210, 211, 0.16), rgba(152, 238, 224, 0.06));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
-.progressCard span,
-.progressCard small {
-  color: #a5d1d7;
-}
-
-.progressCard strong {
-  color: #f8ffff;
-  font-size: 20px;
-}
-
-.primaryAction {
-  background: linear-gradient(145deg, #ff796e, #e14662);
-  box-shadow: 0 4px 0 #9d2e50, 0 9px 22px rgba(220, 70, 96, 0.27), inset 0 1px 0 rgba(255, 255, 255, 0.24);
-}
-
-.secondaryAction {
-  border-color: rgba(139, 232, 238, 0.42);
-  background: rgba(115, 224, 224, 0.13);
-  box-shadow: 0 3px 0 rgba(32, 111, 125, 0.7);
-  color: #e0ffff;
-}
-
-.ghostAction {
-  color: #b7e1e2;
-}
-
-.levelHeader {
-  margin-top: 16px;
-  color: #a6cfd6;
-}
-
-.levelOpen {
-  border-color: rgba(108, 224, 229, 0.68);
-  background: linear-gradient(145deg, rgba(39, 153, 171, 0.78), rgba(10, 91, 115, 0.92));
-  box-shadow: 0 3px 0 rgba(3, 51, 75, 0.68), inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  color: #f3ffff;
-}
-
-.levelLocked {
-  border-color: rgba(160, 205, 210, 0.16);
-  background: rgba(170, 211, 215, 0.08);
-  color: rgba(208, 235, 237, 0.4);
-}
-
-.levelButton small {
-  color: rgba(223, 249, 249, 0.76);
-}
-
-.levelLocked small {
-  color: rgba(208, 233, 235, 0.42);
-}
-
-.soundButton {
-  color: #c0e4e6;
-}
-
-.soundButton:hover,
-.soundButton:focus-visible {
-  color: #f0ffff;
-}
-
-.stars,
-.star {
-  color: rgba(208, 236, 237, 0.36);
-}
-
-.starOn {
-  color: #ffd76b;
-  text-shadow: 0 1px 0 #9b681e, 0 0 10px rgba(255, 215, 107, 0.2);
-}
-
-.modalPanel {
-  padding: 22px 21px 18px;
-}
-
-.modalKicker {
-  color: #91e6eb;
-}
-
-.modalPanel h2 {
-  color: #f4ffff;
-  font-size: 34px;
-  text-shadow: 0 3px 0 rgba(0, 17, 32, 0.24);
-}
-
-.modalPanel p,
-.trainingRecap {
-  color: #c3dce3;
-}
-
-.trainingRecap span {
-  background: rgba(177, 121, 255, 0.24);
-  color: #d8b7ff;
-}
-
-.resultTime {
-  color: #afd1d7;
-}
-
-.resultBadge {
-  background: rgba(118, 235, 203, 0.18);
-  color: #98f1d5;
-}
-
-.loseBadge {
-  background: rgba(255, 122, 139, 0.2);
-  color: #ffadb7;
-}
-
-.feedback {
-  position: absolute;
-  z-index: 9;
-  top: 45%;
-  left: 50%;
-  padding: 8px 15px;
-  border: 1px solid rgba(255, 230, 132, 0.58);
-  border-radius: 999px;
-  background: rgba(6, 37, 56, 0.8);
-  box-shadow: 0 7px 20px rgba(2, 21, 38, 0.24), 0 0 22px rgba(255, 211, 95, 0.14);
-  color: #ffe795;
-  font-size: clamp(12px, 3vw, 15px);
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  line-height: 1;
-  text-shadow: 0 2px 0 rgba(103, 52, 19, 0.28);
-  transform: translate(-50%, -50%);
-  animation: feedbackPop 1050ms ease-out both;
-  pointer-events: none;
-}
-
-.hud {
-  grid-template-rows: auto auto;
-  row-gap: 6px;
-}
-
-.hudStats,
-.levelPill,
-.pauseButton {
-  background: rgba(5, 38, 63, 0.82);
-}
-
-.hudStat strong {
-  font-size: clamp(17px, 4.5vw, 21px);
-}
-
-.castleProgress {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 5px 9px 5px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 999px;
-  background: rgba(4, 38, 57, 0.72);
-  box-shadow: 0 4px 15px rgba(3, 37, 58, 0.14);
-  color: rgba(232, 250, 251, 0.82);
-  backdrop-filter: blur(8px);
-}
-
-.castleProgressTrack {
-  flex: 1;
-  min-width: 35px;
-  height: 7px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.castleProgressTrack span {
-  display: block;
-  height: 100%;
-  min-width: 0;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #ffc95b, #ff6b6e);
-  box-shadow: 0 0 10px rgba(255, 174, 76, 0.44);
-  transition: width 160ms ease-out;
-}
-
-.castleProgressLabel {
-  flex: 0 0 auto;
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  white-space: nowrap;
-}
-
-.castleProgressLabel strong {
-  margin-right: 3px;
-  color: #ffe18a;
-  font-size: 11px;
-}
-
-@keyframes feedbackPop {
-  0% { opacity: 0; transform: translate(-50%, -35%) scale(0.84); }
-  16% { opacity: 1; transform: translate(-50%, -50%) scale(1.04); }
-  72% { opacity: 1; transform: translate(-50%, -58%) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -75%) scale(0.98); }
-}
-
 @media (max-width: 599px) {
   .gameShell {
     position: fixed;
@@ -1125,59 +898,26 @@
     box-shadow: none;
   }
 
-  .gameShell::before {
-    border-radius: 0;
-  }
-
-  .hud {
-    top: max(10px, env(safe-area-inset-top));
-    right: max(10px, env(safe-area-inset-right));
-    left: max(10px, env(safe-area-inset-left));
-  }
-
-  .menuOverlay {
-    padding: max(12px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
-  }
-
-  .menuPanel {
-    width: min(100%, 430px);
-    padding: 14px 14px 13px;
-  }
-
-  .brandLockup strong {
-    font-size: clamp(29px, 10vw, 40px);
-  }
-
-  .menuLead {
-    max-width: 335px;
-    font-size: 12px;
-  }
-
-  .levelGrid {
-    gap: 7px;
-  }
-
-  .levelButton {
-    min-height: 58px;
-  }
-
-  .levelButton small {
-    font-size: 7px;
-  }
-
-  .modalPanel {
-    width: min(100%, 350px);
-  }
-
-  .feedback {
-    top: 46%;
-  }
+  .gameShell::before { border-radius: 0; }
+  .hud { top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); left: max(10px, env(safe-area-inset-left)); }
+  .menuOverlay { padding: max(12px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
+  .menuPanel { width: min(100%, 430px); padding: 14px 14px 13px; }
+  .brandLockup strong { font-size: clamp(29px, 10vw, 40px); }
+  .menuLead { max-width: 335px; font-size: 12px; }
+  .levelGrid { gap: 7px; }
+  .levelButton { min-height: 58px; }
+  .levelButton small { font-size: 7px; }
+  .modalPanel { width: min(100%, 350px); }
+  .levelPill { padding-inline: 9px; }
+  .levelPill strong { font-size: 13px; }
+  .hudStats { padding-inline: 5px; }
+  .hudStat + .hudStat { margin-left: 4px; padding-left: 4px; }
+  .championButton { right: 13px; bottom: 42px; }
+  .controlHint { right: 89px; bottom: 13px; font-size: 7px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .feedback,
-  .castleProgressTrack span {
-    animation: none;
-    transition: none;
-  }
+  .menuPanel, .modalPanel, .tip, .starReveal, .championReady { animation: none; }
+  .confetti { display: none; }
+  .castleProgressTrack span { transition: none; }
 }

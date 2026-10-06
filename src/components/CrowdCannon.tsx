@@ -143,23 +143,11 @@ export function CrowdCannon() {
   const [rendererError, setRendererError] = useState<string | null>(null);
   const [rendererNonce, setRendererNonce] = useState(0);
   const [hud, setHud] = useState<HudState>({ crowd: 0, time: 0, charge: 0, baseHp: 0, baseMaxHp: 1 });
-  const [feedback, setFeedback] = useState<{ text: string; id: number } | null>(null);
-  const feedbackTimerRef = useRef<number | null>(null);
   const tip = tutorialStep === null && hud.time < 3.6;
   const sound = useSound(save.muted);
   const screenRef = useRef(screen);
   const levelRef = useRef(levelIndex);
   const soundRef = useRef(sound);
-
-  const flashFeedback = useCallback((text: string) => {
-    setFeedback({ text, id: Date.now() });
-    if (feedbackTimerRef.current !== null) window.clearTimeout(feedbackTimerRef.current);
-    feedbackTimerRef.current = window.setTimeout(() => setFeedback(null), 1050);
-  }, []);
-
-  useEffect(() => () => {
-    if (feedbackTimerRef.current !== null) window.clearTimeout(feedbackTimerRef.current);
-  }, []);
 
   useEffect(() => {
     screenRef.current = screen;
@@ -175,7 +163,6 @@ export function CrowdCannon() {
     gameRef.current = newGame(levels[index], (Date.now() ^ (index + 1) * 7919) & 0xffff);
     const maxHp = levels[index].bases.reduce((total, base) => total + base.hp, 0);
     setHud({ crowd: 0, time: 0, charge: 0, baseHp: maxHp, baseMaxHp: maxHp });
-    setFeedback(null);
     setResult({ time: 0, stars: 0, best: false });
     setScreen("playing");
   }, []);
@@ -188,7 +175,6 @@ export function CrowdCannon() {
     keysRef.current.clear();
     const maxHp = tutorialLevel.bases.reduce((total, base) => total + base.hp, 0);
     setHud({ crowd: 0, time: 0, charge: 0, baseHp: maxHp, baseMaxHp: maxHp });
-    setFeedback(null);
     setScreen("playing");
   }, []);
 
@@ -232,7 +218,6 @@ export function CrowdCannon() {
     let hudAt = 0;
     let needsDraw = true;
     let seen = { multiplied: 0, baseHits: 0, champions: 0 };
-    let feedbackAt = 0;
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
       renderer.resize(Math.max(1, rect.width), Math.max(1, rect.height));
@@ -274,13 +259,7 @@ export function CrowdCannon() {
           step(game, DT);
           accumulator -= DT;
         }
-        if (game.stats.multiplied > seen.multiplied) {
-          soundRef.current("pop");
-          if (now - feedbackAt > 420) {
-            flashFeedback(`GATE PAYOUT +${game.stats.multiplied - seen.multiplied}`);
-            feedbackAt = now;
-          }
-        }
+        if (game.stats.multiplied > seen.multiplied) soundRef.current("pop");
         if (game.stats.baseHits > seen.baseHits) soundRef.current("hit");
         if (game.stats.champions > seen.champions) soundRef.current("champ");
         seen = { multiplied: game.stats.multiplied, baseHits: game.stats.baseHits, champions: game.stats.champions };
@@ -337,7 +316,7 @@ export function CrowdCannon() {
       renderer.dispose();
       if (rendererRef.current === renderer) rendererRef.current = null;
     };
-  }, [finish, flashFeedback, rendererNonce]);
+  }, [finish, rendererNonce]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -490,8 +469,6 @@ export function CrowdCannon() {
     <div className={styles.gameShell} data-testid="crowd-cannon-game" data-screen={screen} data-level={levelIndex + 1} data-tutorial={tutorialStep ?? undefined} aria-label="Crowd Cannon arcade game">
       <canvas key={rendererNonce} ref={canvasRef} className={styles.canvas} data-testid="crowd-cannon-canvas" aria-label="Crowd Cannon game field. Hold and drag to aim and shoot." />
       <div className={styles.sceneShade} aria-hidden="true" />
-
-      {feedback && <div key={feedback.id} className={styles.feedback} role="status" aria-live="polite">{feedback.text}</div>}
 
       {(screen === "won" || screen === "trained") && (
         <div className={styles.confetti} aria-hidden="true">
