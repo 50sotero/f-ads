@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { CANNON_Y, MAX_UNITS, W, cannonBarrelPositions, surgeActive, weaponForLevel, type Game, type Unit } from "./engine";
-import { createHordeGeometry, createMobGeometry, createSiegeCannon, createWarden } from "./assaultArt";
+import { createGuardGeometry, createHordeGeometry, createMobGeometry, createSiegeCannon, createWarden } from "./assaultArt";
 
 // The simulation uses a moving local battlefield. The long road and bridges
 // stay in world space while the camera follows each new encounter's arena.
@@ -270,6 +270,17 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const aimRing = mesh(stage, aimRingGeometry, aimRingMaterial, 0, 0.025, 0, 1, 1, 0.65); aimRing.castShadow = false;
   const warningMaterial = basic(0xff543b, { transparent: true, opacity: 0, depthWrite: false });
   const warningRing = mesh(stage, aimRingGeometry, warningMaterial, 0, 0.045, -18, 4, 1, 2.5); warningRing.castShadow = false;
+  const flankMaterial = basic(0xff713d, { transparent: true, opacity: 0, depthWrite: false });
+  const flankWarning = new THREE.Group(); stage.add(flankWarning);
+  mesh(flankWarning, aimRingGeometry, flankMaterial, 0, 0.055, 0, 2.4, 1, 1.45).castShadow = false;
+  const chevronShape = new THREE.Shape();
+  chevronShape.moveTo(-0.7, 0); chevronShape.lineTo(0, 0.65); chevronShape.lineTo(0.7, 0);
+  chevronShape.lineTo(0.7, -0.35); chevronShape.lineTo(0, 0.3); chevronShape.lineTo(-0.7, -0.35); chevronShape.closePath();
+  const chevronGeometry = geo(new THREE.ShapeGeometry(chevronShape).rotateX(Math.PI / 2));
+  const flankArrows = [0, 1, 2].map((i) => {
+    const arrow = mesh(flankWarning, chevronGeometry, flankMaterial, 0, 0.065, 2.2 + i * 1.25, 1, 1, 1);
+    arrow.castShadow = false; return arrow;
+  });
   const rushMaterial = basic(0xff374b, { transparent: true, opacity: 0, depthWrite: false });
   const rushEdges = [-1, 1].map((side) => { const edge = box(stage, rushMaterial, side * 9.05, 0.02, -8, 0.18, 0.02, 23); edge.castShadow = false; return edge; });
 
@@ -319,13 +330,15 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     material.customProgramCacheKey = () => "arena-run-reserve-flow-v7"; return material;
   }
   const mobGeometry = geo(createMobGeometry()), reserveGeometry = geo(createHordeGeometry());
-  const friendMaterial = crowdMaterial(BLUE), enemyMaterial = crowdMaterial(RED);
+  const friendMaterial = crowdMaterial(BLUE), enemyMaterial = crowdMaterial(0xffffff);
   const friends = new THREE.InstancedMesh(geo(mobGeometry.clone()), friendMaterial, MAX_UNITS + 32);
   const enemies = new THREE.InstancedMesh(geo(mobGeometry.clone()), enemyMaterial, 1600);
+  const guards = new THREE.InstancedMesh(geo(createGuardGeometry()), crowdMaterial(0xe72a55), 1600);
+  const regularUnits: Unit[] = [], guardUnits: Unit[] = [];
   // Twelve thousand silhouettes already cover the visible reserve field;
   // deeper rows sit above the viewport and would only add vertex work.
-  const reserves = new THREE.InstancedMesh(reserveGeometry, enemyMaterial, 12000);
-  for (const object of [friends, enemies, reserves]) {
+  const reserves = new THREE.InstancedMesh(reserveGeometry, crowdMaterial(RED), 12000);
+  for (const object of [friends, enemies, guards, reserves]) {
     object.frustumCulled = false; object.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     object.geometry.setAttribute("runMotion", new THREE.InstancedBufferAttribute(new Float32Array(object.instanceMatrix.count * 4), 4).setUsage(THREE.DynamicDrawUsage));
     stage.add(object);
@@ -339,7 +352,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const shadowGeometry = geo(new THREE.PlaneGeometry(1, 1)); shadowGeometry.rotateX(-Math.PI / 2);
   const shadows = new THREE.InstancedMesh(shadowGeometry, shadowMaterial, MAX_UNITS + 1632); shadows.frustumCulled = false; stage.add(shadows);
   const dummy = new THREE.Object3D();
-  const unitWhite = new THREE.Color(0xffffff), blueChampion = new THREE.Color(0xa8f4ff), redBrute = new THREE.Color(0xffbaa1);
+  const unitWhite = new THREE.Color(0xffffff), blueChampion = new THREE.Color(0xa8f4ff);
+  const redSoldier = new THREE.Color(RED), redBrute = new THREE.Color(0xc81a4b), redRunner = new THREE.Color(0xff7135);
   const motion = new WeakMap<Unit, { x: number; y: number; time: number; angle: number; run: number; phase: number; launchedAt: number; used: number; glow: number }>();
   let unitSequence = 0;
   let shadowCount = 0;
@@ -350,7 +364,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const matrices = object.instanceMatrix.array, shadowMatrices = shadows.instanceMatrix.array;
     for (let i = 0; i < count; i++) {
       const unit = units[i];
-      const size = unit.big ? (enemy ? 1.8 : 2.0) : enemy ? 0.9 : 1.13;
+      const runner = enemy && unit.kind === "runner", guard = enemy && unit.kind === "guard";
+      const size = unit.big ? (enemy ? 1.8 : 2.0) : guard ? 1.18 : enemy ? 0.9 : 1.13;
       const z = wz(unit.y) - (enemy ? entry : 0);
       const time = currentGame?.t ?? 0;
       const state = motion.get(unit) ?? {
@@ -383,10 +398,10 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const fighting = shotFlight === 0 && state.run < 0.55 && (Math.abs(unit.y - front) < 32 || !!boss && Math.abs(unit.y - boss.y - boss.h / 2) < 25) ? (0.55 - state.run) / 0.55 : 0;
       runMotion.setXYZW(i, state.phase, shotFlight > 0 ? 0.15 : state.run, fighting, state.glow);
       const landing = flight >= 1 ? Math.max(0, 1 - (time - state.launchedAt - 0.34) / 0.12) : 0;
-      const pitch = shotFlight > 0 ? -0.42 * Math.sin(flight * Math.PI) : -0.14 * state.run;
+      const pitch = shotFlight > 0 ? -0.42 * Math.sin(flight * Math.PI) : (runner ? -0.26 : -0.14) * state.run;
       const cy = Math.cos(state.angle), sy = Math.sin(state.angle), cp = Math.cos(pitch), sp = Math.sin(pitch);
       const popScale = 1 + Math.sin(state.glow * Math.PI) * 0.18;
-      const sx = size * (1 + landing * 0.1) * popScale, syScale = size * (1 - landing * 0.16) * popScale;
+      const sx = size * (1 + landing * 0.1) * popScale * (runner ? 0.83 : 1), syScale = size * (1 - landing * 0.16) * popScale * (runner ? 1.08 : 1);
       const x = wx(unit.x) + curve(z), offset = i * 16;
       // Compose yaw × forward lean directly into the instance buffer. Avoid
       // thousands of Object3D Euler/quaternion callbacks per crowded frame.
@@ -394,7 +409,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       matrices[offset + 4] = sy * sp * syScale; matrices[offset + 5] = cp * syScale; matrices[offset + 6] = cy * sp * syScale; matrices[offset + 7] = 0;
       matrices[offset + 8] = sy * cp * sx; matrices[offset + 9] = -sp * sx; matrices[offset + 10] = cy * cp * sx; matrices[offset + 11] = 0;
       matrices[offset + 12] = x; matrices[offset + 13] = 0.025 + shotFlight; matrices[offset + 14] = z; matrices[offset + 15] = 1;
-      object.setColorAt(i, unit.big ? (enemy ? redBrute : blueChampion) : unitWhite);
+      object.setColorAt(i, enemy ? unit.big ? redBrute : runner ? redRunner : guard ? unitWhite : redSoldier : unit.big ? blueChampion : unitWhite);
       const shadowOffset = shadowCount++ * 16;
       // Contact shadows remain axis aligned; all other entries retain the
       // identity values initialized by InstancedMesh.
@@ -446,6 +461,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const seenPops = new WeakSet<object>();
   let currentGame: Game | null = null, shot = 0, shake = 0, previousTier = 1, previousWeapon = 1, winAt = -1, reserveInitialized = 0, previousTravel = -1;
   let previousStatus = "playing", frameTime = 0, shadowAt = 0, previousPulse = 0, wasRushing = false;
+  let previousPhase = "battle", previousWave = 0, previousWaveLane = 0, counterattackAt = -99, retreatCount = 0;
   const projected = new THREE.Vector3();
   function updateCamera() {
     const followX = Math.min(0, wx(currentGame?.cannonX ?? W / 2)) * 0.28;
@@ -468,6 +484,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       bridges.visible = theme === "bridge"; bendGeometry(worldBends); bendGeometry(stageBends, -travel); previousTravel = travel;
       previousStatus = "playing"; winAt = -1;
       previousPulse = 0; wasRushing = false;
+      previousPhase = game.assault?.phase ?? "battle"; previousWave = game.assault?.wave ?? 0; previousWaveLane = game.assault?.waveLane ?? 0; counterattackAt = -99; retreatCount = 0;
       particleList.length = 0; bosses.forEach((boss) => { boss.hp = -1; boss.deadAt = -99; boss.damageAt = -99; });
       gates.forEach((value) => { value.group.visible = false; value.nextBurst = 0; value.brokenAt = -1; });
       tags.forEach((value) => { value.age = 2; }); rings.forEach((value) => { value.age = 2; });
@@ -482,7 +499,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const entry = (assault?.advance ?? 0) * 25;
     const warning = assault?.bossWarning ?? 0, pulse = assault?.bossPulse ?? 0;
     const activeBoss = game.bases[encounter];
-    const rushing = !!assault && surgeActive(game.level, game.t) && game.status === "playing";
+    const counterattack = assault?.phase === "counterattack";
+    const rushing = !!assault && assault.phase === "battle" && surgeActive(game.level, game.t) && game.status === "playing";
     rushMaterial.opacity = rushing ? 0.35 + Math.sin(game.t * 14) * 0.2 : 0;
     rushEdges.forEach((edge, i) => { edge.position.x = (i ? 1 : -1) * 9.05 + curve(-8); });
     if (rushing && !wasRushing) tag("ENEMY RUSH", wx(activeBoss.x) + curve(wz(activeBoss.y)), wz(activeBoss.y) + 4, "#ffb49a");
@@ -495,6 +513,27 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       if (pulse > previousPulse + 0.1) { ring(x, z, 0xffc658, 5); burst(x, 0.3, z, 0xffc36a, 35, 1.3); shake = 1; }
     }
     previousPulse = pulse;
+    if (counterattack && previousPhase !== "counterattack") {
+      counterattackAt = game.t; retreatCount = reserves.count;
+      shake = Math.max(shake, 0.8);
+    }
+    previousPhase = assault?.phase ?? "battle";
+    const waveWarning = assault?.waveWarning ?? 0;
+    flankWarning.visible = counterattack && waveWarning > 0 && game.status === "playing";
+    if (flankWarning.visible) {
+      const laneX = (activeBoss?.x ?? W / 2) + (assault?.waveLane ?? 0) * 105;
+      const laneZ = wz((activeBoss?.y ?? 419) - (activeBoss?.h ?? 54) / 2 - 42);
+      flankWarning.position.set(wx(laneX) + curve(laneZ), 0, laneZ);
+      flankMaterial.opacity = 0.4 + Math.sin(game.t * 15) * 0.2 + waveWarning * 0.2;
+      flankArrows.forEach((arrow, i) => { arrow.position.z = 2.2 + i * 1.25 + (game.t * 2 % 1); });
+    }
+    if (counterattack && (assault?.wave ?? 0) > previousWave) {
+      const z = wz((activeBoss?.y ?? 419) - (activeBoss?.h ?? 54) / 2 - 42);
+      const x = wx((activeBoss?.x ?? W / 2) + previousWaveLane * 105) + curve(z);
+      ring(x, z, 0xff6a35, 3.3); burst(x, 0.35, z, 0xffbf83, 18, 0.9);
+    }
+    previousWave = assault?.wave ?? 0;
+    previousWaveLane = assault?.waveLane ?? 0;
     animationTime.value = game.t;
     shake = Math.max(0, shake - dt * 7);
     const fired = game.stats.fired > shot;
@@ -596,11 +635,16 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       view.material.emissiveIntensity = 0.4 + Math.sin(game.t * 4 + i) * 0.12;
     });
 
-    shadowCount = 0; drawUnits(game.blue, friends, false, 0); drawUnits(game.red, enemies, true, entry);
+    regularUnits.length = guardUnits.length = 0;
+    for (const unit of game.red) (unit.kind === "guard" ? guardUnits : regularUnits).push(unit);
+    shadowCount = 0; drawUnits(game.blue, friends, false, 0); drawUnits(regularUnits, enemies, true, entry); drawUnits(guardUnits, guards, true, entry);
     hasRenderedUnits = true;
     shadows.count = shadowCount; shadows.instanceMatrix.needsUpdate = true;
-    const waiting = Math.min(reserves.instanceMatrix.count, (assault?.reserve ?? 0) * 2);
-    const reserveZ = -21.2 - entry;
+    // Once the leader falls, the distant reserve withdraws beyond the horizon;
+    // deployed fighters remain real targets until the counterattack is cleared.
+    const retreat = counterattack ? Math.min(1, (game.t - counterattackAt) / 2.4) : 0;
+    const waiting = counterattack ? (retreat < 1 ? retreatCount : 0) : Math.min(reserves.instanceMatrix.count, (assault?.reserve ?? 0) * 2);
+    const reserveZ = -21.2 - entry - retreat * 100;
     reserves.count = waiting;
     // Reserve formations are immutable local instances. Reuse their buffers
     // when the count shrinks or the camera travels to the next giant.

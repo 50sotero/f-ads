@@ -304,6 +304,16 @@
 .encounterProgress { position: absolute; right: 43px; top: 4px; min-width: 52px; height: 28px; padding: 0; border: 0; background: transparent; box-shadow: none; backdrop-filter: none; align-items: end; }
 .encounterLabel { color: white; font-size: 8px; text-shadow: 0 1px 3px #172942; }
 .encounterDots { justify-content: end; }
+.battleObjective { position: absolute; z-index: 4; top: max(75px, calc(env(safe-area-inset-top) + 63px)); left: 12px; right: 12px; display: flex; align-items: center; gap: 9px; padding: 9px 12px; border: 1px solid rgba(255,255,255,.5); border-radius: 14px; background: rgba(23,47,72,.84); color: #fff; box-shadow: 0 4px 0 rgba(12,24,43,.13); pointer-events: none; }
+.battleObjective[data-phase="counterattack"] { background: linear-gradient(110deg, #a12643ee, #592046ee); border-color: #ff987d; animation: tipIn 250ms ease-out; }
+.battleObjective[data-phase="advance"] { background: #167d7dec; border-color: #a5ffe1; }
+.objectiveIcon { display: grid; flex: 0 0 29px; height: 29px; place-items: center; border-radius: 9px; background: rgba(255,255,255,.15); color: #ffe680; font-size: 22px; }
+.battleObjective > div { display: grid; gap: 2px; }
+.battleObjective strong { font-size: 12px; letter-spacing: .055em; line-height: 1.1; }
+.battleObjective > div > span { font-size: 10px; color: #e8efff; line-height: 1.25; }
+.wavePips { display: flex; gap: 3px; margin-left: auto; }
+.wavePips i { width: 6px; height: 17px; border-radius: 3px; background: #ffffff30; transform: skew(-10deg); }
+.wavePips i[data-done="true"] { background: #ffe17a; }
 .weaponCard { top: auto; bottom: max(20px, env(safe-area-inset-bottom)); left: 13px; width: auto; min-width: 105px; padding: 7px 10px; gap: 6px; border-radius: 12px; background: rgba(20, 49, 74, .64); box-shadow: none; }
 .weaponCard small, .weaponCard > div > span, .weaponProgress { display: none; }
 .weaponCard strong { font-size: 13px; }

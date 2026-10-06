@@ -18,7 +18,7 @@ const DT = 1 / 60;
 
 type Save = { stars: number[]; muted: boolean; tutorialDone: boolean };
 type Screen = "menu" | "playing" | "paused" | "won" | "lost" | "trained";
-type SoundKind = "shot" | "pop" | "hit" | "champ" | "upgrade" | "win" | "lose";
+type SoundKind = "shot" | "pop" | "hit" | "champ" | "upgrade" | "alert" | "win" | "lose";
 type AssaultHud = {
   encounter: number;
   encounters: number;
@@ -32,6 +32,12 @@ type AssaultHud = {
   upgradeFlash: number;
   reserve: number;
   frontline: number;
+  phase: "battle" | "counterattack" | "advance";
+  wave: number;
+  waves: number;
+  waveLane: number;
+  waveWarning: number;
+  remaining: number;
 };
 type HudState = { crowd: number; time: number; charge: number; assault: AssaultHud };
 
@@ -52,6 +58,12 @@ const defaultAssault = (): AssaultHud => ({
   upgradeFlash: 0,
   reserve: 0,
   frontline: 0,
+  phase: "battle",
+  wave: 0,
+  waves: 0,
+  waveLane: 0,
+  waveWarning: 0,
+  remaining: 0,
 });
 
 function assaultHud(game: Game): AssaultHud {
@@ -69,6 +81,12 @@ function assaultHud(game: Game): AssaultHud {
     upgradeFlash: Math.max(0, assault?.upgradeFlash ?? 0),
     reserve: Math.max(0, assault?.reserve ?? 0),
     frontline: Math.max(0, assault?.frontline ?? 0),
+    phase: assault?.phase ?? "battle",
+    wave: assault?.wave ?? 0,
+    waves: assault?.waves ?? 0,
+    waveLane: assault?.waveLane ?? 0,
+    waveWarning: assault?.waveWarning ?? 0,
+    remaining: assault?.remaining ?? 0,
   };
 }
 
@@ -108,7 +126,7 @@ function subscribe(listener: () => void) {
 /** Tiny synth blips keep the arcade feel without loading sound assets. */
 function useSound(muted: boolean, weaponLevel: number) {
   const contextRef = useRef<AudioContext | null>(null);
-  const lastRef = useRef<Record<SoundKind, number>>({ shot: 0, pop: 0, hit: 0, champ: 0, upgrade: 0, win: 0, lose: 0 });
+  const lastRef = useRef<Record<SoundKind, number>>({ shot: 0, pop: 0, hit: 0, champ: 0, upgrade: 0, alert: 0, win: 0, lose: 0 });
   useEffect(() => () => {
     void contextRef.current?.close();
     contextRef.current = null;
@@ -135,6 +153,7 @@ function useSound(muted: boolean, weaponLevel: number) {
           hit: [[140, 0.08, "square"]],
           champ: [[330, 0.12, "sawtooth"], [495, 0.15, "sawtooth"]],
           upgrade: [[440, 0.1, "triangle"], [660, 0.1, "triangle"], [880, 0.22, "triangle"]],
+          alert: [[587, 0.13, "triangle"], [440, 0.13, "triangle"], [587, 0.2, "triangle"]],
           win: [[523, 0.14, "triangle"], [659, 0.14, "triangle"], [784, 0.3, "triangle"]],
           lose: [[300, 0.2, "sawtooth"], [200, 0.35, "sawtooth"]],
         };
@@ -264,7 +283,7 @@ export function CrowdCannon() {
     let shown: Game | null = null;
     let hudAt = 0;
     let needsDraw = true;
-    let seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0, weapon: 1 };
+    let seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0, weapon: 1, phase: "battle" };
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
       renderer.resize(Math.max(1, rect.width), Math.max(1, rect.height));
@@ -295,7 +314,7 @@ export function CrowdCannon() {
         needsDraw = true;
         accumulator = 0;
         endAt = 0;
-        seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0, weapon: 1 };
+        seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0, weapon: 1, phase: "battle" };
       }
 
       if (screenRef.current === "playing") {
@@ -317,7 +336,8 @@ export function CrowdCannon() {
         if (game.stats.baseHits > seen.baseHits) soundRef.current("hit");
         if (game.stats.champions > seen.champions) soundRef.current("champ");
         if ((game.assault?.weaponLevel ?? 1) > seen.weapon) soundRef.current("upgrade");
-        seen = { fired: game.stats.fired, multiplied: game.stats.multiplied, baseHits: game.stats.baseHits, champions: game.stats.champions, weapon: game.assault?.weaponLevel ?? 1 };
+        if (game.assault?.phase === "counterattack" && seen.phase !== "counterattack") soundRef.current("alert");
+        seen = { fired: game.stats.fired, multiplied: game.stats.multiplied, baseHits: game.stats.baseHits, champions: game.stats.champions, weapon: game.assault?.weaponLevel ?? 1, phase: game.assault?.phase ?? "battle" };
         const training = tutorialRef.current;
         if (training) {
           if (advanceTutorial(training, game)) {
@@ -353,6 +373,12 @@ export function CrowdCannon() {
           && previous.assault.upgradeFlash === nextAssault.upgradeFlash
           && previous.assault.reserve === nextAssault.reserve
           && previous.assault.frontline === nextAssault.frontline
+          && previous.assault.phase === nextAssault.phase
+          && previous.assault.wave === nextAssault.wave
+          && previous.assault.waves === nextAssault.waves
+          && previous.assault.waveLane === nextAssault.waveLane
+          && previous.assault.waveWarning === nextAssault.waveWarning
+          && previous.assault.remaining === nextAssault.remaining
           ? previous : { crowd: game.blue.length, time: game.t, charge: game.charge, assault: nextAssault });
       }
 
@@ -566,11 +592,19 @@ export function CrowdCannon() {
           <div className={styles.hud}>
             <button type="button" className={styles.pauseButton} data-testid="pause-game" onClick={() => { screenRef.current = "paused"; setScreen("paused"); }} aria-label="Pause game"><span aria-hidden="true">Ⅱ</span></button>
             <div className={styles.levelPill} data-testid="assault-hud"><strong>CROWD<br /><em>CANNON</em></strong><span>{tutorialStep !== null ? `TRAINING ${Math.min(tutorialLessons.length, tutorialStep + 1)} / ${tutorialLessons.length}` : `LEVEL ${levelIndex + 1}`}</span></div>
-            <div className={styles.encounterProgress} data-testid="encounter-progress" role="progressbar" aria-label="Boss assault progress" aria-valuemin={1} aria-valuemax={assault.encounters} aria-valuenow={Math.min(assault.encounters, assault.encounter + 1)}>
-              <span className={styles.encounterLabel}>BOSS {Math.min(assault.encounters, assault.encounter + 1)} / {assault.encounters}</span>
+            <div className={styles.encounterProgress} data-testid="encounter-progress" role="progressbar" aria-label="Assault stage progress" aria-valuemin={1} aria-valuemax={assault.encounters} aria-valuenow={Math.min(assault.encounters, assault.encounter + 1)}>
+              <span className={styles.encounterLabel}>STAGE {Math.min(assault.encounters, assault.encounter + 1)} / {assault.encounters}</span>
               <span className={styles.encounterDots} aria-hidden="true">{Array.from({ length: assault.encounters }, (_, index) => <i key={index} data-done={index < assault.encounter} data-current={index === assault.encounter} />)}</span>
             </div>
           </div>
+          {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase}>
+            <span className={styles.objectiveIcon} aria-hidden="true">{assault.phase === "counterattack" ? "!" : assault.phase === "advance" ? "»" : "⚑"}</span>
+            <div><strong>{assault.phase === "counterattack" ? "COUNTERATTACK" : assault.phase === "advance" ? "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
+              <span>{assault.phase === "counterattack"
+                ? `${assault.remaining} enemies left · ${assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "LEFT" : assault.waveLane > 0 ? "RIGHT" : "CENTER"} WAVE INCOMING` : `wave ${assault.wave} / ${assault.waves}`}`
+                : assault.phase === "advance" ? "Keep your upgrades. Push forward!" : "Then survive the counterattack"}</span></div>
+            {assault.phase === "counterattack" && <span className={styles.wavePips} aria-label={`${assault.wave} of ${assault.waves} waves deployed`}>{Array.from({ length: assault.waves }, (_, i) => <i key={i} data-done={i < assault.wave} />)}</span>}
+          </div>}
           {tutorialLesson ? (
             <div className={styles.tutorialCoach} data-testid="tutorial-coach" role="status" aria-live="polite">
               <div className={styles.lessonHeading}><span className={styles.lessonIcon}>{tutorialLesson.icon}</span><strong>{tutorialLesson.title}</strong><button type="button" onClick={skipTutorial}>Skip tutorial</button></div>
@@ -607,7 +641,7 @@ export function CrowdCannon() {
               <span className={styles.menuMeta}>HORDE ASSAULT · {levels.length} ROUTES</span>
             </div>
             <div className={styles.brandLockup}><span>F.ADS ARCADE · HORDE ASSAULT</span><strong><em>CROWD</em> CANNON</strong></div>
-            <p className={styles.menuLead}>Multiply your crowd, collect more cannons, and shoot gold targets to evolve your weapon.</p>
+            <p className={styles.menuLead}>Build your firepower. Break their leaders. Survive the counterattacks and clear every last defender.</p>
             <div className={styles.progressCard}><div><span>YOUR RUN</span><strong>{totalStars}<small> / {levels.length * 3} stars</small></strong></div><Stars n={Math.min(3, Math.round(totalStars / Math.max(1, levels.length)))} /></div>
             <button type="button" className={`${styles.actionButton} ${styles.primaryAction} ${styles.playButton}`} data-testid="start-game" onClick={() => save.tutorialDone ? start(firstUnbeaten) : beginTutorial()}><span>{!save.tutorialDone ? "Learn to play" : totalStars ? "Continue run" : "Start run"}</span><span aria-hidden="true">→</span></button>
             <div className={styles.trainingRow}><span>{save.tutorialDone ? "Scout → Repeater → Cyclone. Build your firepower." : "Four quick drills. Then the full assault."}</span>{save.tutorialDone && <button type="button" onClick={beginTutorial}>Replay tutorial</button>}</div>
@@ -625,9 +659,9 @@ export function CrowdCannon() {
 
       {screen === "paused" && <div className={styles.screenOverlay} role="dialog" aria-modal="true" aria-labelledby="paused-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>{tutorialStep !== null ? "TRAINING" : `LEVEL ${levelIndex + 1}`}</span><Link href="/" className={styles.homeLink} data-testid="pause-home-link" aria-label="Back to F.ADS home">← Home</Link></div><h2 id="paused-title">Paused</h2><p>Catch your breath, then send the crowd through the next gate.</p><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} data-testid="resume-game" onClick={() => setScreen("playing")}>Resume</button><button type="button" className={`${styles.actionButton} ${styles.secondaryAction}`} onClick={() => tutorialStep !== null ? beginTutorial() : start(levelIndex)}>{tutorialStep !== null ? "Restart tutorial" : "Restart level"}</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Level select</button></div><button type="button" className={styles.soundButton} onClick={toggleMute}>Sound {save.muted ? "off" : "on"}</button></div></div>}
 
-      {screen === "trained" && <div className={`${styles.screenOverlay} ${styles.resultOverlay}`} role="dialog" aria-modal="true" aria-labelledby="trained-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>TRAINING</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={styles.resultBadge}>TRAINING COMPLETE</div><h2 id="trained-title">Ready for the assault!</h2><p>You can steer, multiply your crowd, collect cannons, and evolve your weapon. The first route is waiting.</p><ul className={styles.trainingRecap}><li><span>↔</span> Fire while you sweep across the lane.</li><li><span>×4</span> Chain the purple multiplier gates.</li><li><span>+1</span> Collect blue pickups to add a cannon.</li><li><span>↑</span> Shoot gold targets to upgrade your weapon.</li></ul><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(firstUnbeaten)}>{totalStars ? "Continue run" : "Play route 1"}<span aria-hidden="true">→</span></button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
+      {screen === "trained" && <div className={`${styles.screenOverlay} ${styles.resultOverlay}`} role="dialog" aria-modal="true" aria-labelledby="trained-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>TRAINING</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={styles.resultBadge}>TRAINING COMPLETE</div><h2 id="trained-title">Ready for the assault!</h2><p>You can steer, multiply your crowd, collect cannons, and evolve your weapon. The first route is waiting.</p><ul className={styles.trainingRecap}><li><span>↔</span> Fire while you sweep across the lane.</li><li><span>×4</span> Chain the purple multiplier gates.</li><li><span>+1</span> Collect blue pickups to add a cannon.</li><li><span>↑</span> Break the red weapon lock to upgrade.</li></ul><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(firstUnbeaten)}>{totalStars ? "Continue run" : "Play route 1"}<span aria-hidden="true">→</span></button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
 
-      {screen === "won" && <div className={`${styles.screenOverlay} ${styles.resultOverlay}`} role="dialog" aria-modal="true" aria-labelledby="win-title"><div className={`${styles.modalPanel} ${styles.winPanel}`}><div className={styles.modalTopline}><span className={styles.modalKicker}>ROUTE {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={styles.resultBadge}>ASSAULT CLEARED</div><h2 id="win-title">{hasNext ? "Route cleared!" : "All bosses down!"}</h2><p>{hasNext ? `You cleared ${level.name}. Ready for the next road?` : "Every boss is down. The whole assault is yours."}</p><Stars n={result.stars} animated className={styles.resultStars} /><span className={styles.resultTime}>{result.time.toFixed(1)}s {result.best ? "· new best" : "· run complete"}</span><div className={styles.modalActions}>{hasNext && <button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex + 1)}>Next route <span aria-hidden="true">→</span></button>}<button type="button" className={`${styles.actionButton} ${hasNext ? styles.secondaryAction : styles.primaryAction}`} onClick={() => start(levelIndex)}>Play again</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
+      {screen === "won" && <div className={`${styles.screenOverlay} ${styles.resultOverlay}`} role="dialog" aria-modal="true" aria-labelledby="win-title"><div className={`${styles.modalPanel} ${styles.winPanel}`}><div className={styles.modalTopline}><span className={styles.modalKicker}>ROUTE {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={styles.resultBadge}>ASSAULT CLEARED</div><h2 id="win-title">{hasNext ? "Route cleared!" : "Army defeated!"}</h2><p>{hasNext ? `${level.name} secured. Leaders down, counterattacks defeated.` : "Every leader and every reinforcement defeated. The whole assault is yours."}</p><Stars n={result.stars} animated className={styles.resultStars} /><span className={styles.resultTime}>{result.time.toFixed(1)}s {result.best ? "· new best" : "· run complete"}</span><div className={styles.modalActions}>{hasNext && <button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex + 1)}>Next route <span aria-hidden="true">→</span></button>}<button type="button" className={`${styles.actionButton} ${hasNext ? styles.secondaryAction : styles.primaryAction}`} onClick={() => start(levelIndex)}>Play again</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
 
       {screen === "lost" && <div className={styles.screenOverlay} role="dialog" aria-modal="true" aria-labelledby="lose-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>ROUTE {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={`${styles.resultBadge} ${styles.loseBadge}`}>LINE BREACHED</div><h2 id="lose-title">The horde broke through</h2><p>Pull the cannon across the road and meet the red horde before it reaches your defense line.</p><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex)}>Try again</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
     </div>

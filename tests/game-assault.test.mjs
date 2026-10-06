@@ -92,6 +92,59 @@ test("counterattack cannot finish a boss encounter before every wave is cleared"
   assert.equal(g.assault.remaining, 0);
 });
 
+test("a full field queues every counterattack reinforcement without dropping units", () => {
+  const g = newGame(assaultLevel({
+    bases: [{ x: 180, y: 300, hp: 1, every: 9999, group: 0 }],
+    assault: { horde: 650, reserve: 0, speed: 16, theme: "fork",
+      counterattack: { waves: 1, runners: 30, guards: 8, brutes: 4, interval: 0.65 } },
+  }));
+  g.bases[0].hp = 0;
+  for (let i = 0; i < 50; i++) step(g, 1 / 60);
+  assert.equal(g.red.length, 650);
+  assert.equal(g.assault.wave, 0);
+  assert.equal(g.assault.remaining, 692);
+
+  g.red.slice(0, 5).forEach((unit) => { unit.dead = true; });
+  for (let i = 0; i < 25; i++) step(g, 1 / 60);
+  assert.equal(g.red.length, 650);
+  assert.equal(g.assault.waveSpawned, 5);
+  assert.equal(g.assault.remaining, 687);
+
+  g.red.forEach((unit) => { unit.dead = true; });
+  for (let i = 0; i < 25; i++) step(g, 1 / 60);
+  assert.equal(g.assault.wave, 1);
+  assert.equal(g.red.length, 37, "the queued remainder must still deploy");
+  assert.equal(g.red.filter((unit) => unit.kind === "guard").length, 8);
+  assert.equal(g.red.filter((unit) => unit.kind === "brute").length, 4);
+  assert.equal(g.status, "playing");
+});
+
+test("clearing a stage preserves upgrades and opens the next counterattack on the opposite flank", () => {
+  const g = newGame(assaultLevel({
+    bases: [0, 1].map(() => ({ x: 180, y: 300, hp: 1, every: 9999, group: 0 })),
+    assault: { horde: 0, reserve: 0, speed: 16, theme: "fork",
+      counterattack: { waves: 1, runners: 1, interval: 0.65 } },
+  }));
+  g.assault.tier = 4;
+  g.assault.weaponLevel = 3;
+  g.bases[0].hp = 0;
+  step(g, 1 / 60);
+  assert.equal(g.assault.waveLane, -1);
+  for (let i = 0; i < 50; i++) step(g, 1 / 60);
+  g.red.forEach((unit) => { unit.dead = true; });
+  step(g, 1 / 60);
+  assert.equal(g.assault.phase, "advance");
+  assert.equal(g.assault.encounter, 1);
+  assert.equal(g.assault.tier, 5);
+  assert.equal(g.assault.weaponLevel, 3);
+  for (let i = 0; i < 120 && g.assault.phase === "advance"; i++) step(g, 1 / 60);
+  g.bases[1].hp = 0;
+  step(g, 1 / 60);
+  assert.equal(g.assault.phase, "counterattack");
+  assert.equal(g.assault.waveLane, 1);
+  assert.equal(g.status, "playing");
+});
+
 test("practice assault pickups raise the cannon tier and emit upgrade feedback", () => {
   const g = newGame(assaultLevel({
     bases: [{ x: 125, y: 300, hp: 999, every: 9999, group: 0 }],

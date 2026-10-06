@@ -92,6 +92,15 @@ export function createMobGeometry(): THREE.BufferGeometry {
   return crowdMesh(parts);
 }
 
+/** Armored defenders share the same animated body, with a steel cap and shield. */
+export function createGuardGeometry(): THREE.BufferGeometry {
+  const parts = [createMobGeometry()];
+  parts.push(tint(placed(new THREE.SphereGeometry(0.255, 10, 4, 0, Math.PI * 2, 0, Math.PI * 0.57), 0, 1.055, -0.035, 1, 1, 0.98), 0x354768, true));
+  parts.push(tint(placed(new THREE.SphereGeometry(0.34, 8, 6), 0, 0.6, -0.3, 1, 1.13, 0.25), 0x344562, true));
+  parts.push(tint(placed(new THREE.BoxGeometry(0.075, 0.45, 0.035), 0, 0.62, -0.384), 0xffcb5a, true));
+  return crowdMesh(parts);
+}
+
 /** The distant reserve retains the round head and two-legged silhouette. */
 export function createHordeGeometry(): THREE.BufferGeometry {
   const parts = [placed(new THREE.SphereGeometry(0.235, 5, 3), 0, 0.94, 0),
