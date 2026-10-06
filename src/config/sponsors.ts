@@ -6,7 +6,7 @@
 // {
 //   name: "Acme VPN",
 //   tagline: "Private browsing in one tap.",
-//   href: "https://acme.example?ref=fads",
+//   href: "https://acme.example?ref=vidlasso",
 //   logo: "/sponsors/acme.png", // put the file in public/sponsors/
 //   until: "2026-12-31",        // hidden after the end of this day (UTC)
 //   // or, for a slot sold by the hour, the exact end time:

@@ -1,4 +1,4 @@
-# F.ADS
+# VidLasso
 
 Paste a link from X, TikTok, Instagram, Reddit, Facebook and other sites and download the video, with no countdowns or pop-ups. The page earns from up to 4 direct-sold sponsor cards shown under the downloader and in the footer.
 

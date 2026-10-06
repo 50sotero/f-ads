@@ -1,8 +1,10 @@
 // Edit this file to change the brand, contact and the "Advertise here" numbers.
 export const site = {
-  name: "F.ADS",
+  name: "VidLasso",
   tagline: "Download videos from X, TikTok, Instagram and more. No waiting, no pop-ups.",
-  url: "https://f-ads.vercel.app",
+  // Main address. Older addresses in `oldHosts` forward here (see next.config.ts).
+  url: "https://vidlasso.vercel.app",
+  oldHosts: ["f-ads.vercel.app"],
   // Sponsor inquiries, copyright notices and privacy questions go here.
   contactEmail: "victorvcdbswe@gmail.com",
   // Ownership tokens from Google Search Console / Bing Webmaster Tools (the content
