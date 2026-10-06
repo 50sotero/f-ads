@@ -7,7 +7,7 @@ import { site } from "@/config/site";
 import { levels } from "@/game/levels";
 import { absoluteUrl, baseGraph, pageMetadata } from "@/lib/seo";
 
-const description = `Crowd Cannon is a free browser game: steer a growing cannon through purple multiplier chains and blue +1 pickups, then defeat every boss on the road. ${levels.length} routes, no download, no sign-up.`;
+const description = `Crowd Cannon is a free 3D crowd shooter: multiply your army, upgrade your cannons, defeat giants, and survive their counterattacks. ${levels.length} routes, permanent upgrades, no download or sign-up.`;
 
 export const metadata: Metadata = pageMetadata({
   title: "Crowd Cannon: Free Crowd Shooter Game",
@@ -58,9 +58,11 @@ export default function PlayPage() {
           <li><strong className="text-ink">Fire and steer.</strong> Hold anywhere on the arena and drag left or right. Your cannon keeps firing while you hold.</li>
           <li><strong className="text-ink">Chain purple gates.</strong> Guide the horde through ×2, ×3, and ×4 gates to multiply your crowd before the next boss.</li>
           <li><strong className="text-ink">Collect blue +1s.</strong> Aim through a blue +1 lane to add a cannon and raise your tier. More cannons mean a stronger frontline.</li>
-          <li><strong className="text-ink">Read the road.</strong> Forks, bridges, and bends change the safest line. Keep moving while the red horde closes in.</li>
-          <li><strong className="text-ink">Break every boss.</strong> Each route has a sequence of bosses. Defeat the current boss to advance up the road and meet the next.</li>
+          <li><strong className="text-ink">Protect the line.</strong> The cyan defense line can take three hits. Watch for fast flankers, armored guards, and brutes that deal two damage.</li>
+          <li><strong className="text-ink">Finish the fight.</strong> Defeating a giant triggers a counterattack. Clear the surviving defenders and every reinforcement wave to advance.</li>
           <li><strong className="text-ink">Use your champion.</strong> Shooting fills the star. Tap it (or press Space) to launch a champion that can absorb heavy hits.</li>
+          <li><strong className="text-ink">Build your loadout.</strong> Route clears and new stars earn credits. Spend them in the Armory on starting cannons, weapon upgrades, and champion charge.</li>
+          <li><strong className="text-ink">Keyboard and mouse.</strong> Hold W or ↑ to fire, A/D or ←/→ to move, and Space for a champion. Esc pauses. With a mouse, hold and move to aim.</li>
         </ul>
         <p className="mt-6 text-sm">
           Came for a video? <Link href="/" className="font-semibold text-accent hover:underline">Download it here</Link>, with no waiting.

@@ -6,18 +6,19 @@ import "@fontsource/fredoka/700.css";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 
-import { CHARGE_MAX, launchChampion, newGame, stars, step, W, weaponForLevel, type Game } from "@/game/engine";
+import { applyStartingLoadout, CHARGE_MAX, launchChampion, newGame, stars, step, W, weaponForLevel, type Game } from "@/game/engine";
 import { levels } from "@/game/levels";
 import { createRenderer } from "@/game/render";
 import { advanceTutorial, newTutorialProgress, tutorialLessons, tutorialLevel, type TutorialProgress } from "@/game/tutorial";
+import { buyUpgrade, completeRoute, emptyCampaignSave, normalizeCampaignSave, startingLoadout, UPGRADE_DEFS, type CampaignSave, type UpgradeId } from "@/game/progression";
 
 import styles from "./CrowdCannon.module.css";
 
 const SAVE_KEY = "fads-crowd-cannon-v1";
 const DT = 1 / 60;
 
-type Save = { stars: number[]; muted: boolean; tutorialDone: boolean };
-type Screen = "menu" | "playing" | "paused" | "won" | "lost" | "trained";
+type Save = CampaignSave;
+type Screen = "menu" | "armory" | "playing" | "paused" | "won" | "lost" | "trained";
 type SoundKind = "shot" | "pop" | "hit" | "champ" | "upgrade" | "alert" | "win" | "lose";
 type AssaultHud = {
   encounter: number;
@@ -38,10 +39,13 @@ type AssaultHud = {
   waveLane: number;
   waveWarning: number;
   remaining: number;
+  integrity: number;
+  maxIntegrity: number;
+  breachFlash: number;
 };
 type HudState = { crowd: number; time: number; charge: number; assault: AssaultHud };
 
-const EMPTY: Save = { stars: [], muted: false, tutorialDone: false };
+const EMPTY: Save = emptyCampaignSave();
 let cached: Save | null = null;
 const listeners = new Set<() => void>();
 
@@ -64,6 +68,9 @@ const defaultAssault = (): AssaultHud => ({
   waveLane: 0,
   waveWarning: 0,
   remaining: 0,
+  integrity: 3,
+  maxIntegrity: 3,
+  breachFlash: 0,
 });
 
 function assaultHud(game: Game): AssaultHud {
@@ -87,6 +94,9 @@ function assaultHud(game: Game): AssaultHud {
     waveLane: assault?.waveLane ?? 0,
     waveWarning: assault?.waveWarning ?? 0,
     remaining: assault?.remaining ?? 0,
+    integrity: assault?.integrity ?? 3,
+    maxIntegrity: assault?.maxIntegrity ?? 3,
+    breachFlash: assault?.breachFlash ?? 0,
   };
 }
 
@@ -96,12 +106,7 @@ function readSave(): Save {
   if (typeof window === "undefined") return cached;
   try {
     const value = JSON.parse(window.localStorage.getItem(SAVE_KEY) ?? "null");
-    if (value && Array.isArray(value.stars)) cached = {
-      stars: value.stars,
-      muted: !!value.muted,
-      // Existing players keep their unlocks and are not forced through onboarding.
-      tutorialDone: value.tutorialDone ?? value.stars.some((rating: number) => rating > 0),
-    };
+    cached = normalizeCampaignSave(value);
   } catch {
     // Private browsing and blocked storage should not stop the game from loading.
   }
@@ -196,6 +201,25 @@ function Stars({ n, animated = false, className = "" }: { n: number; animated?: 
   );
 }
 
+function UpgradeIcon({ kind }: { kind: UpgradeId }) {
+  return <svg viewBox="0 0 72 72" className={styles.upgradeIcon} aria-hidden="true">
+    <ellipse cx="36" cy="59" rx="25" ry="6" fill="#10244b" opacity=".25" />
+    {kind === "champion" ? <>
+      <path d="M36 8 59 18V36C59 49 49 59 36 64 23 59 13 49 13 36V18Z" fill="#ffbd3e" stroke="#ffe597" strokeWidth="3" />
+      <path d="m39 19-15 22h12l-3 13 16-24H37Z" fill="#fff7c6" />
+    </> : <>
+      <rect x="12" y="44" width="48" height="15" rx="7" fill="#233966" />
+      {[21, 51].map((x) => <circle key={x} cx={x} cy="56" r="7" fill="#10264e" stroke="#a5d7fa" strokeWidth="3" />)}
+      <rect x="17" y="33" width="38" height="19" rx="9" fill={kind === "weapon" ? "#ff963a" : "#259eff"} />
+      {(kind === "crew" ? [24, 47] : [24, 36, 48]).map((x) => <g key={x} transform={`rotate(-12 ${x} 33)`}>
+        <rect x={x - 6} y="11" width="12" height="31" rx="5" fill={kind === "weapon" ? "#ffc64a" : "#63d3ff"} />
+        <rect x={x - 7} y="10" width="14" height="8" rx="3" fill="#e9faff" />
+        <rect x={x - 4} y="12" width="8" height="3" rx="1.5" fill="#234672" />
+      </g>)}
+    </>}
+  </svg>;
+}
+
 export function CrowdCannon() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ReturnType<typeof createRenderer> | null>(null);
@@ -207,7 +231,8 @@ export function CrowdCannon() {
   const save = useSyncExternalStore(subscribe, readSave, () => EMPTY);
   const [screen, setScreen] = useState<Screen>("menu");
   const [levelIndex, setLevelIndex] = useState(0);
-  const [result, setResult] = useState({ time: 0, stars: 0, best: false });
+  const [result, setResult] = useState({ time: 0, stars: 0, best: false, earned: 0 });
+  const [armoryNotice, setArmoryNotice] = useState("");
   const [tutorialStep, setTutorialStep] = useState<number | null>(null);
   const [rendererError, setRendererError] = useState<string | null>(null);
   const [rendererNonce, setRendererNonce] = useState(0);
@@ -226,11 +251,16 @@ export function CrowdCannon() {
   const start = useCallback((requestedIndex: number) => {
     const index = Math.max(0, Math.min(levels.length - 1, requestedIndex));
     setLevelIndex(index);
+    levelRef.current = index;
     tutorialRef.current = null;
     setTutorialStep(null);
     gameRef.current = newGame(levels[index], (Date.now() ^ (index + 1) * 7919) & 0xffff);
-    setHud({ crowd: 0, time: 0, charge: 0, assault: defaultAssault() });
-    setResult({ time: 0, stars: 0, best: false });
+    applyStartingLoadout(gameRef.current, startingLoadout(readSave()));
+    pointerRef.current = null;
+    keysRef.current.clear();
+    setHud({ crowd: 0, time: 0, charge: gameRef.current.charge, assault: assaultHud(gameRef.current) });
+    setResult({ time: 0, stars: 0, best: false, earned: 0 });
+    screenRef.current = "playing";
     setScreen("playing");
   }, []);
 
@@ -249,15 +279,16 @@ export function CrowdCannon() {
       const index = levelRef.current;
       const rating = stars(game.level, game.t);
       const previous = readSave();
-      const next = { ...previous, stars: [...previous.stars] };
-      const best = rating > (next.stars[index] ?? 0);
-      if (best) next.stars[index] = rating;
-      writeSave(next);
-      setResult({ time: game.t, stars: rating, best });
+      const cleared = completeRoute(previous, index, rating, game.t);
+      const best = !previous.bestTimes[index] || game.t < previous.bestTimes[index];
+      writeSave(cleared.save);
+      setResult({ time: game.t, stars: rating, best, earned: cleared.earned });
       soundRef.current("win");
+      screenRef.current = "won";
       setScreen("won");
     } else {
       soundRef.current("lose");
+      screenRef.current = "lost";
       setScreen("lost");
     }
   }, []);
@@ -379,6 +410,8 @@ export function CrowdCannon() {
           && previous.assault.waveLane === nextAssault.waveLane
           && previous.assault.waveWarning === nextAssault.waveWarning
           && previous.assault.remaining === nextAssault.remaining
+          && previous.assault.integrity === nextAssault.integrity
+          && previous.assault.breachFlash === nextAssault.breachFlash
           ? previous : { crowd: game.blue.length, time: game.t, charge: game.charge, assault: nextAssault });
       }
 
@@ -523,7 +556,7 @@ export function CrowdCannon() {
         event.preventDefault();
         screenRef.current = "paused";
         setScreen("paused");
-      } else if (screenRef.current === "paused" || screenRef.current === "trained" || screenRef.current === "won" || screenRef.current === "lost") {
+      } else if (["paused", "trained", "won", "lost", "armory"].includes(screenRef.current)) {
         event.preventDefault();
         screenRef.current = "menu";
         setScreen("menu");
@@ -537,11 +570,13 @@ export function CrowdCannon() {
   const totalStars = save.stars.reduce((total, value) => total + (value ?? 0), 0);
   const level = levels[levelIndex];
   const assault = hud.assault;
+  const loadout = startingLoadout(save);
   const weapon = weaponForLevel(assault.weaponLevel);
   const tutorialLesson = tutorialStep !== null && tutorialStep < tutorialLessons.length ? tutorialLessons[tutorialStep] : null;
   const contextualHint = tutorialStep === null && levelIndex === 0
-    ? hud.time < 4 ? "Shoot the left lock to release +1 cannons."
-      : hud.time < 8 && assault.weaponLevel === 1 ? "Break the right lock to upgrade your weapon." : null
+    ? hud.time < 4 ? "Hold + drag · Build your crowd through the gates"
+      : hud.time < 8 && assault.weaponLevel === 1 ? "Side locks unlock extra cannons and better weapons"
+        : hud.time < 12 ? "Protect the cyan line · Tap the star for a champion" : null
     : null;
   const hasNext = levelIndex + 1 < levels.length;
   const firstUnbeaten = Math.max(0, levels.findIndex((_, index) => !save.stars[index]));
@@ -550,6 +585,14 @@ export function CrowdCannon() {
     start(firstUnbeaten);
   };
   const toggleMute = () => writeSave({ ...save, muted: !save.muted });
+  const purchase = (id: UpgradeId) => {
+    const previous = readSave();
+    const next = buyUpgrade(previous, id);
+    if (next === previous) return;
+    writeSave(next);
+    setArmoryNotice(`${UPGRADE_DEFS.find((item) => item.id === id)?.title} upgraded. Equipped for your next route.`);
+    soundRef.current("upgrade");
+  };
   const launch = () => {
     const game = gameRef.current;
     if (!game || screenRef.current !== "playing") return;
@@ -560,6 +603,7 @@ export function CrowdCannon() {
     <div className={styles.gameShell} data-testid="crowd-cannon-game" data-screen={screen} data-level={levelIndex + 1} data-tutorial={tutorialStep ?? undefined} aria-label="Crowd Cannon arcade game">
       <canvas key={rendererNonce} ref={canvasRef} className={styles.canvas} data-testid="crowd-cannon-canvas" aria-label="Crowd Cannon game field. Hold and drag to aim and shoot." />
       <div className={styles.sceneShade} aria-hidden="true" />
+      {screen === "playing" && assault.breachFlash > 0 && <div className={styles.breachFlash} style={{ opacity: assault.breachFlash }} aria-hidden="true" />}
 
       {(screen === "won" || screen === "trained") && (
         <div className={styles.confetti} aria-hidden="true">
@@ -619,6 +663,10 @@ export function CrowdCannon() {
             <div><span>WEAPON · LV {assault.weaponLevel}</span><strong>{weapon.name}</strong><small>{weapon.description}</small></div>
             {assault.weaponMaxHits > 0 && <div className={styles.weaponProgress} aria-label={`${assault.weaponHits} hits to weapon upgrade`}><i style={{ width: `${100 * (1 - assault.weaponHits / assault.weaponMaxHits)}%` }} /></div>}
           </div>}
+          {!tutorialLesson && <div className={styles.defenseStatus} data-danger={assault.frontline > 505} role="meter" aria-label="Defense integrity" aria-valuemin={0} aria-valuemax={assault.maxIntegrity} aria-valuenow={assault.integrity}>
+            <span>{assault.frontline > 505 ? "DEFEND THE LINE" : "DEFENSE"}</span>
+            <div aria-hidden="true">{Array.from({ length: assault.maxIntegrity }, (_, i) => <i key={i} data-active={i < assault.integrity}>◆</i>)}</div>
+          </div>}
           <div className={styles.assaultStats} aria-live="polite">
             <div className={styles.assaultStat} data-testid="crowd-count"><strong>{hud.crowd}</strong><span>CROWD</span></div>
             <div className={styles.assaultStat} data-testid="cannon-tier"><strong>{assault.tier}</strong><span>CANNONS</span></div>
@@ -641,10 +689,11 @@ export function CrowdCannon() {
               <span className={styles.menuMeta}>HORDE ASSAULT · {levels.length} ROUTES</span>
             </div>
             <div className={styles.brandLockup}><span>F.ADS ARCADE · HORDE ASSAULT</span><strong><em>CROWD</em> CANNON</strong></div>
-            <p className={styles.menuLead}>Build your firepower. Break their leaders. Survive the counterattacks and clear every last defender.</p>
-            <div className={styles.progressCard}><div><span>YOUR RUN</span><strong>{totalStars}<small> / {levels.length * 3} stars</small></strong></div><Stars n={Math.min(3, Math.round(totalStars / Math.max(1, levels.length)))} /></div>
+            <p className={styles.menuLead}>Multiply your crowd. Build your firepower. Outlast the siege.</p>
+            <div className={styles.progressCard}><div><span>CAMPAIGN</span><strong>★ {totalStars}<small> / {levels.length * 3}</small></strong></div><div className={styles.creditBalance}><span>UPGRADE CREDITS</span><strong>◈ {save.credits.toLocaleString()}</strong></div></div>
             <button type="button" className={`${styles.actionButton} ${styles.primaryAction} ${styles.playButton}`} data-testid="start-game" onClick={() => save.tutorialDone ? start(firstUnbeaten) : beginTutorial()}><span>{!save.tutorialDone ? "Learn to play" : totalStars ? "Continue run" : "Start run"}</span><span aria-hidden="true">→</span></button>
-            <div className={styles.trainingRow}><span>{save.tutorialDone ? "Scout → Repeater → Cyclone. Build your firepower." : "Four quick drills. Then the full assault."}</span>{save.tutorialDone && <button type="button" onClick={beginTutorial}>Replay tutorial</button>}</div>
+            <button type="button" className={styles.armoryEntry} data-testid="open-armory" onClick={() => { setArmoryNotice(""); setScreen("armory"); }}><UpgradeIcon kind="weapon" /><div><strong>THE ARMORY</strong><span>{loadout.tier} {loadout.tier === 1 ? "cannon" : "cannons"} · {weaponForLevel(loadout.weaponLevel).name} · upgrades stay with you</span></div><span aria-hidden="true">›</span></button>
+            <div className={styles.trainingRow}><span>{save.tutorialDone ? "Hold + drag to steer. Tap the star to launch." : "Five quick drills. Then the full assault."}</span>{save.tutorialDone && <button type="button" onClick={beginTutorial}>Replay tutorial</button>}</div>
             <div className={styles.levelHeader}><span>CHOOSE A ROUTE</span><span>{levels.length} ROUTES</span></div>
             <div className={styles.levelGrid}>
               {levels.map((item, index) => {
@@ -657,13 +706,26 @@ export function CrowdCannon() {
         </div>
       )}
 
+      {screen === "armory" && <div className={`${styles.screenOverlay} ${styles.armoryOverlay}`} role="dialog" aria-modal="true" aria-labelledby="armory-title"><div className={`${styles.menuPanel} ${styles.armoryPanel}`}>
+        <div className={styles.menuTopline}><button type="button" className={styles.homeLink} onClick={() => setScreen("menu")}>← Routes</button><span className={styles.armoryCredits}>◈ {save.credits.toLocaleString()}</span></div>
+        <span className={styles.modalKicker}>BUILT FOR THE NEXT BATTLE</span><h2 id="armory-title">The Armory</h2><p className={styles.menuLead}>Permanent upgrades. Earn credits by clearing routes and improving your stars.</p>
+        <div className={styles.loadoutSummary}>EQUIPPED <strong>{loadout.tier} {loadout.tier === 1 ? "cannon" : "cannons"} · {weaponForLevel(loadout.weaponLevel).name} · {loadout.charge}/30 charge</strong></div>
+        <div className={styles.upgradeList}>{UPGRADE_DEFS.map((item) => {
+          const rank = save.upgrades[item.id], cost = item.costs[rank], maxed = rank === item.maxrank;
+          const next = item.id === "crew" ? `Start with ${Math.min(3, rank + 2)} cannons` : item.id === "weapon" ? `Start with ${weaponForLevel(Math.min(3, rank + 2)).name}` : `Start with ${Math.min(30, (rank + 1) * 10)}/30 champion charge`;
+          return <div className={styles.upgradeCard} key={item.id} data-upgrade={item.id}><UpgradeIcon kind={item.id} /><div><strong>{item.title}</strong><span>{maxed ? "Fully equipped for every route" : next}</span><div className={styles.upgradeRanks} aria-label={`Rank ${rank} of ${item.maxrank}`}>{Array.from({ length: item.maxrank }, (_, i) => <i key={i} data-owned={i < rank} />)}</div></div><button type="button" onClick={() => purchase(item.id)} disabled={maxed || save.credits < cost} aria-label={maxed ? `${item.title} maxed` : `Upgrade ${item.title} for ${cost} credits`}>{maxed ? "MAX" : <>UPGRADE<strong>◈ {cost}</strong></>}</button></div>;
+        })}</div>
+        <p className={styles.armoryNotice} role="status">{armoryNotice || "First clear: +150 · Each new star: +40 · Replays: +35"}</p>
+        <button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => save.tutorialDone ? start(firstUnbeaten) : beginTutorial()}>Take it into battle <span aria-hidden="true">→</span></button>
+      </div></div>}
+
       {screen === "paused" && <div className={styles.screenOverlay} role="dialog" aria-modal="true" aria-labelledby="paused-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>{tutorialStep !== null ? "TRAINING" : `LEVEL ${levelIndex + 1}`}</span><Link href="/" className={styles.homeLink} data-testid="pause-home-link" aria-label="Back to F.ADS home">← Home</Link></div><h2 id="paused-title">Paused</h2><p>Catch your breath, then send the crowd through the next gate.</p><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} data-testid="resume-game" onClick={() => setScreen("playing")}>Resume</button><button type="button" className={`${styles.actionButton} ${styles.secondaryAction}`} onClick={() => tutorialStep !== null ? beginTutorial() : start(levelIndex)}>{tutorialStep !== null ? "Restart tutorial" : "Restart level"}</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Level select</button></div><button type="button" className={styles.soundButton} onClick={toggleMute}>Sound {save.muted ? "off" : "on"}</button></div></div>}
 
-      {screen === "trained" && <div className={`${styles.screenOverlay} ${styles.resultOverlay}`} role="dialog" aria-modal="true" aria-labelledby="trained-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>TRAINING</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={styles.resultBadge}>TRAINING COMPLETE</div><h2 id="trained-title">Ready for the assault!</h2><p>You can steer, multiply your crowd, collect cannons, and evolve your weapon. The first route is waiting.</p><ul className={styles.trainingRecap}><li><span>↔</span> Fire while you sweep across the lane.</li><li><span>×4</span> Chain the purple multiplier gates.</li><li><span>+1</span> Collect blue pickups to add a cannon.</li><li><span>↑</span> Break the red weapon lock to upgrade.</li></ul><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(firstUnbeaten)}>{totalStars ? "Continue run" : "Play route 1"}<span aria-hidden="true">→</span></button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
+      {screen === "trained" && <div className={`${styles.screenOverlay} ${styles.resultOverlay}`} role="dialog" aria-modal="true" aria-labelledby="trained-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>TRAINING</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={styles.resultBadge}>TRAINING COMPLETE</div><h2 id="trained-title">Ready for the assault!</h2><p>Protect the cyan defense line. Each giant is followed by a counterattack—hold the line until every defender is gone.</p><ul className={styles.trainingRecap}><li><span>↔</span> Fire while you sweep across the lane.</li><li><span>×4</span> Chain the purple multiplier gates.</li><li><span>+1</span> Collect blue pickups to add a cannon.</li><li><span>↑</span> Break the red weapon lock to upgrade.</li><li><span>★</span> Launch a champion when the fight gets heavy.</li></ul><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(firstUnbeaten)}>{totalStars ? "Continue run" : "Play route 1"}<span aria-hidden="true">→</span></button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
 
-      {screen === "won" && <div className={`${styles.screenOverlay} ${styles.resultOverlay}`} role="dialog" aria-modal="true" aria-labelledby="win-title"><div className={`${styles.modalPanel} ${styles.winPanel}`}><div className={styles.modalTopline}><span className={styles.modalKicker}>ROUTE {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={styles.resultBadge}>ASSAULT CLEARED</div><h2 id="win-title">{hasNext ? "Route cleared!" : "Army defeated!"}</h2><p>{hasNext ? `${level.name} secured. Leaders down, counterattacks defeated.` : "Every leader and every reinforcement defeated. The whole assault is yours."}</p><Stars n={result.stars} animated className={styles.resultStars} /><span className={styles.resultTime}>{result.time.toFixed(1)}s {result.best ? "· new best" : "· run complete"}</span><div className={styles.modalActions}>{hasNext && <button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex + 1)}>Next route <span aria-hidden="true">→</span></button>}<button type="button" className={`${styles.actionButton} ${hasNext ? styles.secondaryAction : styles.primaryAction}`} onClick={() => start(levelIndex)}>Play again</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
+      {screen === "won" && <div className={`${styles.screenOverlay} ${styles.resultOverlay}`} role="dialog" aria-modal="true" aria-labelledby="win-title"><div className={`${styles.modalPanel} ${styles.winPanel}`}><div className={styles.modalTopline}><span className={styles.modalKicker}>ROUTE {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={styles.resultBadge}>ASSAULT CLEARED</div><h2 id="win-title">{hasNext ? "Route cleared!" : "Army defeated!"}</h2><p>{hasNext ? `${level.name} secured. Leaders down, counterattacks defeated.` : "Every leader and every reinforcement defeated. The whole assault is yours."}</p><Stars n={result.stars} animated className={styles.resultStars} /><span className={styles.resultTime}>{result.time.toFixed(1)}s {result.best ? "· new best" : "· run complete"}</span><div className={styles.resultReward}><strong>◈ +{result.earned}</strong><small>UPGRADE CREDITS</small></div><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.secondaryAction}`} onClick={() => { setArmoryNotice(""); setScreen("armory"); }}>Upgrade your loadout <span aria-hidden="true">↗</span></button>{hasNext && <button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex + 1)}>Next route <span aria-hidden="true">→</span></button>}<button type="button" className={`${styles.actionButton} ${hasNext ? styles.secondaryAction : styles.primaryAction}`} onClick={() => start(levelIndex)}>Play again</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
 
-      {screen === "lost" && <div className={styles.screenOverlay} role="dialog" aria-modal="true" aria-labelledby="lose-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>ROUTE {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={`${styles.resultBadge} ${styles.loseBadge}`}>LINE BREACHED</div><h2 id="lose-title">The horde broke through</h2><p>Pull the cannon across the road and meet the red horde before it reaches your defense line.</p><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex)}>Try again</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
+      {screen === "lost" && <div className={styles.screenOverlay} role="dialog" aria-modal="true" aria-labelledby="lose-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>ROUTE {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={`${styles.resultBadge} ${styles.loseBadge}`}>LINE BREACHED</div><h2 id="lose-title">Defense depleted</h2><p>Red fighters reached the cyan line. Watch the incoming flank, sweep toward it, and launch a champion before they break through.</p><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex)}>Try again</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
     </div>
   );
 }
