@@ -9,7 +9,22 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
  * with hundreds of fighters.
  */
 
+function vertexColor(geometry: THREE.BufferGeometry, hex: number): THREE.BufferGeometry {
+  const position = geometry.getAttribute("position");
+  const color = new THREE.Color(hex);
+  const values = new Float32Array(position.count * 3);
+  for (let i = 0; i < position.count; i++) color.toArray(values, i * 3);
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(values, 3));
+  return geometry;
+}
+
 function finishMerged(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  // MeshStandardMaterial multiplies the team tint by vertex color. Keep every
+  // body vertex white so the blue/red instance color stays unchanged, while
+  // the small face pieces can carry their own white/dark accents.
+  parts.forEach((part) => {
+    if (!part.getAttribute("color")) vertexColor(part, 0xffffff);
+  });
   const merged = mergeGeometries(parts, false);
   parts.forEach((part) => part.dispose());
   if (!merged) throw new Error("Unable to merge assault art geometry");
@@ -110,6 +125,13 @@ export function createMobGeometry(): THREE.BufferGeometry {
   parts.push(sphere(0.07, 5, 3, 0.2, 1.0, 0, 0.75, 0.9, 0.68));
   parts.push(sphere(0.08, 5, 3, 0, 0.96, -0.19, 0.75, 0.75, 0.48));
 
+  // Small forward-facing eyes give close rows a face without adding a second
+  // material or per-unit node. The pupils sit a little farther toward -Z.
+  for (const side of [-1, 1]) {
+    parts.push(vertexColor(sphere(0.045, 6, 3, side * 0.085, 1.04, -0.224, 1, 0.9, 0.35), 0xffffff));
+    parts.push(vertexColor(sphere(0.019, 4, 3, side * 0.085, 1.04, -0.24, 0.9, 0.84, 0.3), 0x162338));
+  }
+
   for (const side of [-1, 1]) {
     // Shoulder caps and stubby arms hang just outside the torso.
     parts.push(sphere(0.14, 5, 3, side * 0.29, 0.72, 0, 1.0, 0.9, 0.82));
@@ -144,6 +166,11 @@ export function createHordeGeometry(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   parts.push(roundedBox(0.42, 0.53, 0.28, 0, 0.43, 0));
   parts.push(roundedBox(0.28, 0.28, 0.27, 0, 0.84, -0.01));
+  // A two-strip eye mark keeps the distant proxy from collapsing into a
+  // featureless red/blue carpet while staying inside the 100-triangle budget.
+  for (const side of [-1, 1]) {
+    parts.push(vertexColor(roundedBox(0.07, 0.035, 0.012, side * 0.055, 0.86, -0.151), 0xffffff));
+  }
   for (const side of [-1, 1]) {
     parts.push(roundedBox(0.13, 0.27, 0.15, side * 0.28, 0.48, 0, 1, 1, 1, 0, 0, side * 0.12));
     parts.push(roundedBox(0.14, 0.18, 0.19, side * 0.12, 0.11, -0.045));
