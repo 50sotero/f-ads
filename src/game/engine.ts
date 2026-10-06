@@ -1149,19 +1149,24 @@ function updateAssaultBlue(g: Game, dt: number) {
     // direct player control. The lane offset is deliberately small so the
     // front still reads as a broad crowd rather than nine homing streams.
     const passedFinalGate = u.y <= lastGateY - GATE_H || (allGatesMask !== 0 && (u.used & allGatesMask) === allGatesMask);
-    const bossApproachY = active.y + active.h / 2 + 5;
-    if (passedFinalGate && u.y < bossApproachY) {
+    // Begin the flank turn as soon as the runner clears the last gate line.
+    // Waiting until the boss's current y made side launches pass its entire
+    // footprint before their lateral velocity had time to reach the flank.
+    if (passedFinalGate) {
       // Keep a runner's own lane while it is already over the fortress. Only
       // steer a missed shot back to the nearest edge of the boss footprint;
       // pulling every survivor toward the centre creates a single broad row
       // at the collision plane when a multiplied wave arrives together.
-      const bossHalf = active.w / 2 + u.r;
+      // Aim a few logical units inside the footprint so floating-point
+      // settling cannot leave a side launch parked exactly on the miss edge.
+      const bossHalf = Math.max(0, active.w / 2 + u.r - 4);
       const offsetFromBoss = u.x - active.x;
       const desiredX = Math.abs(offsetFromBoss) > bossHalf
         ? active.x + Math.sign(offsetFromBoss) * bossHalf
         : u.x + lane * 0.25;
-      const want = Math.max(-110, Math.min(110, (desiredX - u.x) * 2.4));
-      u.vx += (want - u.vx) * Math.min(1, dt * 4.5);
+      const missedFlank = Math.abs(offsetFromBoss) > bossHalf;
+      const want = Math.max(-180, Math.min(180, (desiredX - u.x) * (missedFlank ? 3.4 : 2.4)));
+      u.vx += (want - u.vx) * Math.min(1, dt * (missedFlank ? 9 : 4.5));
     }
 
     // Stop at the living boss's front edge before moving. This preserves a
@@ -1370,6 +1375,10 @@ function finishAssaultEncounter(g: Game) {
   assault.bossPulse = 0;
   assault.slamTimer = Math.max(1, g.level.assault?.slamEvery ?? Infinity);
   for (const gt of g.gates) {
+    // Each new giant gets a fresh set of panels. Keep the array indices stable
+    // so surviving runners retain their `used` mask across the transition.
+    gt.overrun = false;
+    gt.flash = 0;
     if (gt.kind === "x") gt.n = Math.min(9, Math.max(2, (gt.n ?? 2) + 1));
   }
   // Keep the living crowd where the defeated boss was. Resetting every runner

@@ -91,6 +91,25 @@ test("the broad assault boss catches runners at the corridor edge", () => {
   assert.equal(game.bases[0].hp, 9998);
 });
 
+test("side-lane shots turn at the last channel and reach the boss flank", () => {
+  for (const launchX of [55, 307]) {
+    const game = newGame(assaultLevel({
+      bases: [{ x: 180, y: 300, hp: 99999, every: 9999, group: 0 }],
+    }));
+    game.firing = false;
+    game.assault.weaponTarget = null;
+    game.assault.cannonTarget = null;
+    game.assault.weaponTargetsEnabled = false;
+    const runner = { x: launchX, y: 574, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false };
+    game.blue.push(runner);
+    for (let frame = 0; frame < 240 && !runner.dead; frame++) step(game, 1 / 60);
+
+    assert.equal(runner.dead, true, `side shot at x=${launchX} leaked beyond the boss`);
+    assert.equal(game.blue.length, 0);
+    assert.equal(game.bases[0].hp, 99998);
+  }
+});
+
 test("boss contact is forward-only and does not repack surviving runners backward", () => {
   const game = newGame(assaultLevel());
   game.firing = false;
@@ -176,6 +195,8 @@ test("surviving runners keep their positions during a boss transition", () => {
       { x: 125, y: 300, hp: 5, every: 9999, group: 0 },
     ],
   }));
+  game.gates[2].overrun = true;
+  game.gates[2].flash = 0.75;
   const finisher = { x: 125, y: 330, vx: 0, hp: 1, r: 4.2, big: false, used: 7, dead: false };
   const survivor = { x: 125, y: 340, vx: 0, hp: 1, r: 4.2, big: false, used: 7, dead: false };
   game.blue.push(finisher, survivor);
@@ -184,6 +205,9 @@ test("surviving runners keep their positions during a boss transition", () => {
   assert.equal(game.assault.encounter, 1);
   assert.equal(game.assault.phase, "advance");
   assert.equal(game.blue.length, 1);
+  assert.deepEqual(game.gates.map((gate) => gate.overrun), [false, false, false]);
+  assert.ok(game.gates.every((gate) => gate.flash === 0), "next encounter retained a stale gate flash");
+  assert.equal(survivor.used, 7, "transition rewrote the survivor's gate mask");
   const preservedY = survivor.y;
   assert.ok(preservedY < CANNON_Y - 100, `survivor was reset near the cannon at y=${preservedY}`);
   for (let frame = 0; frame < 50; frame++) step(game, 1 / 60);
