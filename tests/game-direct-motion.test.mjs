@@ -209,7 +209,7 @@ test("a living assault boss overruns only the gate it has physically reached", (
   assert.equal(game.stats.multiplied, 0, "overrun gate multiplied a new runner");
 });
 
-test("surviving runners keep their positions during a boss transition", () => {
+test("surviving runners keep their lane and move smoothly with road travel", () => {
   const game = newGame(assaultLevel({
     bases: [
       { x: 125, y: 300, hp: 1, every: 9999, group: 0 },
@@ -230,9 +230,17 @@ test("surviving runners keep their positions during a boss transition", () => {
   assert.ok(game.gates.every((gate) => gate.flash === 0), "next encounter retained a stale gate flash");
   assert.equal(survivor.used, 7, "transition rewrote the survivor's gate mask");
   const preservedY = survivor.y;
+  const preservedX = survivor.x;
   assert.ok(preservedY < CANNON_Y - 100, `survivor was reset near the cannon at y=${preservedY}`);
-  for (let frame = 0; frame < 50; frame++) step(game, 1 / 60);
-  assert.equal(survivor.y, preservedY, "survivor moved during the camera transition");
+  for (let frame = 0; frame < 60 && game.assault.phase === "advance"; frame++) {
+    const beforeY = survivor.y;
+    step(game, 1 / 60);
+    assert.ok(survivor.y - beforeY <= 6.4, "camera advance teleported the survivor");
+  }
+  assert.equal(survivor.x, preservedX, "camera travel rewrote the survivor's lane");
+  assert.equal(survivor.used, 7, "camera travel allowed a gate to multiply twice");
+  assert.ok(survivor.y > game.bases[1].y + game.bases[1].h / 2, "survivor arrived beyond the next boss");
+  assert.ok(survivor.y <= CANNON_Y - 24, "survivor was left behind the cannon");
 });
 
 test("neighbour flow stays continuous across a motion-cell boundary", () => {

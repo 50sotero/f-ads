@@ -108,3 +108,42 @@ test("right split runners keep the nearest right panel before the boss approach"
   assert.equal(runner.used & (1 << 3), 1 << 3, "the runner reached the right second branch");
   assert.ok(runner.x > 200, `right branch guidance bent toward the left panel at x=${runner.x}`);
 });
+
+test("an engaged crowd holds the boss while a full contact row attacks", () => {
+  const game = newGame(assaultLevel());
+  const boss = game.bases[0];
+  game.assault.bossTime = 3.1;
+  for (let i = 0; i < 24; i++) game.blue.push({
+    x: 135 + (i % 12) * 8, y: boss.y + boss.h / 2 + 4.2,
+    vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false,
+  });
+  step(game, 1 / 60);
+  assert.equal(boss.y, 300, "giant walked through the dense fighting front");
+  assert.equal(game.stats.baseHits, 12, "the broad contact row did not attack together");
+  assert.equal(game.blue.length, 12, "contact discarded non-attacking survivors");
+  assert.ok(game.blue.every((u) => u.y >= boss.y + boss.h / 2), "engaged runners escaped behind the boss");
+  game.blue = [];
+  step(game, 1 / 60);
+  assert.ok(boss.y > 300, "giant did not resume pressure after its path cleared");
+});
+
+test("advanced survivors arrive ahead of the next boss without a teleport", () => {
+  const game = newGame(assaultLevel({ bases: [
+    { x: 180, y: 300, hp: 1, every: 9999, group: 0 },
+    { x: 180, y: 300, hp: 9999, every: 9999, group: 0 },
+  ] }));
+  const leader = { x: 35, y: 20, vx: 0, hp: 1, r: 4.2, big: false, used: 7, dead: false };
+  game.blue.push(leader, { ...leader, x: 180, y: 330, used: 0 });
+  step(game, 1 / 60);
+  assert.equal(game.assault.phase, "advance");
+  const lane = leader.x;
+  while (game.assault.phase === "advance") {
+    const previousY = leader.y;
+    step(game, 1 / 60);
+    assert.ok(leader.y - previousY <= 6.4, "road transition teleported the forward crowd");
+  }
+  assert.ok(game.blue.includes(leader), "road transition discarded a survivor");
+  assert.equal(leader.x, lane);
+  assert.equal(leader.used, 7);
+  assert.ok(leader.y > game.bases[1].y + game.bases[1].h / 2 + leader.r, "survivor bypassed the new giant");
+});

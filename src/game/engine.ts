@@ -105,6 +105,8 @@ export type Unit = {
   pace?: number;
   /** Counterattack role; legacy/custom assault units default to runner/brute. */
   kind?: AssaultWaveKind;
+  /** Starting row for the smooth road-to-road advance. */
+  advanceFromY?: number;
 };
 export type Base = BaseDef & { maxHp: number; timer: number; bruteTimer: number; hitFlash: number; w: number; h: number };
 /** Runtime gate state; `overrun` is a one-shot boss break signal for the renderer. */
@@ -974,7 +976,7 @@ function stepLegacy(g: Game, dt: number) {
 }
 
 const ASSAULT_TRANSITION_SECONDS = 0.95;
-const ASSAULT_TRAVEL_PER_BOSS = 240;
+const ASSAULT_TRAVEL_PER_BOSS = 360;
 const ASSAULT_RED_CAP = 650;
 const ASSAULT_BLUE_SPEED = 98;
 const ASSAULT_CHAMP_SPEED = 66;
@@ -1196,6 +1198,12 @@ function updateAssaultBossPressure(g: Game, dt: number) {
   if (!active || active.hp <= 0) return;
   assault.bossTime += dt;
   if (assault.bossTime <= ASSAULT_BOSS_PRESSURE_DELAY) return;
+  // A live front holds the giant in place. Advancing through engaged runners
+  // leaves them stranded behind their target and makes the battle slide.
+  if (g.blue.some((u) => !u.dead
+    && Math.abs(u.x - active.x) <= active.w / 2 + u.r
+    && u.y >= active.y - active.h / 2 - u.r - 0.5
+    && u.y <= active.y + active.h / 2 + u.r + 0.5)) return;
   const limit = assault.bossOriginY + ASSAULT_BOSS_PRESSURE_TRAVEL;
   active.y = Math.min(limit, active.y + ASSAULT_BOSS_PRESSURE_SPEED * dt);
 }
@@ -1625,11 +1633,10 @@ function beginAssaultAdvance(g: Game) {
     gt.flash = 0;
     if (gt.kind === "x") gt.n = Math.min(9, Math.max(2, (gt.n ?? 2) + 1));
   }
-  // Keep the living crowd where the defeated boss was. Resetting every runner
-  // to the cannon made the whole formation visibly jump backward during the
-  // camera advance and discarded the player's route choice. The next boss is
-  // allowed to receive this surviving front directly; newly fired runners
-  // still enter through the next gate chain.
+  // Preserve the surviving formation's lanes and row order during travel.
+  // Its depth settles into the new approach, keeping the leading runners in
+  // front of the next giant without snapping the entire army to the cannon.
+  for (const u of g.blue) if (!u.dead) u.advanceFromY = u.y;
   if (!g.level.assault?.practice && assault.horde > 0) seedAssaultHorde(g, assault.horde);
   assault.pickups.push({ id: assault.nextPickupId++, x: assault.encounter % 2 ? 55 : 305, y: 470, w: 70, value: 1 });
   refreshAssaultRemaining(g);
@@ -1725,6 +1732,15 @@ function stepAssault(g: Game, dt: number) {
     assault.travel += ASSAULT_TRAVEL_PER_BOSS * portion / ASSAULT_TRANSITION_SECONDS;
     assault.transition = Math.max(0, assault.transition - dt);
     assault.advance = Math.max(0, assault.transition / ASSAULT_TRANSITION_SECONDS);
+    for (const u of g.blue) {
+      if (u.advanceFromY === undefined) continue;
+      const nextBoss = g.bases[assault.encounter];
+      const front = nextBoss.y + nextBoss.h / 2 + 20;
+      const row = Math.max(0, Math.min(1, (u.advanceFromY + 10) / (CANNON_Y + 10)));
+      const destination = front + row * (CANNON_Y - 24 - front);
+      u.y = u.advanceFromY + (destination - u.advanceFromY) * (1 - assault.advance);
+      if (assault.transition <= 0) delete u.advanceFromY;
+    }
     if (assault.transition <= 0) assault.phase = "battle";
   } else {
     updateAssaultBlue(g, dt);
@@ -1737,14 +1753,14 @@ function stepAssault(g: Game, dt: number) {
       if (!g.level.assault?.practice && active && active.hp > 0) {
         assault.bossTimer -= dt;
         if (assault.bossTimer <= 0) {
-          // Several runners fit across the giant's front. Resolve a small
-          // contact batch so a dense crowd attacks together instead of taking
-          // turns at one fixed service slot and backing up to the cannon.
+          // A full row can strike across the giant's broad front. Resolving
+          // twelve contacts keeps a multiplied wave flowing while the giant
+          // stands against it, without a pile of overlapping idle runners.
           let contacts = 0;
           for (const u of g.blue) {
             if (u.dead) continue;
             if (Math.abs(u.x - active.x) > active.w / 2 + u.r) continue;
-            if (u.y > active.y + active.h / 2 + u.r || u.y < active.y - active.h / 2 - u.r) continue;
+            if (u.y > active.y + active.h / 2 + u.r + 0.5 || u.y < active.y - active.h / 2 - u.r - 0.5) continue;
             const damage = u.big ? Math.max(5, Math.floor(u.hp * 1.5)) : 1;
             active.hp = Math.max(0, active.hp - damage);
             active.hitFlash = 1;
@@ -1752,7 +1768,7 @@ function stepAssault(g: Game, dt: number) {
             u.dead = true;
             assault.bossTimer = 0.025;
             pop(g, u.x, u.y, 0, u.big ? "BOOM" : undefined);
-            if (++contacts >= 3 || active.hp <= 0) break;
+            if (++contacts >= 12 || active.hp <= 0) break;
           }
         }
       }

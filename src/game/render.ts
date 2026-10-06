@@ -426,7 +426,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const dummy = new THREE.Object3D();
   const unitWhite = new THREE.Color(0xffffff), blueChampion = new THREE.Color(0xa8f4ff);
   const redSoldier = new THREE.Color(RED), redBrute = new THREE.Color(0xc81a4b), redRunner = new THREE.Color(0xff7135);
-  const motion = new WeakMap<Unit, { x: number; y: number; time: number; angle: number; run: number; phase: number; launchedAt: number; used: number; glow: number }>();
+  const motion = new WeakMap<Unit, { x: number; y: number; travel: number; time: number; angle: number; run: number; phase: number; launchedAt: number; used: number; glow: number }>();
   let unitSequence = 0;
   let shadowCount = 0;
   let hasRenderedUnits = false;
@@ -441,7 +441,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const z = wz(unit.y) - (enemy ? entry : 0);
       const time = currentGame?.t ?? 0;
       const state = motion.get(unit) ?? {
-        x: unit.x, y: unit.y, time, angle: enemy ? Math.PI : 0, run: 1,
+        x: unit.x, y: unit.y, travel, time, angle: enemy ? Math.PI : 0, run: 1,
         phase: (unitSequence++ * 2.39996) % (Math.PI * 2),
         launchedAt: !enemy && unit.used === 0 && unit.y >= CANNON_Y - 40 ? time : -Infinity,
         used: unit.used, glow: !enemy && unit.used !== 0 && hasRenderedUnits ? 1 : 0,
@@ -455,7 +455,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       if (!enemy && unit.used !== state.used) { state.glow = 1; state.used = unit.used; }
       if (elapsed > 0) {
         const dx = (unit.x - state.x) * SX + curve(z) - curve(wz(state.y));
-        const dz = wz(unit.y) - wz(state.y);
+        const dz = wz(unit.y) - wz(state.y) - (travel - state.travel);
         const speed = Math.hypot(dx, dz) / elapsed;
         if (speed > 0.8) {
           const target = Math.atan2(-dx, -dz);
@@ -464,7 +464,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         }
         state.run += (Math.min(1, speed / (enemy ? 1.8 : 7)) - state.run) * Math.min(1, elapsed * 12);
       }
-      state.x = unit.x; state.y = unit.y; state.time = time; motion.set(unit, state);
+      state.x = unit.x; state.y = unit.y; state.travel = travel; state.time = time; motion.set(unit, state);
       const boss = currentGame?.bases[currentGame.assault?.encounter ?? 0];
       const front = currentGame?.assault?.frontline ?? boss?.y ?? 300;
       const fighting = shotFlight === 0 && state.run < 0.55 && (Math.abs(unit.y - front) < 32 || !!boss && Math.abs(unit.y - boss.y - boss.h / 2) < 25) ? (0.55 - state.run) / 0.55 : 0;
