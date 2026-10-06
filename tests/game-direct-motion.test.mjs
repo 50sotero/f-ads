@@ -1,0 +1,75 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { CANNON_Y, cannonBarrelOffsets, newGame, step } from "../src/game/engine.ts";
+
+const assaultLevel = (overrides = {}) => ({
+  name: "direct motion test",
+  par: 20,
+  bases: [{ x: 125, y: 300, hp: 99999, every: 9999, group: 0 }],
+  gates: [
+    { x: 180, y: 510, w: 170, kind: "x", n: 2 },
+    { x: 180, y: 467, w: 170, kind: "x", n: 3 },
+    { x: 180, y: 424, w: 170, kind: "x", n: 4 },
+  ],
+  assault: { horde: 0, reserve: 0, speed: 16, theme: "fork" },
+  ...overrides,
+});
+
+test("cannon barrel offsets are centered and match every assault volley", () => {
+  assert.deepEqual(cannonBarrelOffsets(1), [0]);
+  assert.deepEqual(cannonBarrelOffsets(5), [-48, -24, 0, 24, 48]);
+
+  const game = newGame(assaultLevel());
+  game.assault.tier = 5;
+  game.cannonX = game.targetX = 180;
+  game.firing = true;
+  step(game, 1 / 60);
+  assert.equal(game.blue.length, 5);
+  const offsets = cannonBarrelOffsets(game.assault.tier);
+  for (const [index, unit] of game.blue.entries()) {
+    assert.ok(Math.abs(unit.x - (game.cannonX + offsets[index])) <= 0.4, `shot ${index} left the visible barrel`);
+    assert.ok(unit.y < CANNON_Y - 22);
+  }
+});
+
+test("changing the target after launch does not redirect an in-flight runner", () => {
+  const game = newGame(assaultLevel());
+  game.cannonX = game.targetX = 180;
+  game.firing = true;
+  step(game, 1 / 60);
+  game.firing = false;
+  const runner = game.blue[0];
+  const launchX = runner.x;
+
+  game.targetX = 55;
+  for (let frame = 0; frame < 30; frame++) step(game, 1 / 60);
+
+  assert.equal(runner.x, launchX);
+  assert.equal(game.cannonX, 55);
+});
+
+test("boss attraction starts only after the final gate line", () => {
+  const game = newGame(assaultLevel());
+  game.targetX = 55;
+  const runner = { x: 180, y: 430, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false, lane: 0 };
+  game.blue.push(runner);
+  step(game, 1 / 60);
+  assert.equal(runner.x, 180, "runner bent before the final gate");
+
+  runner.y = 400;
+  step(game, 1 / 60);
+  assert.ok(runner.x < 180, "runner did not enter the short boss approach");
+});
+
+test("boss contact is forward-only and does not repack surviving runners backward", () => {
+  const game = newGame(assaultLevel());
+  game.firing = false;
+  const first = { x: 125, y: 330, vx: 0, hp: 1, r: 4.2, big: false, used: 7, dead: false, lane: 0 };
+  const second = { x: 125, y: 340, vx: 0, hp: 1, r: 4.2, big: false, used: 7, dead: false, lane: 0 };
+  game.blue.push(first, second);
+  step(game, 1 / 60);
+
+  assert.equal(game.blue.length, 1);
+  assert.ok(second.y <= 340, `queue moved surviving runner backward to y=${second.y}`);
+  assert.ok(340 - second.y <= 98 / 60 + 0.001, `queue moved surviving runner too far in one frame to y=${second.y}`);
+});

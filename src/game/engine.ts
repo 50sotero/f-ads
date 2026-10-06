@@ -345,11 +345,13 @@ function seedAssaultHorde(g: Game, count: number) {
   if (!assault || count <= 0) return;
   const columns = Math.min(18, Math.max(10, Math.ceil(Math.sqrt(count * 1.08))));
   const spacing = columns > 1 ? 170 / (columns - 1) : 0;
+  const center = g.bases[assault.encounter]?.x ?? W / 2;
+  const left = center - 85;
   const front = 372;
   for (let i = 0; i < count; i++) {
     const row = Math.floor(i / columns);
     const column = i % columns;
-    const x = Math.max(12, Math.min(W - 12, 40 + column * spacing + (g.rand() - 0.5) * 3));
+    const x = Math.max(12, Math.min(W - 12, left + column * spacing + (g.rand() - 0.5) * 3));
     const y = front - row * 8.7 - g.rand() * 2.3;
     const big = i > 32 && i % 47 === 0;
     const lane = columns > 1 ? Math.round((column / (columns - 1)) * 8) - 4 : 0;
@@ -366,6 +368,8 @@ function releaseAssaultReserve(g: Game, count: number) {
   if (amount <= 0) return;
   const columns = Math.min(16, Math.max(8, Math.ceil(Math.sqrt(amount * 1.1))));
   const spacing = columns > 1 ? 170 / (columns - 1) : 0;
+  const center = g.bases[assault.encounter]?.x ?? W / 2;
+  const left = center - 85;
   let rear = Infinity;
   for (const enemy of g.red) if (!enemy.dead) rear = Math.min(rear, enemy.y);
   // Reinforcements form a continuous carpet behind the last living row. If a
@@ -375,7 +379,7 @@ function releaseAssaultReserve(g: Game, count: number) {
   for (let i = 0; i < amount; i++) {
     const row = Math.floor(i / columns);
     const column = i % columns;
-    const x = Math.max(12, Math.min(W - 12, 40 + column * spacing + (g.rand() - 0.5) * 3));
+    const x = Math.max(12, Math.min(W - 12, left + column * spacing + (g.rand() - 0.5) * 3));
     const y = anchor - 8 - row * 8.7 - g.rand() * 2.3;
     const big = i > 12 && i % 43 === 0;
     const lane = columns > 1 ? Math.round((column / (columns - 1)) * 8) - 4 : 0;
@@ -723,6 +727,18 @@ const ASSAULT_FIRE_RATE = 7.5;
 const ASSAULT_BLUE_SPEED = 98;
 const ASSAULT_CHAMP_SPEED = 66;
 
+/**
+ * Horizontal spacing shared by the simulation and the renderer's cannon
+ * battery. Keeping this in the engine makes a volley originate from the
+ * visible barrel that owns it instead of drifting away from the turret.
+ */
+export const CANNON_BARREL_SPACING = 24;
+
+export function cannonBarrelOffsets(tier: number) {
+  const count = Math.max(1, Math.min(5, Math.floor(tier)));
+  return Array.from({ length: count }, (_, index) => (index - (count - 1) / 2) * CANNON_BARREL_SPACING);
+}
+
 function updateAssaultPickups(g: Game, dt: number) {
   const assault = g.assault;
   const config = g.level.assault;
@@ -757,7 +773,9 @@ function updateAssaultCannon(g: Game, dt: number) {
   const assault = g.assault;
   if (!assault) return;
   const maxMove = 620 * dt;
-  g.targetX = Math.max(22, Math.min(W - 22, g.targetX));
+  const offsets = cannonBarrelOffsets(assault.tier);
+  const edge = 22 + Math.max(...offsets.map((offset) => Math.abs(offset)));
+  g.targetX = Math.max(edge, Math.min(W - edge, g.targetX));
   g.cannonX += Math.max(-maxMove, Math.min(maxMove, g.targetX - g.cannonX));
   g.cooldown -= dt;
   if (!g.firing || g.cooldown > 0) {
@@ -766,11 +784,11 @@ function updateAssaultCannon(g: Game, dt: number) {
   }
   g.cooldown += 1 / ASSAULT_FIRE_RATE;
   if (g.cooldown < 0) g.cooldown = 0;
-  const volley = Math.max(1, Math.min(5, assault.tier));
+  const volley = offsets.length;
   for (let k = 0; k < volley && g.blue.length < MAX_UNITS; k++) {
-    const offset = (k - (volley - 1) / 2) * 8;
+    const offset = offsets[k];
     const lane = ((g.stats.fired + k) % 9) - 4;
-    g.blue.push({ x: Math.max(8, Math.min(W - 8, g.cannonX + offset + (g.rand() - 0.5) * 2)), y: CANNON_Y - 22, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false, lane });
+    g.blue.push({ x: g.cannonX + offset + (g.rand() - 0.5) * 0.8, y: CANNON_Y - 22, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false, lane });
     g.stats.fired++;
     g.charge = Math.min(CHARGE_MAX, g.charge + 1);
   }
@@ -789,34 +807,46 @@ function updateAssaultBlue(g: Game, dt: number) {
   const active = g.bases[assault.encounter];
   const spawned: Unit[] = [];
   const blueFlow = flowPush(g.blue);
+  const lastGateY = g.gates.length ? Math.min(...g.gates.map((gate) => gate.y)) : active.y + active.h / 2 + 48;
+  const trackedGateCount = Math.min(30, g.gates.length);
+  const allGatesMask = trackedGateCount > 0 ? (1 << trackedGateCount) - 1 : 0;
   for (let blueIndex = 0; blueIndex < g.blue.length; blueIndex++) {
     const u = g.blue[blueIndex];
     if (u.dead) continue;
-    // The cannon steers the approach; once a runner reaches the boss throat it
-    // naturally homes on the active giant so units cannot leak past it.
-    const lane = Math.max(-4, Math.min(4, u.lane ?? 0));
-    const laneOffset = lane * 11;
-    let usedGates = 0;
-    for (let mask = u.used; mask; mask &= mask - 1) usedGates++;
-    const spread = usedGates <= 0 ? 4 : usedGates === 1 ? 18 : usedGates === 2 ? 28 : Math.min(65, 36 + (usedGates - 3) * 10);
-    const desiredX = u.y > active.y + 86 ? Math.max(22, Math.min(W - 22, g.targetX + lane * (spread / 4))) : active.x + laneOffset;
-    const want = Math.max(-150, Math.min(150, (desiredX - u.x) * 3.2));
-    u.vx += (want - u.vx) * Math.min(1, dt * 5);
-    u.vx = Math.max(-150, Math.min(150, u.vx + blueFlow[blueIndex] * dt));
-    const dy = -(u.big ? ASSAULT_CHAMP_SPEED : ASSAULT_BLUE_SPEED) * dt;
-    const prevY = u.y;
-    move(g, u, dy, dt);
 
-    // A living giant is a physical battlefront. Runners that reach its lower
-    // edge queue there until the contact cadence consumes them; otherwise a
-    // fast stream could pass through the narrow hitbox between damage ticks.
+    // A runner's x position is its launch decision. Once the shot leaves the
+    // cannon, changing the cannon target must not bend that runner's path; the
+    // previous target-following code made every in-flight unit swing toward the
+    // latest pointer position and made the controls feel like remote steering.
+    const lane = Math.max(-4, Math.min(4, u.lane ?? 0));
+    u.vx = Math.max(-150, Math.min(150, u.vx + blueFlow[blueIndex] * dt));
+    let dy = -(u.big ? ASSAULT_CHAMP_SPEED : ASSAULT_BLUE_SPEED) * dt;
+
+    // After the final gate there is a short, explicit boss approach. This is
+    // the only deliberate attraction in the assault path, and keeps a missed
+    // lane from leaking past the giant while leaving the gate choices under
+    // direct player control. The lane offset is deliberately small so the
+    // front still reads as a broad crowd rather than nine homing streams.
+    const passedFinalGate = u.y <= lastGateY - GATE_H || (allGatesMask !== 0 && (u.used & allGatesMask) === allGatesMask);
+    if (passedFinalGate && u.y < lastGateY - GATE_H) {
+      const desiredX = active.x + lane * 4;
+      const want = Math.max(-110, Math.min(110, (desiredX - u.x) * 2.4));
+      u.vx += (want - u.vx) * Math.min(1, dt * 4.5);
+    }
+
+    // Stop at the living boss's front edge before moving. This preserves a
+    // unit's forward-only motion; the old post-move correction snapped runners
+    // backward into a queue every frame, which looked like a sticky conveyor.
     if (!g.level.assault?.practice && active.hp > 0) {
       const front = active.y + active.h / 2 + u.r;
-      if (u.y < front && Math.abs(u.x - active.x) < active.w / 2 + u.r) {
-        u.y = front;
-        u.vx += (active.x - u.x) * Math.min(1, dt * 6);
+      const inBossLane = Math.abs(u.x - active.x) < active.w / 2 + u.r;
+      if (inBossLane) {
+        if (u.y > front) dy = -Math.min(-dy, u.y - front);
+        else dy = 0;
       }
     }
+    const prevY = u.y;
+    move(g, u, dy, dt);
 
     for (let i = 0; i < g.gates.length; i++) {
       const gt = g.gates[i];
@@ -852,35 +882,6 @@ function updateAssaultBlue(g: Game, dt: number) {
     if (u.y < -10) u.dead = true;
   }
   for (const u of spawned) g.blue.push(u);
-}
-
-/** Keeps the assault front broad while still making units queue behind contact. */
-function packAssaultBlueAgainstBoss(g: Game) {
-  const assault = g.assault!;
-  const active = g.bases[assault.encounter];
-  if (!active || active.hp <= 0) return;
-  const front = active.y + active.h / 2;
-  let allGatesMask = 0;
-  for (let i = 0; i < Math.min(31, g.gates.length); i++) allGatesMask |= 1 << i;
-  const lanes: Unit[][] = Array.from({ length: 9 }, () => []);
-  for (const u of g.blue) {
-    if (u.dead || u.y < active.y - active.h / 2 || u.y > front + 132) continue;
-    // Keep runners that have not crossed the chain in their own approach
-    // formation. Repacking them beside the boss would skip the gate route.
-    if (allGatesMask && (u.used & allGatesMask) !== allGatesMask) continue;
-    if (Math.abs(u.x - active.x) > active.w / 2 + 8) continue;
-    const slot = Math.max(0, Math.min(8, Math.round((u.lane ?? 0) + 4)));
-    lanes[slot].push(u);
-  }
-  for (const lane of lanes) {
-    lane.sort((a, b) => a.y - b.y);
-    for (let i = 0; i < lane.length; i++) {
-      const queueEnd = CANNON_Y - lane[i].r - 2;
-      const minimumY = Math.min(queueEnd, front + 4.2 + i * 7.2);
-      if (lane[i].y < minimumY) lane[i].y = minimumY;
-      else if (lane[i].y > queueEnd) lane[i].y = queueEnd;
-    }
-  }
 }
 
 function updateAssaultRed(g: Game, dt: number) {
@@ -1030,11 +1031,11 @@ function finishAssaultEncounter(g: Game) {
   for (const gt of g.gates) {
     if (gt.kind === "x") gt.n = Math.min(9, Math.max(2, (gt.n ?? 2) + 1));
   }
-  for (const u of g.blue) {
-    u.y = CANNON_Y - 22;
-    u.vx = 0;
-    u.used = 0;
-  }
+  // Keep the living crowd where the defeated boss was. Resetting every runner
+  // to the cannon made the whole formation visibly jump backward during the
+  // camera advance and discarded the player's route choice. The next boss is
+  // allowed to receive this surviving front directly; newly fired runners
+  // still enter through the next gate chain.
   if (!g.level.assault?.practice && assault.horde > 0) seedAssaultHorde(g, assault.horde);
   assault.pickups.push({ id: assault.nextPickupId++, x: assault.encounter % 2 ? 55 : 305, y: 470, w: 70, value: 1 });
 }
@@ -1063,7 +1064,6 @@ function stepAssault(g: Game, dt: number) {
     if (assault.transition <= 0) assault.phase = "battle";
   } else {
     updateAssaultBlue(g, dt);
-    packAssaultBlueAgainstBoss(g);
     updateAssaultRed(g, dt);
     if (g.status === "playing") {
       resolveAssaultFights(g);
