@@ -6,7 +6,7 @@ export const tutorialLevel: Level = {
   name: "Training ground",
   par: 30,
   assault: { horde: 0, reserve: 0, speed: 0, theme: "fork", practice: true },
-  bases: [{ x: 125, y: 300, hp: 99999, every: 9999, group: 0 }],
+  bases: [{ x: 180, y: 300, hp: 99999, every: 9999, group: 0 }],
   gates: [
     { x: 180, y: 510, w: 170, kind: "x", n: 2 },
     { x: 180, y: 467, w: 170, kind: "x", n: 3 },
@@ -15,8 +15,8 @@ export const tutorialLevel: Level = {
 };
 
 export const tutorialLessons = [
-  { title: "Fire + steer", text: "Hold the track to fire, then drag sideways to steer. On a keyboard, hold ← or →.", action: "Fire 8 runners and move across the lane", icon: "↔" },
-  { title: "Chain purple multipliers", text: "Guide your crowd through the purple ×2, ×3, then ×4 gates. Each runner can use every gate once.", action: "Add 8 runners with the multiplier chain", icon: "×4" },
+  { title: "Fire + steer", text: "Hold to fire and drag to move your cannon. Runners launch straight ahead. On a keyboard, hold ← or →.", action: "Fire 8 runners and move across the lane", icon: "↔" },
+  { title: "Chain purple multipliers", text: "Line up your cannon with the purple ×2, ×3, then ×4 gates. Each runner can use every gate once.", action: "Add 8 runners with the multiplier chain", icon: "×4" },
   { title: "Collect a blue +1", text: "Move into a blue +1 gate to add another cannon to your line. The left lane is ready when you are.", action: "Collect one blue +1 pickup", icon: "+1" },
 ] as const;
 

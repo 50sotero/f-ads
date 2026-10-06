@@ -112,24 +112,19 @@ function roundedBox(
 export function createMobGeometry(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
 
-  // A pair of overlapping ellipsoids makes a fuller, pear-shaped body while
-  // retaining the clear shoulder and hip break that reads in a crowd.
-  parts.push(sphere(0.34, 8, 4, 0, 0.52, 0, 1.02, 1.18, 0.76));
-  parts.push(sphere(0.24, 6, 4, 0, 0.76, -0.015, 1.22, 0.72, 0.86));
-
-  // Head, ears and a tiny face wedge point toward the camera (-Z).  The face
-  // wedge is part of the merged silhouette and remains readable without a
-  // second material or a per-unit scene node.
-  parts.push(sphere(0.22, 8, 4, 0, 1.0, -0.015, 1.03, 1.02, 0.96));
-  parts.push(sphere(0.07, 5, 3, -0.2, 1.0, 0, 0.75, 0.9, 0.68));
-  parts.push(sphere(0.07, 5, 3, 0.2, 1.0, 0, 0.75, 0.9, 0.68));
-  parts.push(sphere(0.08, 5, 3, 0, 0.96, -0.19, 0.75, 0.75, 0.48));
+  // A narrow capsule torso and a separate ball head preserve the person
+  // silhouette from behind, even in a tightly packed phone-sized crowd.
+  parts.push(capsule(0.225, 0.3, 0, 0.58, 0, 1, 1, 0.8));
+  parts.push(vertexColor(sphere(0.08, 6, 3, 0, 0.68, 0.181, 0.85, 1.15, 0.18), 0xdaf5ff));
+  parts.push(capsule(0.075, 0.08, 0, 0.91, 0));
+  parts.push(sphere(0.255, 8, 5, 0, 1.15, -0.015, 1, 1, 0.94));
+  parts.push(sphere(0.065, 5, 3, 0, 1.1, -0.245, 0.75, 0.75, 0.48));
 
   // Small forward-facing eyes give close rows a face without adding a second
   // material or per-unit node. The pupils sit a little farther toward -Z.
   for (const side of [-1, 1]) {
-    parts.push(vertexColor(sphere(0.045, 6, 3, side * 0.085, 1.04, -0.224, 1, 0.9, 0.35), 0xffffff));
-    parts.push(vertexColor(sphere(0.019, 4, 3, side * 0.085, 1.04, -0.24, 0.9, 0.84, 0.3), 0x162338));
+    parts.push(vertexColor(sphere(0.045, 6, 3, side * 0.085, 1.19, -0.248, 1, 0.9, 0.35), 0xffffff));
+    parts.push(vertexColor(sphere(0.019, 4, 3, side * 0.085, 1.19, -0.263, 0.9, 0.84, 0.3), 0x162338));
   }
 
   for (const side of [-1, 1]) {
@@ -248,7 +243,7 @@ export type SiegeCannonArt = {
  * Small blue siege cannon for the defense end of the lane.  The barrel group
  * is intentionally exposed so the renderer can slide it along -Z for recoil.
  */
-export function createSiegeCannon(): SiegeCannonArt {
+export function createSiegeCannon(includeChassis = true): SiegeCannonArt {
   const resources: OwnedResources = { geometries: new Set(), materials: new Set() };
   const group = new THREE.Group();
   group.name = "siege-cannon";
@@ -271,11 +266,10 @@ export function createSiegeCannon(): SiegeCannonArt {
   const collarGeometry = ownGeometry(resources, new THREE.TorusGeometry(0.27, 0.038, 7, 14));
 
   // Grounded chassis and a rounded cyan turret.
-  const chassis = makeMesh(group, chassisGeometry, navy, 0, 0.25, 0.08, 0.88, 0.55, 0.8);
-  chassis.castShadow = true;
+  if (includeChassis) makeMesh(group, chassisGeometry, navy, 0, 0.25, 0.08, 0.88, 0.55, 0.8);
   makeMesh(group, turretGeometry, cyan, 0, 0.53, 0.12, 1.0, 0.64, 0.86);
 
-  for (const side of [-1, 1]) {
+  for (const side of includeChassis ? [-1, 1] : []) {
     const wheel = makeMesh(group, wheelGeometry, navy, side * 0.42, 0.37, 0.18, 1, 1, 1, 0, 0, Math.PI / 2);
     wheel.scale.set(1.0, 1.0, 1.0);
     makeMesh(group, hubGeometry, gold, side * 0.50, 0.37, 0.18, 1, 1, 1, 0, 0, Math.PI / 2);

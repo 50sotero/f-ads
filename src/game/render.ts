@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { CANNON_Y, MAX_UNITS, W, surgeActive, type Game, type Unit } from "./engine";
+import { CANNON_Y, MAX_UNITS, W, cannonBarrelOffsets, surgeActive, type Game, type Unit } from "./engine";
 import { createHordeGeometry, createMobGeometry, createSiegeCannon, createWarden } from "./assaultArt";
 
 // The simulation uses a moving local battlefield. The road and scenery stay in
 // world space while the camera follows the battery into each new encounter.
-const SX = 0.048, SZ = 0.07;
+const SX = 0.048, SZ = 0.09;
 const wx = (x: number) => (x - W / 2) * SX;
 const wz = (y: number) => (y - CANNON_Y) * SZ;
 const BLUE = 0x009bff, RED = 0xf7273f;
@@ -31,8 +31,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   renderer.shadowMap.autoUpdate = false;
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(41, 390 / 844, 0.2, 380);
-  const cameraHome = new THREE.Vector3(1.8, 54, 35);
-  const cameraTarget = new THREE.Vector3(0, 0, -29);
+  const cameraHome = new THREE.Vector3(0, 36, 26);
+  const cameraTarget = new THREE.Vector3(0, 0, -22);
   const stage = new THREE.Group(); scene.add(stage);
   let theme = "fork", travel = 0;
   const worldCurve = (z: number) => theme === "bend" ? Math.sin(z * 0.024) * 4.5 : 0;
@@ -49,7 +49,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const cube = geo(new THREE.BoxGeometry(1, 1, 1));
   const sphere = geo(new THREE.IcosahedronGeometry(1, 1));
   const cylinder = geo(new THREE.CylinderGeometry(1, 1, 1, 8));
-  const sand = standard(0xeac59e);
+  const sand = standard(0xf0d3ab);
   const ivory = standard(0xe9d6be), metal = standard(0x66605d), dark = standard(0x3d343d);
   const white = standard(0xffffff);
   let randomSeed = 413;
@@ -84,8 +84,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   skyGradient.addColorStop(0, "#bce2ef"); skyGradient.addColorStop(0.55, "#efddc2"); skyGradient.addColorStop(1, "#e2bb94");
   skyContext.fillStyle = skyGradient; skyContext.fillRect(0, 0, 4, 256);
   const sky = texture(new THREE.CanvasTexture(skyCanvas)); sky.colorSpace = THREE.SRGBColorSpace; scene.background = sky;
-  scene.add(new THREE.HemisphereLight(0xf4f5ff, 0xae8068, 1.7));
-  const sun = new THREE.DirectionalLight(0xfff3e4, 2.7);
+  scene.add(new THREE.HemisphereLight(0xe8f5ff, 0xb3a2b4, 2));
+  const sun = new THREE.DirectionalLight(0xfff8ea, 2.4);
   sun.position.set(-20, 40, 16); sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024); sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.08;
   Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 42, bottom: -42, near: 1, far: 130 });
@@ -94,9 +94,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   // A restrained, fine-grained road texture keeps the enormous crowd readable.
   const roadCanvas = document.createElement("canvas"); roadCanvas.width = 256; roadCanvas.height = 256;
   const roadContext = roadCanvas.getContext("2d")!;
-  roadContext.fillStyle = "#9d8580"; roadContext.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 2600; i++) {
-    roadContext.fillStyle = random() > 0.5 ? "rgba(66,39,44,.10)" : "rgba(255,239,209,.09)";
+  roadContext.fillStyle = "#ada4b2"; roadContext.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 1800; i++) {
+    roadContext.fillStyle = random() > 0.5 ? "rgba(76,69,89,.035)" : "rgba(255,255,255,.035)";
     roadContext.fillRect(random() * 256, random() * 256, 1 + random() * 2, 1 + random() * 2);
   }
   const roadTexture = texture(new THREE.CanvasTexture(roadCanvas)); roadTexture.colorSpace = THREE.SRGBColorSpace;
@@ -165,26 +165,6 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     }
   }
 
-  // The waiting gate bank and enemy lane meet in a wide foreground throat.
-  const fork = new THREE.Group(); stage.add(fork);
-  const median = new THREE.Shape();
-  median.moveTo(1.65, 16); median.lineTo(2.85, 12.5); median.lineTo(4.2, 16); median.lineTo(4.2, 225); median.lineTo(1.65, 225); median.closePath();
-  const medianGeometry = geo(new THREE.ShapeGeometry(median)); medianGeometry.rotateX(-Math.PI / 2);
-  const medianMesh = new THREE.Mesh(medianGeometry, sand); medianMesh.position.y = 0.035; medianMesh.receiveShadow = true; fork.add(medianMesh);
-  const fencePoints: number[] = [];
-  for (const x of [1.55, 4.3]) {
-    box(fork, metal, x, 0.85, -102, 0.07, 0.08, 172);
-    box(fork, metal, x, 0.18, -102, 0.07, 0.06, 172);
-    for (let z = -16; z > -190; z -= 2.3) box(fork, metal, x, 0.48, z, 0.09, 1, 0.09);
-    for (let z = -16; z > -190; z -= 0.45) {
-      fencePoints.push(x, 0.18, z, x, 0.86, z - 0.68, x, 0.86, z, x, 0.18, z - 0.68);
-    }
-  }
-  bake(fork);
-  const fence = new THREE.LineSegments(geo(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(fencePoints, 3))), mat(new THREE.LineBasicMaterial({ color: 0x695f5c, transparent: true, opacity: 0.55 })));
-  fork.add(fence);
-  const forkBends = bendables(fork);
-
   function makeLabel(text: string, width: number, height: number, fill = "#ffffff", fontSize = 135): Label {
     const source = document.createElement("canvas"); source.width = 512; source.height = 192;
     const context = source.getContext("2d")!;
@@ -203,20 +183,18 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   }
   function gate(color: number, text: string, castShadow = true): GateView {
     const group = new THREE.Group(); stage.add(group);
-    const material = standard(color, { emissive: color, emissiveIntensity: 0.3, transparent: true, opacity: 0.8, roughness: 0.35, depthWrite: false });
-    const panel = box(group, material, 0, 1.02, 0, 1, 1.85, 0.25); panel.castShadow = false;
+    const material = standard(color, { emissive: color, emissiveIntensity: 0.2, transparent: true, opacity: 0.48, roughness: 0.35, depthWrite: false });
+    const panel = box(group, material, 0, 1.32, 0, 1, 2.5, 0.12); panel.castShadow = false;
     box(group, white, 0, 0.14, 0, 1, 0.15, 0.45);
-    box(group, material, 0, 1.98, 0, 1, 0.22, 0.42);
-    for (const x of [-0.5, 0.5]) box(group, material, x, 1.03, 0, 0.045, 2.15, 0.5);
-    const label = makeLabel(text, 0.92, 2.6, "#ffffff", 151); label.sprite.position.set(0, 1.2, 0.2); group.add(label.sprite);
+    box(group, material, 0, 2.55, 0, 1, 0.18, 0.25);
+    for (const x of [-0.5, 0.5]) box(group, material, x, 1.32, 0, 0.035, 2.7, 0.3);
+    const label = makeLabel(text, 0.7, 2.25, "#ffffff", 151); label.sprite.position.set(0, 1.5, 0.2); group.add(label.sprite);
     if (!castShadow) group.traverse((object) => { object.castShadow = false; });
     bake(group);
     return { group, panel, material, label, value: text, nextBurst: 0 };
   }
   const gates: GateView[] = [];
-  const bank = Array.from({ length: 24 }, () => gate(0xa329f3, "×2", false));
   const pickups = Array.from({ length: 10 }, () => gate(0x019bff, "+1"));
-  bank.forEach((value) => value.group.traverse((object) => { object.castShadow = false; }));
   function bakeArt(group: THREE.Group) {
     for (const child of group.children) if (child instanceof THREE.Group) bakeArt(child);
     bake(group);
@@ -239,7 +217,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     return new THREE.Mesh(combined, paintedMaterial);
   }
   const cannon = Array.from({ length: 5 }, () => {
-    const value = createSiegeCannon();
+    const value = createSiegeCannon(false);
     for (const group of [value.barrel, value.group]) {
       const combined = paintedMesh(group, false);
       for (const child of [...group.children]) if (child instanceof THREE.Mesh && child.name !== "muzzle-opening") group.remove(child);
@@ -247,6 +225,17 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     }
     value.group.traverse((object) => { object.castShadow = false; }); stage.add(value.group); return value;
   });
+  const chassis = new THREE.Group(); stage.add(chassis);
+  const deck = mesh(chassis, geo(new THREE.CapsuleGeometry(0.32, 0.7, 2, 8).rotateZ(Math.PI / 2)), standard(0x173e64), 0, 0.24, 0.2, 1, 0.65, 1.65);
+  const bumper = box(chassis, standard(0xffce45), 0, 0.35, 0.8, 1, 0.13, 0.15);
+  const wheels = [-1, 1].map((side) => {
+    const wheel = mesh(chassis, geo(new THREE.CylinderGeometry(0.39, 0.39, 0.24, 12).rotateZ(Math.PI / 2)), standard(0x18283b), side, 0.35, 0.22, 1, 1, 1);
+    mesh(wheel, geo(new THREE.CylinderGeometry(0.18, 0.18, 0.26, 10).rotateZ(Math.PI / 2)), standard(0xffcd45), 0, 0, 0, 1, 1, 1);
+    return wheel;
+  });
+  const guideMaterial = basic(0xc4f3ff, { transparent: true, opacity: 0.42, depthWrite: false });
+  const guides = new THREE.InstancedMesh(geo(new THREE.PlaneGeometry(0.13, 0.4).rotateX(-Math.PI / 2)), guideMaterial, 25);
+  guides.frustumCulled = false; stage.add(guides);
   const batteryShadowMaterial = basic(0x513e48, { transparent: true, opacity: 0.2, depthWrite: false });
   const circle = geo(new THREE.CircleGeometry(1, 16)); circle.rotateX(-Math.PI / 2);
   const batteryShadow = mesh(stage, circle, batteryShadowMaterial, 0, 0.03, 0, 1.15, 1, 0.85); batteryShadow.castShadow = false;
@@ -263,28 +252,34 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const material = standard(color, { roughness: 0.44, vertexColors: true });
     material.onBeforeCompile = (shader) => {
       shader.uniforms.runTime = animationTime;
-      shader.vertexShader = `uniform float runTime; attribute float faceMask; varying float vFaceMask;\n${shader.vertexShader}`.replace("#include <begin_vertex>", `
+      shader.vertexShader = `uniform float runTime; attribute float faceMask; attribute vec2 runMotion; varying float vFaceMask;\n${shader.vertexShader}`.replace("#include <begin_vertex>", `
         #include <begin_vertex>
         vFaceMask = faceMask;
-        float phase = runTime * 13.0 + instanceMatrix[3].x * 3.2 + instanceMatrix[3].z * 1.7;
-        float stride = sin(phase);
-        transformed.y += abs(stride) * 0.075;
-        transformed.z += stride * 0.095 * (1.0 - smoothstep(0.15, 0.45, position.y)) * sign(position.x);
-        transformed.x += sin(phase * 0.5) * 0.025 * position.y;
+        float phase = runTime * 12.0 + runMotion.x;
+        float stride = sin(phase) * runMotion.y;
+        float legs = 1.0 - smoothstep(0.22, 0.46, position.y);
+        float arms = smoothstep(0.23, 0.3, abs(position.x)) * (1.0 - smoothstep(0.73, 0.9, position.y));
+        transformed.y += abs(stride) * 0.05;
+        transformed.z += stride * (legs * 0.17 - arms * 0.14) * sign(position.x);
+        transformed.x += stride * 0.012 * position.y;
       `);
       shader.fragmentShader = `varying float vFaceMask;\n${shader.fragmentShader}`.replace("#include <color_fragment>", `
         #include <color_fragment>
         diffuseColor.rgb = mix(diffuseColor.rgb, vColor.rgb, vFaceMask);
       `);
     };
-    material.customProgramCacheKey = () => "assault-run-v1"; return material;
+    material.customProgramCacheKey = () => "assault-run-v2"; return material;
   }
   const mobGeometry = geo(createMobGeometry()), reserveGeometry = geo(createHordeGeometry());
   const friendMaterial = crowdMaterial(BLUE), enemyMaterial = crowdMaterial(RED);
-  const friends = new THREE.InstancedMesh(mobGeometry, friendMaterial, MAX_UNITS + 32);
-  const enemies = new THREE.InstancedMesh(mobGeometry, enemyMaterial, 1600);
-  const reserves = new THREE.InstancedMesh(reserveGeometry, enemyMaterial, 12000);
-  for (const object of [friends, enemies, reserves]) { object.frustumCulled = false; object.instanceMatrix.setUsage(THREE.DynamicDrawUsage); stage.add(object); }
+  const friends = new THREE.InstancedMesh(geo(mobGeometry.clone()), friendMaterial, MAX_UNITS + 32);
+  const enemies = new THREE.InstancedMesh(geo(mobGeometry.clone()), enemyMaterial, 1600);
+  const reserves = new THREE.InstancedMesh(reserveGeometry, enemyMaterial, 2400);
+  for (const object of [friends, enemies, reserves]) {
+    object.frustumCulled = false; object.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    object.geometry.setAttribute("runMotion", new THREE.InstancedBufferAttribute(new Float32Array(object.instanceMatrix.count * 2), 2).setUsage(THREE.DynamicDrawUsage));
+    stage.add(object);
+  }
   const shadowSource = document.createElement("canvas"); shadowSource.width = shadowSource.height = 32;
   const shadowContext = shadowSource.getContext("2d")!;
   const shadowGradient = shadowContext.createRadialGradient(16, 16, 2, 16, 16, 16);
@@ -294,21 +289,48 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const shadowGeometry = geo(new THREE.PlaneGeometry(1, 1)); shadowGeometry.rotateX(-Math.PI / 2);
   const shadows = new THREE.InstancedMesh(shadowGeometry, shadowMaterial, MAX_UNITS + 1632); shadows.frustumCulled = false; stage.add(shadows);
   const dummy = new THREE.Object3D(), color = new THREE.Color();
+  const motion = new WeakMap<Unit, { x: number; y: number; time: number; angle: number; run: number; phase: number; launchedAt: number }>();
+  let unitSequence = 0;
   let shadowCount = 0;
   function drawUnits(units: Unit[], object: THREE.InstancedMesh, enemy: boolean, entry: number) {
     const count = Math.min(units.length, object.instanceMatrix.count); object.count = count;
+    const runMotion = object.geometry.getAttribute("runMotion") as THREE.InstancedBufferAttribute;
     for (let i = 0; i < count; i++) {
       const unit = units[i];
-      const size = unit.big ? (enemy ? 1.8 : 2.0) : enemy ? 0.93 : 1.22;
-      const shotFlight = !enemy && unit.y > 552 ? Math.sin(Math.max(0, Math.min(1, (583 - unit.y) / 31)) * Math.PI) * 0.85 : 0;
+      const size = unit.big ? (enemy ? 1.8 : 2.0) : enemy ? 0.9 : 1.13;
       const z = wz(unit.y) - (enemy ? entry : 0);
+      const time = currentGame?.t ?? 0;
+      const state = motion.get(unit) ?? {
+        x: unit.x, y: unit.y, time, angle: enemy ? Math.PI : 0, run: 1,
+        phase: (unitSequence++ * 2.39996) % (Math.PI * 2),
+        launchedAt: !enemy && unit.used === 0 && unit.y >= CANNON_Y - 28 ? time : -Infinity,
+      };
+      // Flight ends on a clock, even if a crowd ahead blocks ground movement.
+      // Position-based arcs left queued runners hovering above the muzzle.
+      const flight = Math.max(0, Math.min(1, (time - state.launchedAt) / 0.34));
+      const shotFlight = flight < 1 ? (1 - flight) * 0.7 + Math.sin(flight * Math.PI) * 0.65 : 0;
+      const elapsed = time - state.time;
+      if (elapsed > 0) {
+        const dx = (unit.x - state.x) * SX + curve(z) - curve(wz(state.y));
+        const dz = (unit.y - state.y) * SZ;
+        const speed = Math.hypot(dx, dz) / elapsed;
+        if (speed > 0.8) {
+          const target = Math.atan2(-dx, -dz);
+          const delta = Math.atan2(Math.sin(target - state.angle), Math.cos(target - state.angle));
+          state.angle += delta * Math.min(1, elapsed * 14);
+        }
+        state.run += (Math.min(1, speed / 7) - state.run) * Math.min(1, elapsed * 12);
+      }
+      state.x = unit.x; state.y = unit.y; state.time = time; motion.set(unit, state);
+      runMotion.setXY(i, state.phase, shotFlight > 0 ? 0.15 : state.run);
       dummy.position.set(wx(unit.x) + curve(z), 0.025 + shotFlight, z);
-      dummy.rotation.set(0, enemy ? Math.PI : Math.max(-0.45, Math.min(0.45, -unit.vx * 0.014)), 0);
+      dummy.rotation.set(shotFlight > 0 ? -0.35 * Math.sin(flight * Math.PI) : 0, state.angle, 0);
       dummy.scale.setScalar(size); dummy.updateMatrix(); object.setMatrixAt(i, dummy.matrix);
       object.setColorAt(i, color.setHex(unit.big ? (enemy ? 0xffbaa1 : 0xa8f4ff) : 0xffffff));
       dummy.position.y = 0.025; dummy.rotation.set(0, 0, 0); dummy.scale.set(size * 0.9, 1, size * 0.7); dummy.updateMatrix(); shadows.setMatrixAt(shadowCount++, dummy.matrix);
     }
     object.instanceMatrix.needsUpdate = true;
+    runMotion.needsUpdate = true;
     if (object.instanceColor) object.instanceColor.needsUpdate = true;
   }
 
@@ -366,7 +388,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       currentGame = game; shot = game.stats.fired; previousTier = game.assault?.tier ?? 1;
       shadowAt = 0;
       theme = game.level.assault?.theme ?? "fork"; travel = (game.assault?.travel ?? 0) * SZ;
-      bridges.visible = theme === "bridge"; bendGeometry(worldBends); bendGeometry(forkBends, -travel); previousTravel = travel;
+      bridges.visible = theme === "bridge"; bendGeometry(worldBends); previousTravel = travel;
       previousStatus = "playing"; winAt = -1; reserveCount = -1; reserveEncounter = -1;
       previousPulse = 0; wasRushing = false;
       particleList.length = 0; bosses.forEach((boss) => { boss.hp = -1; boss.deadAt = -99; boss.damageAt = -99; });
@@ -375,8 +397,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     }
     const assault = game.assault;
     const encounter = assault?.encounter ?? 0, tier = assault?.tier ?? 1;
+    const barrelOffsets = cannonBarrelOffsets(tier);
     travel = (assault?.travel ?? 0) * SZ; stage.position.z = -travel;
-    if (travel !== previousTravel) { bendGeometry(forkBends, -travel); reserveCount = -1; previousTravel = travel; }
+    if (travel !== previousTravel) { reserveCount = -1; previousTravel = travel; }
     const entry = (assault?.advance ?? 0) * 15;
     const warning = assault?.bossWarning ?? 0, pulse = assault?.bossPulse ?? 0;
     const activeBoss = game.bases[encounter];
@@ -396,22 +419,37 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     animationTime.value = game.t;
     shake = Math.max(0, shake - dt * 7);
     recoil = Math.max(0, recoil - dt * 9);
-    if (game.stats.fired > shot) { recoil = 1; shot = game.stats.fired; }
+    const fired = game.stats.fired > shot;
+    if (fired) { recoil = 1; shot = game.stats.fired; }
     if (tier > previousTier) {
       const x = wx(game.cannonX) + curve(0);
       burst(x, 0.6, 0, 0xffd33c, 45, 1.5); ring(x, 0, 0xffdb39, 3); previousTier = tier;
     }
     cannon.forEach((value, i) => {
       value.group.visible = i < tier;
-      const row = Math.floor(i / 3), columns = Math.min(3, tier - row * 3);
-      value.group.position.set(wx(game.cannonX) + curve(row * 1.05) + (i % 3 - (columns - 1) / 2) * 1.1, 0.02, row * 1.05);
+      const offset = barrelOffsets[i] ?? 0;
+      value.group.position.set(wx(game.cannonX + offset) + curve(0), 0.02, 0);
       const pop = assault?.upgradeFlash ? Math.sin(Math.min(1, assault.upgradeFlash) * Math.PI) * 0.1 : 0;
-      value.group.scale.setScalar(1.1 + pop); value.barrel.position.z = recoil * 0.22;
+      value.group.scale.set(1.3 + pop, 1.3 + pop, 1.76 + pop); value.barrel.position.z = -0.08 + recoil * 0.18;
+      value.barrel.rotation.y = Math.asin(THREE.MathUtils.clamp((curve(0) - curve(wz(CANNON_Y - 22))) / 1.3585, -0.4, 0.4));
       value.muzzle.scale.setScalar(1 + recoil * 0.12);
+      if (fired && i < tier) burst(wx(game.cannonX + offset) + curve(wz(CANNON_Y - 22)), 0.76, -1.98, 0xd9ffff, 2, 0.2);
     });
+    chassis.position.x = wx(game.cannonX) + curve(0);
+    const batteryWidth = 1.2 + ((barrelOffsets.at(-1) ?? 0) - barrelOffsets[0]) * SX;
+    deck.scale.x = batteryWidth / 1.34; bumper.scale.x = batteryWidth;
+    wheels.forEach((wheel, i) => { wheel.position.x = (i ? 1 : -1) * (batteryWidth / 2 + 0.05); });
+    guides.visible = game.firing;
+    guides.count = tier * 5;
+    for (let i = 0; i < guides.count; i++) {
+      const x = game.cannonX + barrelOffsets[Math.floor(i / 5)];
+      const z = -2.65 - (i % 5) * 0.76;
+      dummy.position.set(wx(x) + curve(z), 0.028, z); dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(1); dummy.updateMatrix(); guides.setMatrixAt(i, dummy.matrix);
+    }
+    guides.instanceMatrix.needsUpdate = true;
     batteryShadow.position.x = aimRing.position.x = wx(game.cannonX) + curve(0);
-    batteryShadow.scale.x = 1.1 + Math.min(3, tier) * 0.3;
-    aimRing.scale.set(1.05 + Math.min(3, tier) * 0.3, 1, 0.65);
+    batteryShadow.scale.x = 0.9 + tier * 0.6;
+    aimRing.scale.set(0.75 + tier * 0.6, 1, 1);
     aimRingMaterial.opacity = game.firing ? 0.3 : 0.5;
 
     while (gates.length < game.gates.length) gates.push(gate(0x9e20ef, "×2"));
@@ -419,11 +457,10 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const value = game.gates[i]; view.group.visible = !!value; if (!value) return;
       const text = value.kind === "trap" ? "!" : `×${value.n ?? 2}`;
       if (view.value !== text) { view.label.write(text); view.value = text; }
-      const slide = Math.max(assault?.advance ?? 0, Math.max(0, 1 - game.t * 2.4));
-      const z = wz(value.y) - slide * 14;
-      view.group.position.set(wx(value.cx) + curve(z) + slide * 6.5, 0.025, z);
+      const z = wz(value.y);
+      view.group.position.set(wx(value.cx) + curve(z), 0.025, z);
       const flash = Math.min(1, value.flash * 4);
-      view.group.scale.set(value.w * SX * (1 + flash * 0.015), 1 + flash * 0.08, 1);
+      view.group.scale.set(value.w * SX, 1 + flash * 0.04, 1);
       view.material.color.setHex(value.kind === "trap" ? 0xff274f : 0xa521ee);
       view.material.emissive.setHex(value.kind === "trap" ? 0xff274f : 0xa521ee);
       view.material.emissiveIntensity = 0.2 + flash * 0.7;
@@ -431,14 +468,6 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         burst(view.group.position.x + (random() - 0.5) * value.w * SX * 0.65, 0.9, z - 0.4, 0xb3f8ff, 7, 0.55);
         ring(view.group.position.x, z - 0.45, 0x9aefff, value.w * SX * 0.36); view.nextBurst = game.t + 0.24;
       }
-    });
-    bank.forEach((view, i) => {
-      view.group.visible = !!assault && !game.level.assault?.practice;
-      const z = -18 - i * 3.1 - entry * 0.5;
-      view.group.position.set(6.72 + curve(z), 0.025, z);
-      view.group.scale.set(4.8, 0.9, 1);
-      const value = `×${Math.min(9, (game.gates[i % Math.max(1, game.gates.length)]?.n ?? 2) + 1 + Math.floor(i / 3))}`;
-      if (view.value !== value) { view.value = value; view.label.write(value); }
     });
     pickups.forEach((view, i) => {
       const pickup = assault?.pickups[i]; view.group.visible = !!pickup;
@@ -449,16 +478,16 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
 
     shadowCount = 0; drawUnits(game.blue, friends, false, 0); drawUnits(game.red, enemies, true, entry);
     shadows.count = shadowCount; shadows.instanceMatrix.needsUpdate = true;
-    const waiting = Math.min(12000, assault?.reserve ?? 0);
+    const waiting = Math.min(2400, assault?.reserve ?? 0);
     let rear = 180;
     for (const unit of game.red) rear = Math.min(rear, unit.y);
     const reserveZ = wz(rear - 9) - entry;
     if (waiting !== reserveCount || encounter !== reserveEncounter) {
       reserveCount = waiting; reserveEncounter = encounter; reserves.count = waiting;
       for (let i = 0; i < waiting; i++) {
-        const column = i % 25, row = Math.floor(i / 25);
-        const z = -row * 0.39 + Math.cos(i * 9.7) * 0.09;
-        dummy.position.set(-8.15 + column * 0.366 + Math.sin(i * 13.1) * 0.12 + curve(z + reserveZ), 0.02, z);
+        const column = i % 18, row = Math.floor(i / 18);
+        const z = -row * 0.68 + Math.cos(i * 9.7) * 0.1;
+        dummy.position.set(wx(activeBoss.x) + (column - 8.5) * 0.47 + Math.sin(i * 13.1) * 0.1 + curve(z + reserveZ), 0.02, z);
         dummy.rotation.set(0, Math.PI, 0); dummy.scale.setScalar(0.72); dummy.updateMatrix(); reserves.setMatrixAt(i, dummy.matrix);
       }
       reserves.instanceMatrix.needsUpdate = true;
@@ -523,7 +552,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     camera.aspect = width / height;
     // Preserve the full aiming lane on a phone without shrinking the fighters.
     const depth = cameraHome.length();
-    camera.fov = Math.max(40, THREE.MathUtils.radToDeg(2 * Math.atan(10.6 / (depth * camera.aspect))));
+    camera.fov = Math.max(44, THREE.MathUtils.radToDeg(2 * Math.atan(9.15 / (depth * camera.aspect))));
     camera.updateProjectionMatrix(); renderer.setSize(width, height, false); updateCamera();
   }
   resize(canvas.clientWidth || 390, canvas.clientHeight || 844);
@@ -531,7 +560,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     render, resize,
     aimX(normalizedX: number) {
       const target = normalizedX * 2 - 1;
-      let low = 0, high = W;
+      let low = -W, high = W * 2;
       for (let i = 0; i < 12; i++) {
         const middle = (low + high) / 2;
         projected.set(wx(middle) + curve(0), 0, -travel).project(camera);

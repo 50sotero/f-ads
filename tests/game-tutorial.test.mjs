@@ -67,7 +67,7 @@ test("tutorial is a three gate assault practice route", () => {
       { x: 180, y: 424, w: 170, n: 4 },
     ],
   );
-  assert.deepEqual(tutorialLevel.bases, [{ x: 125, y: 300, hp: 99999, every: 9999, group: 0 }]);
+  assert.deepEqual(tutorialLevel.bases, [{ x: 180, y: 300, hp: 99999, every: 9999, group: 0 }]);
 });
 
 test("practice gives players time to learn without changing the campaign", () => {

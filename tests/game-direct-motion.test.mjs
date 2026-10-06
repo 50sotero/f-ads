@@ -87,6 +87,20 @@ test("far-side shots keep moving after they miss the boss lane", () => {
   }
 });
 
+test("sustained fire forms several rows instead of a boss-edge pile", () => {
+  const game = newGame(assaultLevel({
+    bases: [{ x: 180, y: 300, hp: 99999, every: 9999, group: 0 }],
+  }));
+  game.firing = true;
+  for (let frame = 0; frame < 600; frame++) step(game, 1 / 60);
+  const front = game.bases[0].y + game.bases[0].h / 2;
+  const touching = game.blue.filter((unit) => unit.y >= front && unit.y <= front + 8);
+  const occupiedRows = new Set(game.blue.map((unit) => Math.floor(unit.y / 8)));
+  assert.ok(game.blue.length > 100, "fixture did not build sustained crowd pressure");
+  assert.ok(touching.length < 50, `${touching.length} runners overlapped at the boss edge`);
+  assert.ok(occupiedRows.size > 12, "crowd did not form a multi-row queue");
+});
+
 test("surviving runners keep their positions during a boss transition", () => {
   const game = newGame(assaultLevel({
     bases: [

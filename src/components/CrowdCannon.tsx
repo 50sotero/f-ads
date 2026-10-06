@@ -18,7 +18,7 @@ const DT = 1 / 60;
 
 type Save = { stars: number[]; muted: boolean; tutorialDone: boolean };
 type Screen = "menu" | "playing" | "paused" | "won" | "lost" | "trained";
-type SoundKind = "pop" | "hit" | "champ" | "win" | "lose";
+type SoundKind = "shot" | "pop" | "hit" | "champ" | "win" | "lose";
 type AssaultHud = {
   encounter: number;
   encounters: number;
@@ -96,7 +96,7 @@ function subscribe(listener: () => void) {
 /** Tiny synth blips keep the arcade feel without loading sound assets. */
 function useSound(muted: boolean) {
   const contextRef = useRef<AudioContext | null>(null);
-  const lastRef = useRef<Record<SoundKind, number>>({ pop: 0, hit: 0, champ: 0, win: 0, lose: 0 });
+  const lastRef = useRef<Record<SoundKind, number>>({ shot: 0, pop: 0, hit: 0, champ: 0, win: 0, lose: 0 });
   useEffect(() => () => {
     void contextRef.current?.close();
     contextRef.current = null;
@@ -106,7 +106,7 @@ function useSound(muted: boolean) {
     (kind: SoundKind) => {
       if (muted || typeof window === "undefined") return;
       const now = performance.now();
-      const gap = kind === "pop" ? 70 : kind === "hit" ? 90 : 0;
+      const gap = kind === "shot" ? 95 : kind === "pop" ? 110 : kind === "hit" ? 120 : 0;
       if (now - lastRef.current[kind] < gap) return;
       lastRef.current[kind] = now;
 
@@ -118,6 +118,7 @@ function useSound(muted: boolean) {
         const context = contextRef.current;
         if (context.state === "suspended") void context.resume();
         const notes: Record<SoundKind, [number, number, OscillatorType][]> = {
+          shot: [[240, 0.045, "sine"]],
           pop: [[660 + Math.random() * 200, 0.06, "triangle"]],
           hit: [[140, 0.08, "square"]],
           champ: [[330, 0.12, "sawtooth"], [495, 0.15, "sawtooth"]],
@@ -130,7 +131,8 @@ function useSound(muted: boolean) {
           const gain = context.createGain();
           oscillator.type = oscillatorType;
           oscillator.frequency.value = frequency;
-          gain.gain.setValueAtTime(kind === "pop" ? 0.05 : 0.09, time);
+          gain.gain.setValueAtTime(kind === "shot" ? 0.035 : kind === "pop" ? 0.04 : 0.07, time);
+          if (kind === "shot") oscillator.frequency.exponentialRampToValueAtTime(100, time + length);
           gain.gain.exponentialRampToValueAtTime(0.0001, time + length);
           oscillator.connect(gain).connect(context.destination);
           oscillator.start(time);
@@ -249,7 +251,7 @@ export function CrowdCannon() {
     let shown: Game | null = null;
     let hudAt = 0;
     let needsDraw = true;
-    let seen = { multiplied: 0, baseHits: 0, champions: 0 };
+    let seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0 };
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
       renderer.resize(Math.max(1, rect.width), Math.max(1, rect.height));
@@ -280,19 +282,28 @@ export function CrowdCannon() {
         needsDraw = true;
         accumulator = 0;
         endAt = 0;
-        seen = { multiplied: 0, baseHits: 0, champions: 0 };
+        seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0 };
       }
 
       if (screenRef.current === "playing") {
         accumulator += elapsed;
         while (accumulator >= DT) {
+          const keys = keysRef.current;
+          const direction = (keys.has("ArrowRight") || keys.has("d") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("a") ? 1 : 0);
+          if (direction) {
+            game.targetX = game.cannonX + direction * 430 * DT;
+            game.firing = true;
+          } else if (keys.has("ArrowUp") || keys.has("w")) {
+            game.firing = true;
+          }
           step(game, DT);
           accumulator -= DT;
         }
+        if (game.stats.fired > seen.fired) soundRef.current("shot");
         if (game.stats.multiplied > seen.multiplied) soundRef.current("pop");
         if (game.stats.baseHits > seen.baseHits) soundRef.current("hit");
         if (game.stats.champions > seen.champions) soundRef.current("champ");
-        seen = { multiplied: game.stats.multiplied, baseHits: game.stats.baseHits, champions: game.stats.champions };
+        seen = { fired: game.stats.fired, multiplied: game.stats.multiplied, baseHits: game.stats.baseHits, champions: game.stats.champions };
         const training = tutorialRef.current;
         if (training) {
           if (advanceTutorial(training, game)) {
@@ -358,13 +369,11 @@ export function CrowdCannon() {
     if (!canvas) return;
     const toWorldX = (event: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
-      const normalized = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)));
+      const normalized = (event.clientX - rect.left) / Math.max(1, rect.width);
       return rendererRef.current?.aimX(normalized) ?? normalized * W;
     };
-    let keyTimer = 0;
+    let lastPointerX = 0;
     const reset = () => {
-      if (keyTimer) window.clearTimeout(keyTimer);
-      keyTimer = 0;
       pointerRef.current = null;
       keysRef.current.clear();
       if (gameRef.current) gameRef.current.firing = false;
@@ -372,6 +381,7 @@ export function CrowdCannon() {
     const down = (event: PointerEvent) => {
       const game = gameRef.current;
       if (!game || screenRef.current !== "playing") return;
+      if (event.pointerType === "mouse" && event.button !== 0) return;
       if (pointerRef.current !== null) return;
       event.preventDefault();
       pointerRef.current = event.pointerId;
@@ -380,13 +390,18 @@ export function CrowdCannon() {
       } catch {
         // Pointer capture is unavailable in a few embedded browsers.
       }
-      game.targetX = toWorldX(event);
+      lastPointerX = toWorldX(event);
+      if (event.pointerType === "mouse") game.targetX = lastPointerX;
       game.firing = true;
     };
     const move = (event: PointerEvent) => {
       const game = gameRef.current;
       if (!game || event.pointerId !== pointerRef.current || screenRef.current !== "playing") return;
-      game.targetX = toWorldX(event);
+      const x = toWorldX(event);
+      // Touch is a relative drag: touching down near a screen edge must not
+      // teleport the cannon or make the player cover it with their thumb.
+      game.targetX = event.pointerType === "mouse" ? x : game.targetX + x - lastPointerX;
+      lastPointerX = x;
     };
     const up = (event: PointerEvent) => {
       if (event.pointerId !== pointerRef.current) return;
@@ -396,26 +411,6 @@ export function CrowdCannon() {
         // Pointer capture may already have been released by the browser.
       }
       reset();
-    };
-    const tickKeyboard = () => {
-      keyTimer = 0;
-      const game = gameRef.current;
-      if (!game || screenRef.current !== "playing") {
-        reset();
-        return;
-      }
-      const keys = keysRef.current;
-      const direction = (keys.has("ArrowRight") || keys.has("d") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("a") ? 1 : 0);
-      if (direction) {
-        game.targetX = Math.max(0, Math.min(W, game.cannonX + direction * 42));
-        game.firing = true;
-      } else if (keys.has("ArrowUp") || keys.has("w")) {
-        game.targetX = game.cannonX;
-        game.firing = true;
-      } else if (pointerRef.current === null) {
-        game.firing = false;
-      }
-      if (keys.size) keyTimer = window.setTimeout(tickKeyboard, 16);
     };
     const keydown = (event: KeyboardEvent) => {
       if (screenRef.current !== "playing") return;
@@ -431,7 +426,6 @@ export function CrowdCannon() {
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "a", "d", "w"].includes(event.key)) {
         event.preventDefault();
         keysRef.current.add(event.key);
-        if (!keyTimer) tickKeyboard();
       }
     };
     const keyup = (event: KeyboardEvent) => {

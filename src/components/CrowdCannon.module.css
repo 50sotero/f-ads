@@ -22,7 +22,7 @@
   inset: 0;
   pointer-events: none;
   border-radius: 25px;
-  box-shadow: inset 0 0 50px rgba(4, 44, 73, 0.2);
+  box-shadow: inset 0 0 50px rgba(4, 44, 73, 0.07);
   content: "";
 }
 
@@ -42,7 +42,7 @@
   z-index: 1;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(4, 36, 74, 0.12), transparent 19%, transparent 77%, rgba(4, 36, 74, 0.2));
+  background: linear-gradient(180deg, rgba(4, 36, 74, 0.08), transparent 19%, transparent 77%, rgba(4, 36, 74, 0.09));
   mix-blend-mode: multiply;
 }
 
