@@ -308,6 +308,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const panel = new THREE.Mesh(ownGeo(new THREE.BoxGeometry(width - 0.12, 2.77, 0.07)), ownMat(new THREE.MeshBasicMaterial({ color: trap ? 0xff3b60 : 0xa63bff, transparent: true, opacity: 0.3, depthWrite: false })));
       panel.position.y = 1.57; group.add(panel);
       const text = label(trap ? "✕" : `×${gt.n ?? 2}`, "#ffffff", Math.min(width * 1.1, 4.9), Math.min(width * 0.55, 2.2), 152);
+      // Route values remain readable as a dense crowd passes through the panel.
+      text.material.depthTest = false;
       text.position.set(0, 2, 0.2); group.add(text);
       const timer = gt.pulse ? label("", "#ffffff", Math.min(3.6, width), 1, 112, "#16445e") : null;
       if (timer) { timer.position.set(0, 3.7, 0); group.add(timer); }
