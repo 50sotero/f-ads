@@ -3,6 +3,7 @@ import type { Game, Level } from "./engine";
 // Keep the practice charge aligned with engine.CHARGE_MAX without adding a
 // runtime engine import; the tutorial is also loaded directly by Node tests.
 const TUTORIAL_CHARGE_MAX = 30;
+const MULTIPLIER_AIM_PADDING = 12;
 
 // Practice is separate from the twelve scored levels, so replaying a lesson
 // never awards stars, unlocks a level, or changes a saved campaign result.
@@ -50,7 +51,11 @@ export function advanceTutorial(progress: TutorialProgress, game: Game): boolean
     progress.multipliedAtStart = game.stats.multiplied;
     return true;
   }
-  if (progress.step === 1 && game.stats.multiplied - progress.multipliedAtStart >= 8) {
+  const firstMultiplier = game.gates.find((gate) => gate.kind === "x");
+  const cannonAlignedWithMultiplier = firstMultiplier
+    ? Math.abs(game.cannonX - firstMultiplier.cx) <= firstMultiplier.w / 2 + MULTIPLIER_AIM_PADDING
+    : false;
+  if (progress.step === 1 && cannonAlignedWithMultiplier && game.stats.multiplied - progress.multipliedAtStart >= 8) {
     progress.step = 2;
     progress.pickupsAtStart = game.assault?.pickupsCollected ?? 0;
     return true;

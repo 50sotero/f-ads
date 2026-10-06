@@ -54,6 +54,22 @@ test("tutorial checks new actions for each lesson and completes once", () => {
   assert.equal(advanceTutorial(progress, game), false);
 });
 
+test("multipliers cannot finish the lesson while the cannon is aimed outside the live first panel", () => {
+  const progress = newTutorialProgress();
+  const game = newGame(tutorialLevel);
+  progress.step = 1;
+  progress.multipliedAtStart = 0;
+  game.stats.multiplied = 8;
+  game.cannonX = 285;
+
+  assert.equal(advanceTutorial(progress, game), false, "early center runners must not finish while aiming right");
+  assert.equal(progress.step, 1);
+
+  game.cannonX = game.gates[0].cx;
+  assert.equal(advanceTutorial(progress, game), true, "the existing multiplier progress should count after aligning");
+  assert.equal(progress.step, 2);
+});
+
 test("a champion launched before the final lesson does not auto-complete it", () => {
   const progress = newTutorialProgress();
   const game = newGame(tutorialLevel);
