@@ -67,14 +67,28 @@ test("changing the target after launch does not redirect an in-flight runner", (
 test("boss attraction starts only after the final gate line", () => {
   const game = newGame(assaultLevel());
   game.targetX = 55;
-  const runner = { x: 180, y: 430, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false, lane: 0 };
+  const runner = { x: 220, y: 430, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false, lane: 0 };
   game.blue.push(runner);
   step(game, 1 / 60);
-  assert.equal(runner.x, 180, "runner bent before the final gate");
+  assert.equal(runner.x, 220, "runner bent before the final gate");
 
   runner.y = 330;
   step(game, 1 / 60);
-  assert.ok(runner.x < 180, "runner did not enter the short boss approach");
+  assert.ok(runner.x < 220, "runner did not enter the short boss approach");
+});
+
+test("the broad assault boss catches runners at the corridor edge", () => {
+  const game = newGame(assaultLevel({
+    bases: [{ x: 180, y: 300, hp: 9999, every: 9999, group: 0 }],
+    gates: [],
+  }));
+  game.firing = false;
+  const edgeRunner = { x: 245, y: 330, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false };
+  game.blue.push(edgeRunner);
+  step(game, 1 / 60);
+
+  assert.equal(edgeRunner.dead, true, "runner walked through the edge of the living boss");
+  assert.equal(game.bases[0].hp, 9998);
 });
 
 test("boss contact is forward-only and does not repack surviving runners backward", () => {
@@ -135,6 +149,24 @@ test("boss pressure waits for the opening, then reaches the choke on reference t
   assert.ok(game.bases[0].y >= 371 && game.bases[0].y <= 373, `boss y at 9s=${game.bases[0].y}`);
   for (let frame = 0; frame < 180; frame++) step(game, 1 / 60);
   assert.ok(game.bases[0].y >= 407 && game.bases[0].y <= 409, `boss y at 12s=${game.bases[0].y}`);
+});
+
+test("a living assault boss overruns only the gate it has physically reached", () => {
+  const game = newGame(assaultLevel({
+    bases: [{ x: 180, y: 300, hp: 99999, every: 9999, group: 0 }],
+    assault: { horde: 1, reserve: 0, speed: 0, theme: "fork" },
+  }));
+  game.firing = false;
+  for (let frame = 0; frame < 720 && !game.gates[2].overrun; frame++) step(game, 1 / 60);
+
+  assert.deepEqual(game.gates.map((gate) => gate.overrun), [false, false, true]);
+  assert.equal(game.pops.filter((pop) => pop.text === "GATE DOWN").length, 1);
+
+  const runner = { x: 260, y: 430, vx: 0, hp: 1, r: 4.2, big: false, used: 0b011, dead: false };
+  game.blue.push(runner);
+  for (let frame = 0; frame < 30; frame++) step(game, 1 / 60);
+  assert.equal(runner.used & (1 << 2), 1 << 2, "overrun gate did not preserve its used bit");
+  assert.equal(game.stats.multiplied, 0, "overrun gate multiplied a new runner");
 });
 
 test("surviving runners keep their positions during a boss transition", () => {

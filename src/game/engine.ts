@@ -88,7 +88,8 @@ export type Unit = {
   pace?: number;
 };
 export type Base = BaseDef & { maxHp: number; timer: number; bruteTimer: number; hitFlash: number; w: number; h: number };
-export type Gate = GateDef & { cx: number; flash: number };
+/** Runtime gate state; `overrun` is a one-shot boss break signal for the renderer. */
+export type Gate = GateDef & { cx: number; flash: number; overrun: boolean };
 export type Spinner = SpinnerDef & { angle: number };
 export type Pop = { x: number; y: number; t: number; color: number; text?: string };
 
@@ -339,11 +340,11 @@ export function newGame(level: Level, seed = 1): Game {
         timer: b.delay ?? 1.5,
         bruteTimer: b.bruteEvery ? b.bruteEvery * 0.6 + (b.delay ?? 0) : Infinity,
         hitFlash: 0,
-        w: BASE_W,
+        w: assault ? ASSAULT_BOSS_W : BASE_W,
         h: BASE_H,
       };
     }),
-    gates: assaultGateDefs(level).map((g) => ({ ...g, cx: g.x, flash: 0 })),
+    gates: assaultGateDefs(level).map((g) => ({ ...g, cx: g.x, flash: 0, overrun: false })),
     walls: level.walls ?? [],
     spinners: (level.spinners ?? []).map((s) => ({ ...s, angle: 0 })),
     pops: [],
@@ -964,6 +965,7 @@ const ASSAULT_RED_LATERAL_ACCEL = 520;
 const ASSAULT_MAX_NEIGHBOURS = 48;
 const ASSAULT_MAX_CELL_SAMPLES = 8;
 const ASSAULT_RED_SPEED_SCALE = 0.85;
+const ASSAULT_BOSS_W = 140;
 const ASSAULT_CORRIDOR_HALF = 72;
 const ASSAULT_BOSS_PRESSURE_DELAY = 3;
 const ASSAULT_BOSS_PRESSURE_SPEED = 12;
@@ -992,6 +994,27 @@ function updateAssaultBossPressure(g: Game, dt: number) {
   if (assault.bossTime <= ASSAULT_BOSS_PRESSURE_DELAY) return;
   const limit = assault.bossOriginY + ASSAULT_BOSS_PRESSURE_TRAVEL;
   active.y = Math.min(limit, active.y + ASSAULT_BOSS_PRESSURE_SPEED * dt);
+}
+
+/**
+ * Lets a living campaign boss break a multiplier panel after its front reaches
+ * the panel's logical line. The gate stays in the array and keeps its bit
+ * index; runners that cross it afterward simply mark it used without creating
+ * another wave. Practice and horde-free fixtures retain the original route.
+ */
+function updateAssaultGateOverruns(g: Game) {
+  const assault = g.assault;
+  const config = g.level.assault;
+  if (!assault || !config || config.practice || assault.horde <= 0 || assault.phase !== "battle") return;
+  const active = g.bases[assault.encounter];
+  if (!active || active.hp <= 0) return;
+  const bossFront = active.y + active.h / 2;
+  for (const gate of g.gates) {
+    if (gate.overrun || bossFront < gate.y) continue;
+    gate.overrun = true;
+    gate.flash = 1;
+    pop(g, gate.cx, gate.y, 1, "GATE DOWN");
+  }
 }
 
 /**
@@ -1162,6 +1185,7 @@ function updateAssaultBlue(g: Game, dt: number) {
       if (prevY < gt.y || u.y > gt.y || Math.abs(u.x - gt.cx) > gt.w / 2) continue;
       u.used |= 1 << i;
       gt.flash = 1;
+      if (gt.overrun) continue;
       if (gt.kind === "trap") {
         if (trapActive(gt, g.t) && !u.big) {
           u.dead = true;
@@ -1373,6 +1397,7 @@ function stepAssault(g: Game, dt: number) {
   updateAssaultPickups(g, dt);
   updateWeaponTarget(g, dt);
   updateAssaultBossPressure(g, dt);
+  updateAssaultGateOverruns(g);
   updateAssaultBossSlam(g, dt);
 
   if (assault.phase === "advance") {
