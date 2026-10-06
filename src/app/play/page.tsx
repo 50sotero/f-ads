@@ -17,7 +17,7 @@ export const metadata: Metadata = pageMetadata({
 
 export default function PlayPage() {
   return (
-    <div className="mx-auto max-w-5xl px-4">
+    <div className="mx-auto w-full max-w-6xl px-3 sm:px-6">
       <JsonLd
         graph={[
           ...baseGraph(),
@@ -36,7 +36,7 @@ export default function PlayPage() {
           },
         ]}
       />
-      <section className="pt-4 pb-6">
+      <section className="pt-2 pb-7 sm:pt-5 sm:pb-9">
         <h1 className="sr-only">Crowd Cannon, a free game from {site.name}</h1>
         <CrowdCannon />
       </section>
@@ -46,15 +46,21 @@ export default function PlayPage() {
       </div>
       <SponsorRails />
 
-      <section className="mx-auto mt-6 max-w-2xl text-muted">
-        <h2 className="text-xl font-bold text-ink">How to play</h2>
-        <ul className="mt-3 list-disc space-y-1.5 pl-5">
-          <li>Hold anywhere on the field and drag left or right to aim. Your cannon fires while you hold.</li>
-          <li>Green gates multiply everyone who runs through them. Each gate works once per person, so line up two in a row.</li>
-          <li>Red gates and spinning bars wipe out your crowd. Walls make it walk around.</li>
-          <li>Shooting fills the star. Tap it (or press Space) to send a champion that takes 14 hits and ignores traps.</li>
-          <li>If an enemy crosses the dashed line, the level is lost. Take down every base to win; beat the target time for 3 stars.</li>
-          <li>On a keyboard: arrow keys or A and D to aim and fire, Up or W to fire in place.</li>
+      <section className="mx-auto mt-7 max-w-3xl rounded-3xl border border-line bg-surface/85 p-5 text-muted shadow-sm sm:mt-10 sm:p-7">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold tracking-[0.16em] text-accent uppercase">Crowd Cannon field guide</p>
+            <h2 className="mt-1 text-2xl font-bold text-ink">How to play</h2>
+          </div>
+          <span className="hidden rounded-full bg-[#e5f8f7] px-3 py-1 text-xs font-bold text-[#217c8e] sm:inline">12 stages</span>
+        </div>
+        <ul className="mt-5 grid gap-3 text-sm leading-6 sm:grid-cols-2 sm:gap-x-8">
+          <li><strong className="text-ink">Steer and fire.</strong> Hold anywhere on the arena and drag left or right. Your cannon keeps firing while you hold.</li>
+          <li><strong className="text-ink">Pick your gate.</strong> Purple gates multiply every runner who crosses them. Each gate works once per person, so line up two in a row.</li>
+          <li><strong className="text-ink">Read the hazards.</strong> Red trap gates and spinning bars wipe out your crew. Walls make runners walk around.</li>
+          <li><strong className="text-ink">Save your champion.</strong> Shooting fills the star. Tap it (or press Space) to send a champion that ignores traps and absorbs heavy hits.</li>
+          <li><strong className="text-ink">Hold the line.</strong> If an enemy reaches your defense line, the level is lost. Take down every base to win.</li>
+          <li><strong className="text-ink">Chase stars.</strong> Beat the target time shown by the level to earn 3 stars. Arrow keys or A/D aim on desktop; Up/W fires in place.</li>
         </ul>
         <p className="mt-6 text-sm">
           Came for a video? <Link href="/" className="font-semibold text-accent hover:underline">Download it here</Link>, with no waiting.
