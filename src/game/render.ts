@@ -189,8 +189,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const source = document.createElement("canvas"); source.width = 512; source.height = 192;
     const context = source.getContext("2d")!;
     const map = texture(new THREE.CanvasTexture(source)); map.colorSpace = THREE.SRGBColorSpace;
-    const material = mat(new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false, toneMapped: false }));
-    const sprite = new THREE.Sprite(material); sprite.scale.set(width, height, 1);
+    const material = mat(new THREE.SpriteMaterial({ map, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
+    const sprite = new THREE.Sprite(material); sprite.scale.set(width, height, 1); sprite.renderOrder = 5;
     const write = (value: string, color = fill) => {
       context.clearRect(0, 0, 512, 192); context.textAlign = "center"; context.textBaseline = "middle";
       context.font = `700 ${fontSize}px Fredoka, Arial, sans-serif`; context.lineJoin = "round";
