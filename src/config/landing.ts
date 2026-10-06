@@ -15,7 +15,7 @@ export type Landing = {
   /** How to copy a post's link in that app. */
   copyStep: string;
   faq: { q: string; a: string }[];
-  /** Search-result title, without the "| F.ADS" suffix; defaults to "<H1>: Free, No Waiting". */
+  /** Search-result title, without the "| <site name>" suffix; defaults to "<H1>: Free, No Waiting". */
   title?: string;
   /** Page heading; defaults to "<keyword> Video Downloader". */
   h1?: string;
