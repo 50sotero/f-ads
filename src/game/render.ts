@@ -252,15 +252,21 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const material = standard(color, { roughness: 0.44, vertexColors: true });
     material.onBeforeCompile = (shader) => {
       shader.uniforms.runTime = animationTime;
-      shader.vertexShader = `uniform float runTime; attribute float faceMask; attribute vec2 runMotion; varying float vFaceMask;\n${shader.vertexShader}`.replace("#include <begin_vertex>", `
+      shader.vertexShader = `uniform float runTime; attribute float faceMask; attribute float stridePart; attribute vec2 runMotion; varying float vFaceMask;\n${shader.vertexShader}`.replace("#include <beginnormal_vertex>", `
+        #include <beginnormal_vertex>
+        float stride = sin(runTime * 12.0 + runMotion.x) * runMotion.y;
+        float limbAngle = stride * sign(stridePart) * (abs(stridePart) > 1.5 ? 0.65 : -0.55);
+        float limbCos = cos(limbAngle), limbSin = sin(limbAngle);
+        objectNormal.yz = mat2(limbCos, limbSin, -limbSin, limbCos) * objectNormal.yz;
+      `).replace("#include <begin_vertex>", `
         #include <begin_vertex>
         vFaceMask = faceMask;
-        float phase = runTime * 12.0 + runMotion.x;
-        float stride = sin(phase) * runMotion.y;
-        float legs = 1.0 - smoothstep(0.22, 0.46, position.y);
-        float arms = smoothstep(0.23, 0.3, abs(position.x)) * (1.0 - smoothstep(0.73, 0.9, position.y));
+        if (abs(stridePart) > 0.5) {
+          float pivot = abs(stridePart) > 1.5 ? 0.36 : 0.75;
+          transformed.yz = mat2(limbCos, limbSin, -limbSin, limbCos) * vec2(position.y - pivot, position.z);
+          transformed.y += pivot;
+        }
         transformed.y += abs(stride) * 0.05;
-        transformed.z += stride * (legs * 0.17 - arms * 0.14) * sign(position.x);
         transformed.x += stride * 0.012 * position.y;
       `);
       shader.fragmentShader = `varying float vFaceMask;\n${shader.fragmentShader}`.replace("#include <color_fragment>", `
@@ -268,7 +274,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         diffuseColor.rgb = mix(diffuseColor.rgb, vColor.rgb, vFaceMask);
       `);
     };
-    material.customProgramCacheKey = () => "assault-run-v2"; return material;
+    material.customProgramCacheKey = () => "assault-jointed-run-v3"; return material;
   }
   const mobGeometry = geo(createMobGeometry()), reserveGeometry = geo(createHordeGeometry());
   const friendMaterial = crowdMaterial(BLUE), enemyMaterial = crowdMaterial(RED);
@@ -510,10 +516,10 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const death = base.hp <= 0 ? Math.min(1, (frameTime - view.deadAt) / 0.65) : 0;
       view.art.group.visible = (active && base.hp > 0) || death < 1 && base.hp <= 0;
       view.distant.visible = !active && base.hp > 0;
-      view.distant.position.set(x, 0, z); view.distant.scale.setScalar(1.25);
+      view.distant.position.set(x, 0, z); view.distant.scale.setScalar(1.38);
       view.label.sprite.visible = view.bar.visible = base.hp > 0;
       view.art.group.position.set(x, -death * 2, z);
-      view.art.group.scale.setScalar((active ? 1.16 : 1.25) * (1 - death * 0.65));
+      view.art.group.scale.setScalar((active ? 1.3 : 1.38) * (1 - death * 0.65));
       view.art.group.rotation.z = death * -1.3;
       if (view.art.group.visible) view.art.animate(game.t + i * 2.3, base.hitFlash, active ? Math.max(warning, pulse) : 0);
       view.label.sprite.position.set(x, 10.05, z); view.bar.position.set(x, 8.9, z);
