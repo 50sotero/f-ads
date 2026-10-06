@@ -54,6 +54,10 @@ function subscribe(listener: () => void) {
 function useSound(muted: boolean) {
   const contextRef = useRef<AudioContext | null>(null);
   const lastRef = useRef<Record<SoundKind, number>>({ pop: 0, hit: 0, champ: 0, win: 0, lose: 0 });
+  useEffect(() => () => {
+    void contextRef.current?.close();
+    contextRef.current = null;
+  }, []);
 
   return useCallback(
     (kind: SoundKind) => {
@@ -195,10 +199,12 @@ export function CrowdCannon() {
     let endAt = 0;
     let shown: Game | null = null;
     let hudAt = 0;
+    let needsDraw = true;
     let seen = { multiplied: 0, baseHits: 0, champions: 0 };
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
       renderer.resize(Math.max(1, rect.width), Math.max(1, rect.height));
+      needsDraw = true;
     };
     resize();
 
@@ -222,6 +228,7 @@ export function CrowdCannon() {
       const game = gameRef.current ?? (previewRef.current ??= newGame(levels[0], 2026));
       if (game !== shown) {
         shown = game;
+        needsDraw = true;
         accumulator = 0;
         endAt = 0;
         seen = { multiplied: 0, baseHits: 0, champions: 0 };
@@ -247,11 +254,15 @@ export function CrowdCannon() {
 
       if (now - hudAt > 80) {
         hudAt = now;
-        setHud({ crowd: game.blue.length, time: game.t, charge: game.charge });
+        setHud((previous) => previous.crowd === game.blue.length && previous.time === game.t && previous.charge === game.charge
+          ? previous : { crowd: game.blue.length, time: game.t, charge: game.charge });
       }
 
       try {
-        renderer.render(game, screenRef.current === "playing" ? elapsed : 0);
+        if (screenRef.current === "playing" || needsDraw) {
+          renderer.render(game, screenRef.current === "playing" ? elapsed : 0);
+          needsDraw = false;
+        }
       } catch {
         if (screenRef.current === "playing") {
           screenRef.current = "paused";
@@ -407,8 +418,21 @@ export function CrowdCannon() {
 
   return (
     <div className={styles.gameShell} data-screen={screen} data-level={levelIndex + 1} aria-label="Crowd Cannon arcade game">
-      <canvas ref={canvasRef} className={styles.canvas} aria-label="Crowd Cannon game field. Hold and drag to aim and shoot." />
+      <canvas key={rendererNonce} ref={canvasRef} className={styles.canvas} aria-label="Crowd Cannon game field. Hold and drag to aim and shoot." />
       <div className={styles.sceneShade} aria-hidden="true" />
+
+      {screen === "won" && (
+        <div className={styles.confetti} aria-hidden="true">
+          {Array.from({ length: 36 }, (_, index) => (
+            <i key={index} style={{
+              left: `${(index * 37) % 100}%`,
+              background: ["#ffd84d", "#20bbff", "#ff5274", "#b86cff", "#49e4ba"][index % 5],
+              animationDelay: `${-(index % 9) * 0.36}s`,
+              animationDuration: `${2.5 + (index % 5) * 0.3}s`,
+            }} />
+          ))}
+        </div>
+      )}
 
       {rendererError && (
         <div className={styles.graphicsError} role="alert">

@@ -688,6 +688,28 @@
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+.confetti {
+  position: absolute;
+  z-index: 12;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.confetti i {
+  position: absolute;
+  top: -20px;
+  width: 7px;
+  height: 12px;
+  border-radius: 2px;
+  animation: confettiFall 3s linear infinite;
+}
+
+@keyframes confettiFall {
+  from { transform: translate3d(-15px, -20px, 0) rotate(0); }
+  to { transform: translate3d(30px, 850px, 0) rotate(640deg); }
+}
+
 @keyframes tipIn {
   from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: translateY(0); }
@@ -730,4 +752,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .menuPanel, .modalPanel, .tip, .starReveal, .championReady { animation: none; }
+  .confetti { display: none; }
 }
