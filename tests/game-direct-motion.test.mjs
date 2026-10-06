@@ -56,7 +56,7 @@ test("boss attraction starts only after the final gate line", () => {
   step(game, 1 / 60);
   assert.equal(runner.x, 180, "runner bent before the final gate");
 
-  runner.y = 400;
+  runner.y = 330;
   step(game, 1 / 60);
   assert.ok(runner.x < 180, "runner did not enter the short boss approach");
 });
@@ -72,4 +72,38 @@ test("boss contact is forward-only and does not repack surviving runners backwar
   assert.equal(game.blue.length, 1);
   assert.ok(second.y <= 340, `queue moved surviving runner backward to y=${second.y}`);
   assert.ok(340 - second.y <= 98 / 60 + 0.001, `queue moved surviving runner too far in one frame to y=${second.y}`);
+});
+
+test("far-side shots keep moving after they miss the boss lane", () => {
+  for (const launchX of [30, 330]) {
+    const game = newGame(assaultLevel());
+    game.cannonX = game.targetX = launchX;
+    game.firing = true;
+    step(game, 1 / 60);
+    game.firing = false;
+    for (let frame = 0; frame < 420; frame++) step(game, 1 / 60);
+    assert.equal(game.blue.length, 0, `a shot launched at x=${launchX} became stuck after missing the boss`);
+    assert.equal(game.status, "playing");
+  }
+});
+
+test("surviving runners keep their positions during a boss transition", () => {
+  const game = newGame(assaultLevel({
+    bases: [
+      { x: 125, y: 300, hp: 1, every: 9999, group: 0 },
+      { x: 125, y: 300, hp: 5, every: 9999, group: 0 },
+    ],
+  }));
+  const finisher = { x: 125, y: 330, vx: 0, hp: 1, r: 4.2, big: false, used: 7, dead: false };
+  const survivor = { x: 125, y: 340, vx: 0, hp: 1, r: 4.2, big: false, used: 7, dead: false };
+  game.blue.push(finisher, survivor);
+  step(game, 1 / 60);
+
+  assert.equal(game.assault.encounter, 1);
+  assert.equal(game.assault.phase, "advance");
+  assert.equal(game.blue.length, 1);
+  const preservedY = survivor.y;
+  assert.ok(preservedY < CANNON_Y - 100, `survivor was reset near the cannon at y=${preservedY}`);
+  for (let frame = 0; frame < 50; frame++) step(game, 1 / 60);
+  assert.equal(survivor.y, preservedY, "survivor moved during the camera transition");
 });

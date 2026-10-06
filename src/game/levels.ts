@@ -10,12 +10,12 @@ const assaultGates = (last = 4, move?: { range: number; speed: number; phase?: n
   { x: 180, y: 424, w: 170, kind: "x" as const, n: last, ...(move ? { move } : {}) },
 ];
 
-const boss = (hp: number) => ({ x: 125, y: 300, hp, every: 9999, group: 0, delay: 9999 });
+const boss = (hp: number) => ({ x: 180, y: 300, hp, every: 9999, group: 0, delay: 9999 });
 
 export const levels: Level[] = [
   {
     name: "First Push",
-    tip: "Build through the short chain, then hold the left road against the giant.",
+    tip: "Build through the short chain, then keep the line centered against the giant.",
     par: 18,
     bases: [boss(520)],
     gates: assaultGates(4),
@@ -23,7 +23,7 @@ export const levels: Level[] = [
   },
   {
     name: "Fork Run",
-    tip: "The fork opens the road. Keep the cannon near the active branch.",
+    tip: "Keep the line centered through the panels, then collect a side upgrade.",
     par: 21,
     bases: [boss(520)],
     gates: assaultGates(4),

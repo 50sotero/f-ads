@@ -310,7 +310,7 @@ export function launchChampion(g: Game) {
   if (g.status !== "playing" || g.charge < CHARGE_MAX) return false;
   g.charge = 0;
   g.stats.champions++;
-  g.blue.push({ x: g.cannonX, y: CANNON_Y - 26, vx: 0, hp: 14, r: 11, big: true, used: 0, dead: false, lane: 0 });
+  g.blue.push({ x: g.cannonX, y: CANNON_Y - 26, vx: 0, hp: 14, r: 11, big: true, used: 0, dead: false });
   return true;
 }
 
@@ -787,8 +787,7 @@ function updateAssaultCannon(g: Game, dt: number) {
   const volley = offsets.length;
   for (let k = 0; k < volley && g.blue.length < MAX_UNITS; k++) {
     const offset = offsets[k];
-    const lane = ((g.stats.fired + k) % 9) - 4;
-    g.blue.push({ x: g.cannonX + offset + (g.rand() - 0.5) * 0.8, y: CANNON_Y - 22, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false, lane });
+    g.blue.push({ x: g.cannonX + offset + (g.rand() - 0.5) * 0.8, y: CANNON_Y - 22, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false });
     g.stats.fired++;
     g.charge = Math.min(CHARGE_MAX, g.charge + 1);
   }
@@ -802,11 +801,39 @@ function updateAssaultGatesAndSpinners(g: Game, dt: number) {
   for (const s of g.spinners) s.angle += s.speed * dt;
 }
 
+const ASSAULT_UNIT_SPACING = 8.4;
+
+/**
+ * Finds the nearest forward neighbour in each small x column. This is a
+ * bounded local pass: runners may stop behind someone already ahead, but no
+ * position is ever increased to repair an overlap. It keeps multiplication
+ * waves from collapsing into one y row before they reach the front.
+ */
+function assaultForwardSlots(g: Game) {
+  const columns: Unit[][] = Array.from({ length: Math.ceil(W / 12) }, () => []);
+  const slots = new Map<Unit, number>();
+  for (const unit of g.blue) {
+    if (unit.dead) continue;
+    const column = Math.max(0, Math.min(columns.length - 1, Math.floor(unit.x / 12)));
+    columns[column].push(unit);
+  }
+  for (const column of columns) {
+    column.sort((a, b) => a.y - b.y);
+    for (let index = 1; index < column.length; index++) {
+      const ahead = column[index - 1];
+      const unit = column[index];
+      if (Math.abs(unit.x - ahead.x) <= 10) slots.set(unit, ahead.y + ASSAULT_UNIT_SPACING);
+    }
+  }
+  return slots;
+}
+
 function updateAssaultBlue(g: Game, dt: number) {
   const assault = g.assault!;
   const active = g.bases[assault.encounter];
   const spawned: Unit[] = [];
   const blueFlow = flowPush(g.blue);
+  const forwardSlots = assaultForwardSlots(g);
   const lastGateY = g.gates.length ? Math.min(...g.gates.map((gate) => gate.y)) : active.y + active.h / 2 + 48;
   const trackedGateCount = Math.min(30, g.gates.length);
   const allGatesMask = trackedGateCount > 0 ? (1 << trackedGateCount) - 1 : 0;
@@ -819,6 +846,10 @@ function updateAssaultBlue(g: Game, dt: number) {
     // previous target-following code made every in-flight unit swing toward the
     // latest pointer position and made the controls feel like remote steering.
     const lane = Math.max(-4, Math.min(4, u.lane ?? 0));
+    // Gate copies get a small lateral impulse to fan out. Let that impulse
+    // settle quickly so multiplication creates a readable spread rather than
+    // sending runners on permanent sideways diagonals through later gates.
+    u.vx *= Math.exp(-3 * dt);
     u.vx = Math.max(-150, Math.min(150, u.vx + blueFlow[blueIndex] * dt));
     let dy = -(u.big ? ASSAULT_CHAMP_SPEED : ASSAULT_BLUE_SPEED) * dt;
 
@@ -828,7 +859,8 @@ function updateAssaultBlue(g: Game, dt: number) {
     // direct player control. The lane offset is deliberately small so the
     // front still reads as a broad crowd rather than nine homing streams.
     const passedFinalGate = u.y <= lastGateY - GATE_H || (allGatesMask !== 0 && (u.used & allGatesMask) === allGatesMask);
-    if (passedFinalGate && u.y < lastGateY - GATE_H) {
+    const bossApproachY = active.y + active.h / 2 + 5;
+    if (passedFinalGate && u.y < bossApproachY) {
       const desiredX = active.x + lane * 4;
       const want = Math.max(-110, Math.min(110, (desiredX - u.x) * 2.4));
       u.vx += (want - u.vx) * Math.min(1, dt * 4.5);
@@ -840,10 +872,16 @@ function updateAssaultBlue(g: Game, dt: number) {
     if (!g.level.assault?.practice && active.hp > 0) {
       const front = active.y + active.h / 2 + u.r;
       const inBossLane = Math.abs(u.x - active.x) < active.w / 2 + u.r;
-      if (inBossLane) {
+      const withinBossHitbox = u.y >= active.y - active.h / 2 - u.r;
+      if (inBossLane && withinBossHitbox) {
         if (u.y > front) dy = -Math.min(-dy, u.y - front);
         else dy = 0;
       }
+    }
+    const forwardY = forwardSlots.get(u);
+    if (forwardY !== undefined) {
+      if (u.y > forwardY) dy = -Math.min(-dy, u.y - forwardY);
+      else dy = 0;
     }
     const prevY = u.y;
     move(g, u, dy, dt);
@@ -869,7 +907,9 @@ function updateAssaultBlue(g: Game, dt: number) {
         const off = side * distance * (u.big ? 1.7 : 1);
         const row = Math.floor(k / 4);
         const x = Math.max(gt.cx - gt.w / 2 + 3, Math.min(gt.cx + gt.w / 2 - 3, u.x + off + (g.rand() - 0.5) * 3));
-        spawned.push({ x, y: u.y - row * 7 - g.rand() * 5, vx: side * (u.big ? 28 : 18), hp: 1, r: 4.2, big: false, used: u.used, dead: false, lane: Math.max(-4, Math.min(4, (u.lane ?? 0) + (k % 3) - 1)) });
+        // Copies enter just behind the parent so the local forward constraint
+        // can build a visible multi-row wave without snapping anyone backward.
+        spawned.push({ x, y: Math.min(CANNON_Y - 24, u.y + 4 + row * 5 + g.rand() * 2), vx: side * (u.big ? 28 : 18), hp: 1, r: 4.2, big: false, used: u.used, dead: false });
         g.stats.multiplied++;
       }
     }
