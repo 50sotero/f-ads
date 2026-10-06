@@ -21,20 +21,35 @@ test("tutorial requires firing AND steering before teaching multipliers", () => 
 test("tutorial checks new actions for each lesson and completes once", () => {
   const progress = newTutorialProgress();
   const game = newGame(tutorialLevel);
-  Object.assign(game.stats, { fired: 8, multiplied: 20, champions: 1 });
+  game.assault = { tier: 1 };
+  Object.assign(game.stats, { fired: 8, multiplied: 20 });
   game.cannonX = 260;
   advanceTutorial(progress, game);
   assert.equal(advanceTutorial(progress, game), false, "old multiplications must not skip the lesson");
   game.stats.multiplied = 28;
   assert.equal(advanceTutorial(progress, game), true);
   assert.equal(progress.step, 2);
-  assert.equal(advanceTutorial(progress, game), false, "an earlier champion must not finish training");
-  game.stats.champions = 2;
+  assert.equal(progress.tierAtStart, 1);
+  assert.equal(advanceTutorial(progress, game), false, "a multiplier must not finish the pickup lesson");
+  game.assault.tier = 2;
   game.t = 12;
   assert.equal(advanceTutorial(progress, game), true);
   assert.equal(progress.step, 3);
   assert.equal(progress.completedAt, 12);
   assert.equal(advanceTutorial(progress, game), false);
+});
+
+test("tutorial is a three gate assault practice route", () => {
+  assert.deepEqual(tutorialLevel.assault, { horde: 0, reserve: 0, speed: 0, theme: "fork", practice: true });
+  assert.deepEqual(
+    tutorialLevel.gates.map(({ x, y, w, n }) => ({ x, y, w, n })),
+    [
+      { x: 180, y: 510, w: 170, n: 2 },
+      { x: 180, y: 467, w: 170, n: 3 },
+      { x: 180, y: 424, w: 170, n: 4 },
+    ],
+  );
+  assert.deepEqual(tutorialLevel.bases, [{ x: 125, y: 300, hp: 99999, every: 9999, group: 0 }]);
 });
 
 test("practice gives players time to learn without changing the campaign", () => {

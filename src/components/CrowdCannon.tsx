@@ -6,7 +6,7 @@ import "@fontsource/fredoka/700.css";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 
-import { CHARGE_MAX, launchChampion, newGame, stars, step, surgeActive, W, type Game } from "@/game/engine";
+import { CHARGE_MAX, launchChampion, newGame, stars, step, W, type Game } from "@/game/engine";
 import { levels } from "@/game/levels";
 import { createRenderer } from "@/game/render";
 import { advanceTutorial, newTutorialProgress, tutorialLessons, tutorialLevel, type TutorialProgress } from "@/game/tutorial";
@@ -19,11 +19,46 @@ const DT = 1 / 60;
 type Save = { stars: number[]; muted: boolean; tutorialDone: boolean };
 type Screen = "menu" | "playing" | "paused" | "won" | "lost" | "trained";
 type SoundKind = "pop" | "hit" | "champ" | "win" | "lose";
-type HudState = { crowd: number; time: number; charge: number; baseHp: number; baseMaxHp: number };
+type AssaultHud = {
+  encounter: number;
+  encounters: number;
+  travel: number;
+  advance: number;
+  tier: number;
+  upgradeFlash: number;
+  reserve: number;
+  frontline: number;
+};
+type HudState = { crowd: number; time: number; charge: number; assault: AssaultHud };
 
 const EMPTY: Save = { stars: [], muted: false, tutorialDone: false };
 let cached: Save | null = null;
 const listeners = new Set<() => void>();
+
+const defaultAssault = (): AssaultHud => ({
+  encounter: 0,
+  encounters: 1,
+  travel: 0,
+  advance: 0,
+  tier: 1,
+  upgradeFlash: 0,
+  reserve: 0,
+  frontline: 0,
+});
+
+function assaultHud(game: Game): AssaultHud {
+  const assault = (game as Game & { assault?: Partial<AssaultHud> }).assault;
+  return {
+    encounter: Math.max(0, assault?.encounter ?? 0),
+    encounters: Math.max(1, assault?.encounters ?? 1),
+    travel: Math.max(0, assault?.travel ?? 0),
+    advance: Math.max(0, Math.min(1, assault?.advance ?? 0)),
+    tier: Math.max(1, assault?.tier ?? 1),
+    upgradeFlash: Math.max(0, assault?.upgradeFlash ?? 0),
+    reserve: Math.max(0, assault?.reserve ?? 0),
+    frontline: Math.max(0, assault?.frontline ?? 0),
+  };
+}
 
 function readSave(): Save {
   if (cached) return cached;
@@ -142,8 +177,7 @@ export function CrowdCannon() {
   const [tutorialStep, setTutorialStep] = useState<number | null>(null);
   const [rendererError, setRendererError] = useState<string | null>(null);
   const [rendererNonce, setRendererNonce] = useState(0);
-  const [hud, setHud] = useState<HudState>({ crowd: 0, time: 0, charge: 0, baseHp: 0, baseMaxHp: 1 });
-  const tip = tutorialStep === null && hud.time < 3.6;
+  const [hud, setHud] = useState<HudState>({ crowd: 0, time: 0, charge: 0, assault: defaultAssault() });
   const sound = useSound(save.muted);
   const screenRef = useRef(screen);
   const levelRef = useRef(levelIndex);
@@ -161,8 +195,7 @@ export function CrowdCannon() {
     tutorialRef.current = null;
     setTutorialStep(null);
     gameRef.current = newGame(levels[index], (Date.now() ^ (index + 1) * 7919) & 0xffff);
-    const maxHp = levels[index].bases.reduce((total, base) => total + base.hp, 0);
-    setHud({ crowd: 0, time: 0, charge: 0, baseHp: maxHp, baseMaxHp: maxHp });
+    setHud({ crowd: 0, time: 0, charge: 0, assault: defaultAssault() });
     setResult({ time: 0, stars: 0, best: false });
     setScreen("playing");
   }, []);
@@ -173,8 +206,7 @@ export function CrowdCannon() {
     gameRef.current = newGame(tutorialLevel, 2026);
     pointerRef.current = null;
     keysRef.current.clear();
-    const maxHp = tutorialLevel.bases.reduce((total, base) => total + base.hp, 0);
-    setHud({ crowd: 0, time: 0, charge: 0, baseHp: maxHp, baseMaxHp: maxHp });
+    setHud({ crowd: 0, time: 0, charge: 0, assault: defaultAssault() });
     setScreen("playing");
   }, []);
 
@@ -252,8 +284,6 @@ export function CrowdCannon() {
       }
 
       if (screenRef.current === "playing") {
-        // Practice targets are inexhaustible; only completing the drills ends it.
-        if (tutorialRef.current) for (const base of game.bases) base.hp = base.maxHp;
         accumulator += elapsed;
         while (accumulator >= DT) {
           step(game, DT);
@@ -267,7 +297,6 @@ export function CrowdCannon() {
         if (training) {
           if (advanceTutorial(training, game)) {
             setTutorialStep(training.step);
-            if (training.step === 2) game.charge = CHARGE_MAX;
             if (training.step < 3) soundRef.current("pop");
           }
           if (training.step === 3 && game.t >= training.completedAt + 0.8) {
@@ -286,11 +315,17 @@ export function CrowdCannon() {
 
       if (now - hudAt > 80) {
         hudAt = now;
-        const baseHp = game.bases.reduce((total, base) => total + Math.max(0, base.hp), 0);
-        const baseMaxHp = game.bases.reduce((total, base) => total + base.maxHp, 0);
+        const nextAssault = assaultHud(game);
         setHud((previous) => previous.crowd === game.blue.length && previous.time === game.t && previous.charge === game.charge
-          && previous.baseHp === baseHp && previous.baseMaxHp === baseMaxHp
-          ? previous : { crowd: game.blue.length, time: game.t, charge: game.charge, baseHp, baseMaxHp });
+          && previous.assault.encounter === nextAssault.encounter
+          && previous.assault.encounters === nextAssault.encounters
+          && previous.assault.travel === nextAssault.travel
+          && previous.assault.advance === nextAssault.advance
+          && previous.assault.tier === nextAssault.tier
+          && previous.assault.upgradeFlash === nextAssault.upgradeFlash
+          && previous.assault.reserve === nextAssault.reserve
+          && previous.assault.frontline === nextAssault.frontline
+          ? previous : { crowd: game.blue.length, time: game.t, charge: game.charge, assault: nextAssault });
       }
 
       try {
@@ -441,19 +476,31 @@ export function CrowdCannon() {
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, []);
 
+  useEffect(() => {
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (screenRef.current === "playing") {
+        event.preventDefault();
+        screenRef.current = "paused";
+        setScreen("paused");
+      } else if (screenRef.current === "paused" || screenRef.current === "trained" || screenRef.current === "won" || screenRef.current === "lost") {
+        event.preventDefault();
+        screenRef.current = "menu";
+        setScreen("menu");
+      }
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, []);
+
   const unlocked = (index: number) => index === 0 || (save.stars[index - 1] ?? 0) > 0;
   const totalStars = save.stars.reduce((total, value) => total + (value ?? 0), 0);
   const level = levels[levelIndex];
-  const surge = tutorialStep === null ? level.surge : undefined;
-  const surgeElapsed = surge ? hud.time - (surge.delay ?? 8) : 0;
-  const surgePhase = surge ? Math.max(0, surgeElapsed) % surge.every : 0;
-  const surging = tutorialStep === null && surgeActive(level, hud.time);
-  const surgeCountdown = surge ? Math.ceil(surging ? surge.duration - surgePhase : surgeElapsed < 0 ? -surgeElapsed : surge.every - surgePhase) : 0;
+  const assault = hud.assault;
+  const tutorialLesson = tutorialStep !== null && tutorialStep < tutorialLessons.length ? tutorialLessons[tutorialStep] : null;
+  const contextualHint = tutorialStep === null && levelIndex === 0 && hud.time < 3.6 ? "Drag through blue +1 gates to add a cannon." : null;
   const hasNext = levelIndex + 1 < levels.length;
   const firstUnbeaten = Math.max(0, levels.findIndex((_, index) => !save.stars[index]));
-  const castleMaxHp = Math.max(1, hud.baseMaxHp);
-  const castleDamage = Math.max(0, Math.min(1, 1 - hud.baseHp / castleMaxHp));
-  const castleDamagePercent = Math.round(castleDamage * 100);
   const skipTutorial = () => {
     writeSave({ ...readSave(), tutorialDone: true });
     start(firstUnbeaten);
@@ -500,24 +547,25 @@ export function CrowdCannon() {
         <>
           <div className={styles.hud}>
             <button type="button" className={styles.pauseButton} data-testid="pause-game" onClick={() => setScreen("paused")} aria-label="Pause game"><span aria-hidden="true">Ⅱ</span></button>
-            <div className={styles.levelPill}><span>{tutorialStep !== null ? `TRAINING ${Math.min(3, tutorialStep + 1)} / 3` : `LEVEL ${levelIndex + 1}`}</span><strong>{tutorialStep !== null ? "Training ground" : level.name}</strong></div>
-            <div className={styles.hudStats} aria-live="polite">
-              <div className={styles.hudStat}><span className={styles.hudIcon} aria-hidden="true">●</span><strong>{hud.crowd}</strong><small>CROWD</small></div>
-              <div className={styles.hudStat}><span className={styles.hudIcon} aria-hidden="true">◷</span><strong>{hud.time.toFixed(1)}</strong><small>TIME</small></div>
-            </div>
-            <div className={styles.castleProgress} data-testid="castle-progress" role="progressbar" aria-label="Castle destruction" aria-valuemin={0} aria-valuemax={castleMaxHp} aria-valuenow={Math.round(castleMaxHp - hud.baseHp)} aria-valuetext={`${castleDamagePercent}% destroyed`}>
-              <div className={styles.castleProgressTrack}><span style={{ width: `${castleDamagePercent}%` }} /></div>
-              <span className={styles.castleProgressLabel}><strong>{castleDamagePercent}%</strong> CASTLE DAMAGE</span>
+            <div className={styles.levelPill} data-testid="assault-hud"><span>{tutorialStep !== null ? `TRAINING ${Math.min(3, tutorialStep + 1)} / 3` : `LEVEL ${levelIndex + 1}`}</span><strong>{tutorialStep !== null ? "Training ground" : level.name}</strong></div>
+            <div className={styles.encounterProgress} data-testid="encounter-progress" role="progressbar" aria-label="Boss assault progress" aria-valuemin={1} aria-valuemax={assault.encounters} aria-valuenow={Math.min(assault.encounters, assault.encounter + 1)}>
+              <span className={styles.encounterLabel}>BOSS {Math.min(assault.encounters, assault.encounter + 1)} / {assault.encounters}</span>
+              <span className={styles.encounterDots} aria-hidden="true">{Array.from({ length: assault.encounters }, (_, index) => <i key={index} data-done={index < assault.encounter} data-current={index === assault.encounter} />)}</span>
             </div>
           </div>
-          {surge && !tip && <div className={styles.surgeBanner} data-active={surging} data-warning={!surging && surgeCountdown <= 2}><b aria-hidden="true">{surging ? "!" : "◷"}</b>{surging ? `ENEMY SURGE · ${surgeCountdown}s` : `Next surge in ${surgeCountdown}s`}</div>}
-          {tutorialStep !== null ? (
-            <div className={styles.tutorialCoach} role="status" aria-live="polite">
-              <div className={styles.lessonHeading}><span className={styles.lessonIcon}>{tutorialLessons[tutorialStep].icon}</span><strong>{tutorialLessons[tutorialStep].title}</strong><button type="button" onClick={skipTutorial}>Skip tutorial</button></div>
-              <p>{tutorialLessons[tutorialStep].text}</p>
-              <div className={styles.lessonProgress}><span>{tutorialLessons[tutorialStep].action}</span><div aria-hidden="true">{[0, 1, 2].map((i) => <i key={i} data-done={i < tutorialStep} data-current={i === tutorialStep} />)}</div></div>
+          {tutorialLesson ? (
+            <div className={styles.tutorialCoach} data-testid="tutorial-coach" role="status" aria-live="polite">
+              <div className={styles.lessonHeading}><span className={styles.lessonIcon}>{tutorialLesson.icon}</span><strong>{tutorialLesson.title}</strong><button type="button" onClick={skipTutorial}>Skip tutorial</button></div>
+              <p>{tutorialLesson.text}</p>
+              <div className={styles.lessonProgress}><span>{tutorialLesson.action}</span><div aria-hidden="true">{[0, 1, 2].map((i) => <i key={i} data-done={i < tutorialStep!} data-current={i === tutorialStep} />)}</div></div>
             </div>
-          ) : tip && level.tip && <div className={styles.tip}>{level.tip}</div>}
+          ) : contextualHint && <div className={styles.tip} data-testid="contextual-hint" role="status">{contextualHint}</div>}
+          {assault.upgradeFlash > 0 && <div className={styles.upgradeFlash} data-testid="upgrade-flash" role="status" aria-live="polite">+1 CANNON <span>· TIER {assault.tier}</span></div>}
+          <div className={styles.assaultStats} aria-live="polite">
+            <div className={styles.assaultStat} data-testid="crowd-count"><strong>{hud.crowd}</strong><span>CROWD</span></div>
+            <div className={styles.assaultStat} data-testid="cannon-tier"><strong>{assault.tier}</strong><span>TIER</span></div>
+            {assault.reserve > 0 && <div className={styles.assaultStat}><strong>{assault.reserve}</strong><span>RESERVE</span></div>}
+          </div>
           <button type="button" className={`${styles.championButton} ${hud.charge >= CHARGE_MAX ? styles.championReady : ""}`} data-testid="champion-button" onClick={launch} disabled={hud.charge < CHARGE_MAX} aria-label={hud.charge >= CHARGE_MAX ? "Launch champion" : `Champion charge ${Math.floor(hud.charge)} of ${CHARGE_MAX}`}>
             <span className={styles.championRing} style={{ background: `conic-gradient(from -90deg, #ffe37b ${Math.min(100, (hud.charge / CHARGE_MAX) * 100)}%, rgba(255,255,255,.2) 0)` }} />
             <span className={styles.championCore} aria-hidden="true">★</span>
@@ -532,14 +580,14 @@ export function CrowdCannon() {
           <div className={styles.menuPanel}>
             <div className={styles.menuTopline}>
               <Link href="/" className={styles.homeLink} data-testid="home-link" aria-label="Back to F.ADS home">← Home</Link>
-              <span className={styles.menuMeta}>CAMPAIGN · {levels.length} STAGES</span>
+              <span className={styles.menuMeta}>HORDE ASSAULT · {levels.length} ROUTES</span>
             </div>
-            <div className={styles.brandLockup}><span>F.ADS ARCADE</span><strong><em>CROWD</em> CANNON</strong></div>
-            <p className={styles.menuLead}>Build your crew. Break their keep. Find the perfect line through every gate.</p>
+            <div className={styles.brandLockup}><span>F.ADS ARCADE</span><strong><em>HORDE</em> ASSAULT</strong></div>
+            <p className={styles.menuLead}>Steer a growing cannon through purple chains, blue +1 pickups, and a full road of bosses.</p>
             <div className={styles.progressCard}><div><span>YOUR RUN</span><strong>{totalStars}<small> / {levels.length * 3} stars</small></strong></div><Stars n={Math.min(3, Math.round(totalStars / Math.max(1, levels.length)))} /></div>
             <button type="button" className={`${styles.actionButton} ${styles.primaryAction} ${styles.playButton}`} data-testid="start-game" onClick={() => save.tutorialDone ? start(firstUnbeaten) : beginTutorial()}><span>{!save.tutorialDone ? "Learn to play" : totalStars ? "Continue run" : "Start run"}</span><span aria-hidden="true">→</span></button>
-            <div className={styles.trainingRow}><span>{save.tutorialDone ? "Moving gates. Timed traps. Enemy surges." : "Three quick drills. Then the real challenge."}</span>{save.tutorialDone && <button type="button" onClick={beginTutorial}>Replay tutorial</button>}</div>
-            <div className={styles.levelHeader}><span>SELECT A LEVEL</span><span>{levels.length} STAGES</span></div>
+            <div className={styles.trainingRow}><span>{save.tutorialDone ? "Chain gates. Collect +1s. Break every boss." : "Three quick drills. Then the full assault."}</span>{save.tutorialDone && <button type="button" onClick={beginTutorial}>Replay tutorial</button>}</div>
+            <div className={styles.levelHeader}><span>CHOOSE A ROUTE</span><span>{levels.length} ROUTES</span></div>
             <div className={styles.levelGrid}>
               {levels.map((item, index) => {
                 const open = unlocked(index);
@@ -553,11 +601,11 @@ export function CrowdCannon() {
 
       {screen === "paused" && <div className={styles.screenOverlay} role="dialog" aria-modal="true" aria-labelledby="paused-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>{tutorialStep !== null ? "TRAINING" : `LEVEL ${levelIndex + 1}`}</span><Link href="/" className={styles.homeLink} data-testid="pause-home-link" aria-label="Back to F.ADS home">← Home</Link></div><h2 id="paused-title">Paused</h2><p>Catch your breath, then send the crowd through the next gate.</p><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} data-testid="resume-game" onClick={() => setScreen("playing")}>Resume</button><button type="button" className={`${styles.actionButton} ${styles.secondaryAction}`} onClick={() => tutorialStep !== null ? beginTutorial() : start(levelIndex)}>{tutorialStep !== null ? "Restart tutorial" : "Restart level"}</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Level select</button></div><button type="button" className={styles.soundButton} onClick={toggleMute}>Sound {save.muted ? "off" : "on"}</button></div></div>}
 
-      {screen === "trained" && <div className={`${styles.screenOverlay} ${styles.resultOverlay}`} role="dialog" aria-modal="true" aria-labelledby="trained-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>TRAINING</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={styles.resultBadge}>TRAINING COMPLETE</div><h2 id="trained-title">Ready to roll!</h2><p>You can steer, multiply, and launch a champion. Now keep moving: the battlefield won’t stand still.</p><ul className={styles.trainingRecap}><li><span>↔</span> Follow moving purple gates.</li><li><span>◷</span> Red traps turn teal when safe.</li><li><span>!</span> Enemy surges mean more attackers.</li></ul><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(firstUnbeaten)}>{totalStars ? "Continue run" : "Play level 1"}<span aria-hidden="true">→</span></button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Level select</button></div></div></div>}
+      {screen === "trained" && <div className={`${styles.screenOverlay} ${styles.resultOverlay}`} role="dialog" aria-modal="true" aria-labelledby="trained-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>TRAINING</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={styles.resultBadge}>TRAINING COMPLETE</div><h2 id="trained-title">Ready for the assault!</h2><p>You can steer, chain multipliers, and collect a blue +1 to grow the cannon. The first route is waiting.</p><ul className={styles.trainingRecap}><li><span>↔</span> Fire while you sweep across the lane.</li><li><span>×4</span> Chain the purple multiplier gates.</li><li><span>+1</span> Aim for blue pickups to add a cannon.</li></ul><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(firstUnbeaten)}>{totalStars ? "Continue run" : "Play route 1"}<span aria-hidden="true">→</span></button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
 
-      {screen === "won" && <div className={`${styles.screenOverlay} ${styles.resultOverlay}`} role="dialog" aria-modal="true" aria-labelledby="win-title"><div className={`${styles.modalPanel} ${styles.winPanel}`}><div className={styles.modalTopline}><span className={styles.modalKicker}>LEVEL {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={styles.resultBadge}>BASE DOWN</div><h2 id="win-title">{hasNext ? "Level cleared!" : "Victory!"}</h2><p>{hasNext ? `You cleared ${level.name}. Ready for the next push?` : "Every enemy keep is dust. The whole course is yours."}</p><Stars n={result.stars} animated className={styles.resultStars} /><span className={styles.resultTime}>{result.time.toFixed(1)}s {result.best ? "· new best" : "· run complete"}</span><div className={styles.modalActions}>{hasNext && <button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex + 1)}>Next level <span aria-hidden="true">→</span></button>}<button type="button" className={`${styles.actionButton} ${hasNext ? styles.secondaryAction : styles.primaryAction}`} onClick={() => start(levelIndex)}>Play again</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Level select</button></div></div></div>}
+      {screen === "won" && <div className={`${styles.screenOverlay} ${styles.resultOverlay}`} role="dialog" aria-modal="true" aria-labelledby="win-title"><div className={`${styles.modalPanel} ${styles.winPanel}`}><div className={styles.modalTopline}><span className={styles.modalKicker}>ROUTE {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={styles.resultBadge}>ASSAULT CLEARED</div><h2 id="win-title">{hasNext ? "Route cleared!" : "All bosses down!"}</h2><p>{hasNext ? `You cleared ${level.name}. Ready for the next road?` : "Every boss is down. The whole assault is yours."}</p><Stars n={result.stars} animated className={styles.resultStars} /><span className={styles.resultTime}>{result.time.toFixed(1)}s {result.best ? "· new best" : "· run complete"}</span><div className={styles.modalActions}>{hasNext && <button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex + 1)}>Next route <span aria-hidden="true">→</span></button>}<button type="button" className={`${styles.actionButton} ${hasNext ? styles.secondaryAction : styles.primaryAction}`} onClick={() => start(levelIndex)}>Play again</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
 
-      {screen === "lost" && <div className={styles.screenOverlay} role="dialog" aria-modal="true" aria-labelledby="lose-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>LEVEL {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={`${styles.resultBadge} ${styles.loseBadge}`}>KEEP BREACHED</div><h2 id="lose-title">The line broke</h2><p>Pull the cannon across the lane to meet the red crew before they reach your base.</p><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex)}>Try again</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Level select</button></div></div></div>}
+      {screen === "lost" && <div className={styles.screenOverlay} role="dialog" aria-modal="true" aria-labelledby="lose-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>ROUTE {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={`${styles.resultBadge} ${styles.loseBadge}`}>LINE BREACHED</div><h2 id="lose-title">The horde broke through</h2><p>Pull the cannon across the road and meet the red horde before it reaches your defense line.</p><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex)}>Try again</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
     </div>
   );
 }
