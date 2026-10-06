@@ -108,7 +108,7 @@ test("sustained fire stays in a central multi-row corridor while the boss advanc
     bases: [{ x: 180, y: 300, hp: 99999, every: 9999, group: 0 }],
   }));
   game.firing = true;
-  for (let frame = 0; frame < 600; frame++) step(game, 1 / 60);
+  for (let frame = 0; frame < 720; frame++) step(game, 1 / 60);
   const boss = game.bases[0];
   const postChain = game.blue.filter((unit) => (unit.used & 1) !== 0);
   const central = postChain.filter((unit) => Math.abs(unit.x - boss.x) <= 96);
@@ -118,22 +118,23 @@ test("sustained fire stays in a central multi-row corridor while the boss advanc
   assert.ok(game.blue.length > 100, "fixture did not build sustained crowd pressure");
   assert.ok(postChain.length > 100, "fixture did not cross the first gate");
   assert.ok(central.length / postChain.length > 0.9, "post-gate crowd spilled across the full road");
-  assert.ok(touching.length < 100, `${touching.length} runners overlapped at the boss edge`);
+  assert.ok(touching.length < 50, `${touching.length} runners overlapped at the boss edge`);
   assert.ok(occupiedRows.size > 20, "crowd did not form a multi-row queue");
-  assert.ok(boss.y > 300 && boss.y <= 372, `boss pressure moved to an invalid y=${boss.y}`);
+  assert.ok(boss.y > 300 && boss.y <= 420, `boss pressure moved to an invalid y=${boss.y}`);
 });
 
-test("boss pressure waits for the opening before advancing its authoritative base", () => {
+test("boss pressure waits for the opening, then reaches the choke on reference timing", () => {
   const game = newGame(assaultLevel({
     bases: [{ x: 180, y: 300, hp: 99999, every: 9999, group: 0 }],
     gates: [],
   }));
   game.firing = false;
-  for (let frame = 0; frame < 294; frame++) step(game, 1 / 60);
-  assert.equal(game.bases[0].y, 300);
-  for (let frame = 0; frame < 36; frame++) step(game, 1 / 60);
-  assert.ok(game.bases[0].y > 300);
-  assert.ok(game.bases[0].y <= 372);
+  for (let frame = 0; frame < 174; frame++) step(game, 1 / 60);
+  assert.ok(Math.abs(game.bases[0].y - 300) < 0.001);
+  for (let frame = 0; frame < 366; frame++) step(game, 1 / 60);
+  assert.ok(game.bases[0].y >= 371 && game.bases[0].y <= 373, `boss y at 9s=${game.bases[0].y}`);
+  for (let frame = 0; frame < 180; frame++) step(game, 1 / 60);
+  assert.ok(game.bases[0].y >= 407 && game.bases[0].y <= 409, `boss y at 12s=${game.bases[0].y}`);
 });
 
 test("surviving runners keep their positions during a boss transition", () => {

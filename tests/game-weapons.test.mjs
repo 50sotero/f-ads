@@ -82,6 +82,7 @@ test("rapid fire stays inside the unit cap and a new run starts with Scout", () 
 
 test("the left pickup lane stays locked until its cannon target breaks", () => {
   const game = newGame(level);
+  assert.deepEqual(game.assault.pickups.map((pickup) => pickup.y), [485, 450, 415, 380]);
   game.assault.weaponLevel = 3;
   game.assault.weaponTarget = null;
   game.assault.pickupTimer = 999;

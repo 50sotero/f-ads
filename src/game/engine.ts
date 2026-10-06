@@ -200,6 +200,7 @@ export type Game = {
 
 const BASE_W = 92;
 const BASE_H = 54;
+const ASSAULT_CAMPAIGN_BASE_HP_SCALE = 2;
 const BLUE_SPEED = 118;
 const CHAMP_SPEED = 72;
 const RED_SPEED = 52;
@@ -268,10 +269,10 @@ function makeAssaultState(level: Level): AssaultState {
   const horde = Math.max(0, Math.floor(config.horde));
   const practicePickups: AssaultPickup[] = [{ id: 1, x: 55, y: 500, w: 70, value: 1 }];
   const campaignPickups: AssaultPickup[] = [
-    { id: 1, x: 55, y: 500, w: 70, value: 1 },
-    { id: 2, x: 55, y: 465, w: 70, value: 1 },
-    { id: 3, x: 55, y: 430, w: 70, value: 1 },
-    { id: 4, x: 55, y: 395, w: 70, value: 1 },
+    { id: 1, x: 55, y: 485, w: 70, value: 1 },
+    { id: 2, x: 55, y: 450, w: 70, value: 1 },
+    { id: 3, x: 55, y: 415, w: 70, value: 1 },
+    { id: 4, x: 55, y: 380, w: 70, value: 1 },
   ];
   return {
     encounter: 0,
@@ -310,6 +311,14 @@ function makeAssaultState(level: Level): AssaultState {
 
 export function newGame(level: Level, seed = 1): Game {
   const assault = level.assault ? makeAssaultState(level) : null;
+  const assaultConfig = level.assault;
+  // Campaign assault levels declare enemyHp for their finite red waves. Keep
+  // custom assault fixtures and the tutorial's practice route untouched while
+  // giving the campaign giants enough health for the moving choke to read as a
+  // battle rather than a brief collision.
+  const campaignBaseHpScale = assault && assaultConfig && !assaultConfig.practice && assaultConfig.enemyHp != null
+    ? ASSAULT_CAMPAIGN_BASE_HP_SCALE
+    : 1;
   const game: Game = {
     level,
     t: 0,
@@ -321,15 +330,19 @@ export function newGame(level: Level, seed = 1): Game {
     charge: 0,
     blue: [],
     red: [],
-    bases: level.bases.map((b) => ({
-      ...b,
-      maxHp: b.hp,
-      timer: b.delay ?? 1.5,
-      bruteTimer: b.bruteEvery ? b.bruteEvery * 0.6 + (b.delay ?? 0) : Infinity,
-      hitFlash: 0,
-      w: BASE_W,
-      h: BASE_H,
-    })),
+    bases: level.bases.map((b) => {
+      const hp = Math.max(1, Math.round(b.hp * campaignBaseHpScale));
+      return {
+        ...b,
+        hp,
+        maxHp: hp,
+        timer: b.delay ?? 1.5,
+        bruteTimer: b.bruteEvery ? b.bruteEvery * 0.6 + (b.delay ?? 0) : Infinity,
+        hitFlash: 0,
+        w: BASE_W,
+        h: BASE_H,
+      };
+    }),
     gates: assaultGateDefs(level).map((g) => ({ ...g, cx: g.x, flash: 0 })),
     walls: level.walls ?? [],
     spinners: (level.spinners ?? []).map((s) => ({ ...s, angle: 0 })),
@@ -800,7 +813,7 @@ export function cannonBarrelOffsets(tier: number) {
 
 function makeWeaponTarget(weaponLevel: number): WeaponTarget {
   const hp = weaponLevel === 1 ? 14 : 24;
-  return { x: 307, y: 472, w: 62, h: 36, hp, maxHp: hp, hitFlash: 0 };
+  return { x: 307, y: 510, w: 62, h: 36, hp, maxHp: hp, hitFlash: 0 };
 }
 
 function makeCannonTarget(): WeaponTarget {
@@ -811,6 +824,9 @@ function makeCannonTarget(): WeaponTarget {
 function updateWeaponTarget(g: Game, dt: number) {
   const assault = g.assault!;
   assault.weaponFlash = Math.max(0, assault.weaponFlash - dt * 0.5);
+  if (assault.cannonTarget) {
+    assault.cannonTarget.hitFlash = Math.max(0, assault.cannonTarget.hitFlash - dt * 7);
+  }
   if (assault.weaponTarget) {
     assault.weaponTarget.hitFlash = Math.max(0, assault.weaponTarget.hitFlash - dt * 7);
   } else if (assault.weaponLevel < WEAPONS.length && assault.weaponTargetsEnabled) {
@@ -949,9 +965,9 @@ const ASSAULT_MAX_NEIGHBOURS = 48;
 const ASSAULT_MAX_CELL_SAMPLES = 8;
 const ASSAULT_RED_SPEED_SCALE = 0.85;
 const ASSAULT_CORRIDOR_HALF = 72;
-const ASSAULT_BOSS_PRESSURE_DELAY = 5;
-const ASSAULT_BOSS_PRESSURE_SPEED = 4.5;
-const ASSAULT_BOSS_PRESSURE_TRAVEL = 72;
+const ASSAULT_BOSS_PRESSURE_DELAY = 3;
+const ASSAULT_BOSS_PRESSURE_SPEED = 12;
+const ASSAULT_BOSS_PRESSURE_TRAVEL = 120;
 
 /** Applies a soft inward force once a runner has entered the battle corridor. */
 function applyAssaultCorridorPressure(u: Unit, centerX: number, dt: number) {
