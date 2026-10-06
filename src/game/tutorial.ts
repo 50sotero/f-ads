@@ -1,5 +1,9 @@
 import type { Game, Level } from "./engine";
 
+// Keep the practice charge aligned with engine.CHARGE_MAX without adding a
+// runtime engine import; the tutorial is also loaded directly by Node tests.
+const TUTORIAL_CHARGE_MAX = 30;
+
 // Practice is separate from the twelve scored levels, so replaying a lesson
 // never awards stars, unlocks a level, or changes a saved campaign result.
 export const tutorialLevel: Level = {
@@ -19,6 +23,7 @@ export const tutorialLessons = [
   { title: "Chain purple multipliers", text: "Line up your cannon with the purple ×2, ×3, then ×4 gates. Each runner can use every gate once.", action: "Add 8 runners with the multiplier chain", icon: "×4" },
   { title: "Collect a blue +1", text: "Move into a blue +1 gate to add another cannon to your squad. The left lane is ready when you are.", action: "Collect one blue +1 pickup", icon: "+1" },
   { title: "Upgrade your weapon", text: "Aim at the weapon lock on the right and keep firing. Break it to turn every cannon into a three-shot Repeater.", action: "Shoot the lock until its counter reaches zero", icon: "↑" },
+  { title: "Launch a champion", text: "Fill the champion star, then tap it or press Space to launch. Three hits at the defense line can turn a counterattack around.", action: "Tap the champion button or press Space", icon: "★" },
 ] as const;
 
 export type TutorialProgress = {
@@ -28,11 +33,12 @@ export type TutorialProgress = {
   multipliedAtStart: number;
   pickupsAtStart: number;
   weaponAtStart: number;
+  championsAtStart: number;
   completedAt: number;
 };
 
 export function newTutorialProgress(): TutorialProgress {
-  return { step: 0, minX: 180, maxX: 180, multipliedAtStart: 0, pickupsAtStart: 0, weaponAtStart: 1, completedAt: Infinity };
+  return { step: 0, minX: 180, maxX: 180, multipliedAtStart: 0, pickupsAtStart: 0, weaponAtStart: 1, championsAtStart: 0, completedAt: Infinity };
 }
 
 /** Lessons advance only after the player performs the action, never on a timer. */
@@ -57,6 +63,12 @@ export function advanceTutorial(progress: TutorialProgress, game: Game): boolean
   }
   if (progress.step === 3 && (game.assault?.weaponLevel ?? 1) > progress.weaponAtStart) {
     progress.step = 4;
+    progress.championsAtStart = game.stats.champions;
+    game.charge = TUTORIAL_CHARGE_MAX;
+    return true;
+  }
+  if (progress.step === 4 && game.stats.champions > progress.championsAtStart) {
+    progress.step = 5;
     progress.completedAt = game.t;
     return true;
   }

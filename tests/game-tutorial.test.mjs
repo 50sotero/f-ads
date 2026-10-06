@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { newGame, step } from "../src/game/engine.ts";
 import { levels } from "../src/game/levels.ts";
-import { advanceTutorial, newTutorialProgress, tutorialLevel } from "../src/game/tutorial.ts";
+import { advanceTutorial, newTutorialProgress, tutorialLessons, tutorialLevel } from "../src/game/tutorial.ts";
 
 test("tutorial requires firing AND steering before teaching multipliers", () => {
   const progress = newTutorialProgress();
@@ -42,8 +42,34 @@ test("tutorial checks new actions for each lesson and completes once", () => {
   game.t = 15;
   assert.equal(advanceTutorial(progress, game), true);
   assert.equal(progress.step, 4);
-  assert.equal(progress.completedAt, 15);
+  assert.equal(progress.championsAtStart, 0);
+  assert.equal(game.charge, 30, "weapon training should prime the practice champion");
+  assert.equal(progress.completedAt, Infinity);
+  assert.equal(advanceTutorial(progress, game), false, "a full charge must not launch the champion automatically");
+  game.stats.champions++;
+  game.t = 16;
+  assert.equal(advanceTutorial(progress, game), true);
+  assert.equal(progress.step, 5);
+  assert.equal(progress.completedAt, 16);
   assert.equal(advanceTutorial(progress, game), false);
+});
+
+test("a champion launched before the final lesson does not auto-complete it", () => {
+  const progress = newTutorialProgress();
+  const game = newGame(tutorialLevel);
+  game.stats.champions = 1;
+  progress.step = 3;
+  game.assault.weaponLevel = 2;
+  game.t = 11;
+
+  assert.equal(advanceTutorial(progress, game), true);
+  assert.equal(progress.step, 4);
+  assert.equal(progress.championsAtStart, 1);
+  assert.equal(game.charge, 30);
+  assert.equal(advanceTutorial(progress, game), false);
+  game.stats.champions = 2;
+  assert.equal(advanceTutorial(progress, game), true);
+  assert.equal(progress.step, 5);
 });
 
 test("a fully upgraded battery can still complete the pickup lesson", () => {
@@ -65,6 +91,8 @@ test("a fully upgraded battery can still complete the pickup lesson", () => {
 });
 
 test("tutorial is a three gate assault practice route", () => {
+  assert.equal(tutorialLessons.length, 5);
+  assert.match(tutorialLessons[4].text, /fill.*star.*press Space.*three hits.*defense line.*counterattack/i);
   assert.deepEqual(tutorialLevel.assault, { horde: 0, reserve: 0, speed: 0, theme: "fork", practice: true });
   assert.deepEqual(
     tutorialLevel.gates.map(({ x, y, w, n }) => ({ x, y, w, n })),
