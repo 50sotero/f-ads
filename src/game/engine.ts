@@ -84,6 +84,8 @@ export type Unit = {
   dead: boolean;
   /** Optional assault formation slot; legacy units leave this unset. */
   lane?: number;
+  /** Stable speed variation used by formed assault groups and gate copies. */
+  pace?: number;
 };
 export type Base = BaseDef & { maxHp: number; timer: number; bruteTimer: number; hitFlash: number; w: number; h: number };
 export type Gate = GateDef & { cx: number; flash: number };
@@ -355,6 +357,7 @@ function assaultEnemyHp(g: Game, big = false) {
 }
 
 function makeAssaultEnemy(g: Game, x: number, y: number, big = false, lane = 0): Unit {
+  const variation = stableMotionVariation(x, y, big ? 17 : 0);
   return {
     x,
     y,
@@ -365,7 +368,13 @@ function makeAssaultEnemy(g: Game, x: number, y: number, big = false, lane = 0):
     used: 0,
     dead: false,
     lane,
+    pace: 0.94 + variation * 0.12,
   };
+}
+
+function stableMotionVariation(x: number, y: number, salt = 0) {
+  const value = Math.sin(x * 12.9898 + y * 78.233 + salt * 37.719) * 43758.5453;
+  return value - Math.floor(value);
 }
 
 /** Places a compact left-lane formation with a readable leading edge. */
@@ -878,38 +887,115 @@ function updateAssaultGatesAndSpinners(g: Game, dt: number) {
 }
 
 const ASSAULT_UNIT_SPACING = 8.4;
+const ASSAULT_MOTION_CELL = 16;
+const ASSAULT_LATERAL_ACCEL = 1400;
+const ASSAULT_RED_LATERAL_ACCEL = 520;
+const ASSAULT_MAX_NEIGHBOURS = 48;
+const ASSAULT_MAX_CELL_SAMPLES = 8;
+const ASSAULT_RED_SPEED_SCALE = 0.85;
 
 /**
- * Finds the nearest forward neighbour in each small x column. This is a
- * bounded local pass: runners may stop behind someone already ahead, but no
- * position is ever increased to repair an overlap. It keeps multiplication
- * waves from collapsing into one y row before they reach the front.
+ * Returns a soft forward-speed limit from actual nearby neighbours.
+ *
+ * The old implementation sorted fixed x-columns and assigned a hard y slot,
+ * which made runners form regimented lanes and freeze in a vertical slab. A
+ * spatial grid keeps this bounded at the unit cap while allowing a crowded
+ * runner to slow briefly, drift around the neighbour, and resume its own
+ * pace. `forwardDirection` keeps the same pass correct for blue (-y) and red
+ * (+y) formations. No position is edited here, so the result cannot move a
+ * unit backward.
  */
-function assaultForwardSlots(g: Game) {
-  const columns: Unit[][] = Array.from({ length: Math.ceil(W / 12) }, () => []);
-  const slots = new Map<Unit, number>();
-  for (const unit of g.blue) {
+function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1) {
+  const cols = Math.ceil(W / ASSAULT_MOTION_CELL);
+  const rows = Math.ceil((H + ASSAULT_MOTION_CELL) / ASSAULT_MOTION_CELL) + 1;
+  const cells: Array<number[] | undefined> = new Array(cols * rows);
+  const forward = new Float32Array(units.length);
+  const lateral = new Float32Array(units.length);
+  forward.fill(1);
+
+  for (let i = 0; i < units.length; i++) {
+    const unit = units[i];
     if (unit.dead) continue;
-    const column = Math.max(0, Math.min(columns.length - 1, Math.floor(unit.x / 12)));
-    columns[column].push(unit);
+    const col = Math.max(0, Math.min(cols - 1, Math.floor(unit.x / ASSAULT_MOTION_CELL)));
+    const row = Math.max(0, Math.min(rows - 1, Math.floor((unit.y + ASSAULT_MOTION_CELL) / ASSAULT_MOTION_CELL)));
+    (cells[row * cols + col] ??= []).push(i);
   }
-  for (const column of columns) {
-    column.sort((a, b) => a.y - b.y);
-    for (let index = 1; index < column.length; index++) {
-      const ahead = column[index - 1];
-      const unit = column[index];
-      if (Math.abs(unit.x - ahead.x) <= 10) slots.set(unit, ahead.y + ASSAULT_UNIT_SPACING);
+
+  for (let i = 0; i < units.length; i++) {
+    const unit = units[i];
+    if (unit.dead) continue;
+    const col = Math.max(0, Math.min(cols - 1, Math.floor(unit.x / ASSAULT_MOTION_CELL)));
+    const row = Math.max(0, Math.min(rows - 1, Math.floor((unit.y + ASSAULT_MOTION_CELL) / ASSAULT_MOTION_CELL)));
+    const search = 2;
+    let limit = 1;
+    let sideForce = 0;
+    let neighbourCount = 0;
+    let inspected = 0;
+    neighbourSearch: for (let dr = -search; dr <= search; dr++) {
+      const rr = row + dr;
+      if (rr < 0 || rr >= rows) continue;
+      for (let dc = -search; dc <= search; dc++) {
+        const cc = col + dc;
+        if (cc < 0 || cc >= cols) continue;
+        const cell = cells[rr * cols + cc];
+        if (!cell) continue;
+        // Dense multiplication can put hundreds of units in one cell. Sample
+        // evenly and cap the total work per runner instead of reopening a
+        // quadratic all-pairs pass.
+        const sampleCount = Math.min(cell.length, ASSAULT_MAX_CELL_SAMPLES);
+        const sampleStart = cell.length > 0
+          ? ((i * 31 + rr * 17 + cc * 13) % cell.length + cell.length) % cell.length
+          : 0;
+        for (let sample = 0; sample < sampleCount; sample++) {
+          if (inspected >= ASSAULT_MAX_NEIGHBOURS) break neighbourSearch;
+          inspected++;
+          const sampleOffset = Math.floor(sample * cell.length / sampleCount);
+          const otherIndex = cell[(sampleStart + sampleOffset) % cell.length];
+          if (otherIndex === i) continue;
+          const other = units[otherIndex];
+          if (other.dead) continue;
+          const signedDx = unit.x - other.x;
+          const verticalGap = unit.y - other.y;
+          const forwardGap = (other.y - unit.y) * forwardDirection;
+          const lateralReach = unit.r + other.r + 12;
+          const verticalReach = ASSAULT_UNIT_SPACING + 4.5;
+          const lateralRatio = Math.abs(signedDx) / lateralReach;
+          const verticalRatio = Math.abs(verticalGap) / verticalReach;
+          const distance = Math.sqrt(lateralRatio * lateralRatio + verticalRatio * verticalRatio);
+          if (distance >= 1) continue;
+
+          const proximity = 1 - distance;
+          neighbourCount++;
+          const side = Math.abs(signedDx) > 0.15 ? Math.sign(signedDx) : i < otherIndex ? -1 : 1;
+          sideForce += side * proximity;
+
+          // A neighbour at the same y is also a forward blockage: the crowd
+          // must first open a lateral gap before those runners can advance.
+          if (forwardGap >= -0.5) {
+            const lateralOverlap = Math.max(0, 1 - Math.abs(signedDx) / lateralReach);
+            const gapOverlap = Math.max(0, 1 - Math.max(0, forwardGap) / verticalReach);
+            // Leave enough motion for the lateral flow to open a gap. A hard
+            // zero here recreates the old stationary queue at the boss edge.
+            limit = Math.min(limit, 1 - lateralOverlap * gapOverlap * 0.96);
+          }
+        }
+      }
     }
+    forward[i] = Math.max(0, limit);
+    // A lone pair should drift apart gently; reserve the stronger impulse for
+    // an actually compressed wave where several neighbours compete for the
+    // same space. This keeps boss slams readable while opening dense rows.
+    const crowdFactor = Math.min(1, neighbourCount / 6);
+    lateral[i] = Math.max(-2.2, Math.min(2.2, sideForce)) * ASSAULT_LATERAL_ACCEL * crowdFactor;
   }
-  return slots;
+  return { forward, lateral };
 }
 
 function updateAssaultBlue(g: Game, dt: number) {
   const assault = g.assault!;
   const active = g.bases[assault.encounter];
   const spawned: Unit[] = [];
-  const blueFlow = flowPush(g.blue);
-  const forwardSlots = assaultForwardSlots(g);
+  const assaultMotion = assaultForwardSlots(g.blue, -1);
   const lastGateY = g.gates.length ? Math.min(...g.gates.map((gate) => gate.y)) : active.y + active.h / 2 + 48;
   const trackedGateCount = Math.min(30, g.gates.length);
   const allGatesMask = trackedGateCount > 0 ? (1 << trackedGateCount) - 1 : 0;
@@ -926,7 +1012,10 @@ function updateAssaultBlue(g: Game, dt: number) {
     // settle quickly so multiplication creates a readable spread rather than
     // sending runners on permanent sideways diagonals through later gates.
     u.vx *= Math.exp(-3 * dt);
-    u.vx = Math.max(-150, Math.min(150, u.vx + blueFlow[blueIndex] * dt));
+    // Keep gate approach readable, then let the stronger crowd pressure open
+    // the final battle queue once the last panel is behind the runner.
+    const lateralScale = u.y <= lastGateY + GATE_H ? 1 : 0.2;
+    u.vx = Math.max(-420, Math.min(420, u.vx + assaultMotion.lateral[blueIndex] * lateralScale * dt));
     let dy = -(u.big ? ASSAULT_CHAMP_SPEED : ASSAULT_BLUE_SPEED) * dt;
 
     // After the final gate there is a short, explicit boss approach. This is
@@ -937,7 +1026,15 @@ function updateAssaultBlue(g: Game, dt: number) {
     const passedFinalGate = u.y <= lastGateY - GATE_H || (allGatesMask !== 0 && (u.used & allGatesMask) === allGatesMask);
     const bossApproachY = active.y + active.h / 2 + 5;
     if (passedFinalGate && u.y < bossApproachY) {
-      const desiredX = active.x + lane * 4;
+      // Keep a runner's own lane while it is already over the fortress. Only
+      // steer a missed shot back to the nearest edge of the boss footprint;
+      // pulling every survivor toward the centre creates a single broad row
+      // at the collision plane when a multiplied wave arrives together.
+      const bossHalf = active.w / 2 + u.r;
+      const offsetFromBoss = u.x - active.x;
+      const desiredX = Math.abs(offsetFromBoss) > bossHalf
+        ? active.x + Math.sign(offsetFromBoss) * bossHalf
+        : u.x + lane * 0.25;
       const want = Math.max(-110, Math.min(110, (desiredX - u.x) * 2.4));
       u.vx += (want - u.vx) * Math.min(1, dt * 4.5);
     }
@@ -954,11 +1051,7 @@ function updateAssaultBlue(g: Game, dt: number) {
         else dy = 0;
       }
     }
-    const forwardY = forwardSlots.get(u);
-    if (forwardY !== undefined) {
-      if (u.y > forwardY) dy = -Math.min(-dy, u.y - forwardY);
-      else dy = 0;
-    }
+    dy *= assaultMotion.forward[blueIndex] * (u.pace ?? 1);
     const prevY = u.y;
     move(g, u, dy, dt);
 
@@ -983,9 +1076,10 @@ function updateAssaultBlue(g: Game, dt: number) {
         const off = side * distance * (u.big ? 1.7 : 1);
         const row = Math.floor(k / 4);
         const x = Math.max(gt.cx - gt.w / 2 + 3, Math.min(gt.cx + gt.w / 2 - 3, u.x + off + (g.rand() - 0.5) * 3));
-        // Copies enter just behind the parent so the local forward constraint
-        // can build a visible multi-row wave without snapping anyone backward.
-        spawned.push({ x, y: Math.min(CANNON_Y - 24, u.y + 4 + row * 5 + g.rand() * 2), vx: side * (u.big ? 28 : 18), hp: 1, r: 4.2, big: false, used: u.used, dead: false });
+        // Copies enter just behind the parent. Their small stable pace offset
+        // and actual-neighbour flow create a loose wave without birth slots.
+        const pace = 0.9 + stableMotionVariation(x, u.y, k + g.stats.multiplied) * 0.2;
+        spawned.push({ x, y: Math.min(CANNON_Y - 24, u.y + 4 + row * 5 + g.rand() * 2), vx: side * (u.big ? 28 : 18), hp: 1, r: 4.2, big: false, used: u.used, dead: false, pace });
         g.stats.multiplied++;
       }
     }
@@ -1014,17 +1108,17 @@ function updateAssaultRed(g: Game, dt: number) {
       assault.spawnTimer += Math.max(0.55, 1.65 - assault.encounter * 0.08);
     }
   }
-  const active = g.bases[assault.encounter];
-  const redFlow = flowPush(g.red);
+  const assaultMotion = assaultForwardSlots(g.red, 1);
   const surgeSpeed = surgeActive(g.level, g.t) ? 1 + Math.max(0, g.level.surge?.strength ?? 0) : 1;
   for (let redIndex = 0; redIndex < g.red.length; redIndex++) {
     const u = g.red[redIndex];
     if (u.dead) continue;
-    const laneOffset = Math.max(-4, Math.min(4, u.lane ?? 0)) * 11;
-    const want = Math.max(-80, Math.min(80, (active.x + laneOffset - u.x) * 1.3));
-    u.vx += (want - u.vx) * Math.min(1, dt * 2.2);
-    u.vx = Math.max(-100, Math.min(100, u.vx + redFlow[redIndex] * dt));
-    move(g, u, config.speed * surgeSpeed * (u.big ? 0.74 : 1) * dt, dt);
+    // Formation lanes establish the initial spread; after release, neighbours
+    // and inertia decide the path. Homing each unit to a quantized lane center
+    // made the red horde look like nine synchronized rails.
+    u.vx *= Math.exp(-2.8 * dt);
+    u.vx = Math.max(-180, Math.min(180, u.vx + assaultMotion.lateral[redIndex] * (ASSAULT_RED_LATERAL_ACCEL / ASSAULT_LATERAL_ACCEL) * dt));
+    move(g, u, config.speed * surgeSpeed * ASSAULT_RED_SPEED_SCALE * (u.big ? 0.74 : 1) * (u.pace ?? 1) * assaultMotion.forward[redIndex] * dt, dt);
     if (!u.big && hitsSpinner(g, u)) {
       u.dead = true;
       pop(g, u.x, u.y, 1);

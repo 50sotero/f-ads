@@ -15,6 +15,22 @@ const assaultLevel = (overrides = {}) => ({
   ...overrides,
 });
 
+test("red forward spacing uses the enemy travel direction", () => {
+  const game = newGame(assaultLevel({
+    bases: [{ x: 180, y: 1000, hp: 99999, every: 9999, group: 0 }],
+    gates: [],
+    assault: { horde: 0, reserve: 0, speed: 18, theme: "fork" },
+  }));
+  game.firing = false;
+  const leader = { x: 180, y: 458, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false, lane: 0 };
+  const follower = { x: 180, y: 450, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false, lane: 0 };
+  game.red.push(leader, follower);
+
+  step(game, 1 / 60);
+
+  assert.ok(leader.y - follower.y >= 8, "red follower overtook the forward runner");
+});
+
 test("cannon barrel offsets are centered and match every assault volley", () => {
   assert.deepEqual(cannonBarrelOffsets(1), [0]);
   assert.deepEqual(cannonBarrelOffsets(5), [-48, -24, 0, 24, 48]);
@@ -120,4 +136,22 @@ test("surviving runners keep their positions during a boss transition", () => {
   assert.ok(preservedY < CANNON_Y - 100, `survivor was reset near the cannon at y=${preservedY}`);
   for (let frame = 0; frame < 50; frame++) step(game, 1 / 60);
   assert.equal(survivor.y, preservedY, "survivor moved during the camera transition");
+});
+
+test("neighbour flow stays continuous across a motion-cell boundary", () => {
+  const game = newGame(assaultLevel({
+    bases: [{ x: 180, y: 1000, hp: 99999, every: 9999, group: 0 }],
+    gates: [],
+  }));
+  game.firing = false;
+  const left = { x: 95.9, y: 450, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false };
+  const right = { x: 96.1, y: 450, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false };
+  game.blue.push(left, right);
+
+  for (let frame = 0; frame < 12; frame++) step(game, 1 / 60);
+
+  assert.ok(Math.abs(left.x - right.x) > 0.2, "neighbour flow did not open a cell-boundary gap");
+  assert.ok(left.y <= 450 && right.y <= 450, "local flow moved a runner backward");
+  assert.ok(left.x >= left.r && right.x >= right.r);
+  assert.ok(left.x <= 360 - left.r && right.x <= 360 - right.r);
 });
