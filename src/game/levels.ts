@@ -58,9 +58,9 @@ export const levels: Level[] = [
   },
   {
     name: "Switchback",
-    tip: "The wall forces a lane change. Use the moving ×3 to stay ahead.",
+    tip: "The wall forces a lane change. Use the moving ×3, then cash in at ×4.",
     par: 30,
-    bases: [{ x: 180, y: 92, hp: 1056, every: 2.2, group: 8, bruteEvery: 10, bruteHp: 18 }],
+    bases: [{ x: 180, y: 92, hp: 3168, every: 6.6, group: 16, bruteEvery: 10, bruteHp: 18 }],
     gates: [
       { x: 180, y: 548, w: 56, kind: "trap" },
       { x: 274, y: 486, w: 118, kind: "x", n: 3, move: { range: 23, speed: 1.1, phase: 1 } },
@@ -68,7 +68,7 @@ export const levels: Level[] = [
       { x: 180, y: 430, w: 100, kind: "trap" },
       { x: 270, y: 292, w: 116, kind: "x", n: 2, move: { range: 28, speed: 0.9 } },
       { x: 180, y: 212, w: 100, kind: "trap", pulse: { period: 3.8, active: 1.45, phase: 2.1 } },
-      { x: 180, y: 166, w: 170, kind: "x", n: 2 },
+      { x: 180, y: 166, w: 170, kind: "x", n: 4 },
     ],
     walls: [
       { x: 144, y: 300, w: 72, h: 28 },
@@ -80,7 +80,7 @@ export const levels: Level[] = [
     name: "Pulse Run",
     tip: "Red traps blink off. Read the safe window, then send the crowd through.",
     par: 38,
-    bases: [{ x: 180, y: 92, hp: 2560, every: 2.1, group: 8, bruteEvery: 10, bruteHp: 18 }],
+    bases: [{ x: 180, y: 92, hp: 4480, every: 4.2, group: 16, bruteEvery: 10, bruteHp: 18 }],
     gates: [
       { x: 180, y: 548, w: 56, kind: "trap" },
       { x: 88, y: 488, w: 122, kind: "x", n: 2 },
@@ -88,7 +88,7 @@ export const levels: Level[] = [
       { x: 272, y: 384, w: 150, kind: "x", n: 3, move: { range: 9, speed: 1.3, phase: 0.5 } },
       { x: 88, y: 384, w: 126, kind: "trap", move: { range: 21, speed: 0.9, phase: 2.1 }, pulse: { period: 4.2, active: 1.5, phase: 2.4 } },
       { x: 180, y: 286, w: 112, kind: "x", n: 2, move: { range: 92, speed: 0.78, phase: 1.4 } },
-      { x: 180, y: 188, w: 150, kind: "x", n: 3 },
+      { x: 180, y: 188, w: 150, kind: "x", n: 5 },
     ],
     spinners: [{ x: 52, y: 238, r: 34, speed: -2.4 }, { x: 308, y: 238, r: 34, speed: 2.4 }],
     surge: { every: 7, duration: 3.1, strength: 0.95, delay: 4 },
@@ -97,7 +97,7 @@ export const levels: Level[] = [
     name: "Rotor Alley",
     tip: "Rotors punish the middle. Thread the moving gates and keep the sides clear.",
     par: 35,
-    bases: [{ x: 180, y: 90, hp: 1840, every: 1.95, group: 9, bruteEvery: 8, bruteHp: 22 }],
+    bases: [{ x: 180, y: 90, hp: 4600, every: 2.925, group: 18, bruteEvery: 8, bruteHp: 22 }],
     gates: [
       { x: 180, y: 548, w: 56, kind: "trap" },
       { x: 74, y: 500, w: 104, kind: "x", n: 2, move: { range: 18, speed: 1.4 } },
@@ -105,7 +105,7 @@ export const levels: Level[] = [
       { x: 180, y: 398, w: 96, kind: "trap" },
       { x: 76, y: 318, w: 104, kind: "x", n: 3, move: { range: 20, speed: 1.15, phase: 1 } },
       { x: 284, y: 318, w: 104, kind: "x", n: 2, move: { range: 20, speed: 1.15, phase: 4 } },
-      { x: 180, y: 206, w: 176, kind: "x", n: 2 },
+      { x: 180, y: 206, w: 176, kind: "x", n: 4 },
     ],
     spinners: [
       { x: 180, y: 442, r: 74, speed: 1.75 },
@@ -119,9 +119,9 @@ export const levels: Level[] = [
     tip: "Every door leads somewhere different. The center is safe, the sides pay out.",
     par: 38,
     bases: [
-      { x: 70, y: 92, hp: 720, every: 2.3, group: 8, bruteEvery: 12, bruteHp: 22, delay: 0.8 },
-      { x: 180, y: 82, hp: 750, every: 2.5, group: 7, delay: 1.7 },
-      { x: 290, y: 92, hp: 720, every: 2.3, group: 8, bruteEvery: 12, bruteHp: 22, delay: 2.6 },
+      { x: 70, y: 92, hp: 2520, every: 3.45, group: 16, bruteEvery: 12, bruteHp: 22, delay: 0.8 },
+      { x: 180, y: 82, hp: 2625, every: 3.75, group: 14, delay: 1.7 },
+      { x: 290, y: 92, hp: 2520, every: 3.45, group: 16, bruteEvery: 12, bruteHp: 22, delay: 2.6 },
     ],
     gates: [
       { x: 68, y: 488, w: 86, kind: "x", n: 3, move: { range: 18, speed: 1.1 } },
@@ -130,7 +130,7 @@ export const levels: Level[] = [
       { x: 72, y: 360, w: 98, kind: "x", n: 2, move: { range: 19, speed: 0.95, phase: 1 } },
       { x: 180, y: 330, w: 84, kind: "trap", pulse: { period: 3.7, active: 1.2, phase: 2.3 } },
       { x: 288, y: 360, w: 98, kind: "x", n: 2, move: { range: 19, speed: 0.95, phase: 4.2 } },
-      { x: 180, y: 206, w: 170, kind: "x", n: 2, move: { range: 60, speed: 0.7 } },
+      { x: 180, y: 206, w: 170, kind: "x", n: 5, move: { range: 60, speed: 0.7 } },
     ],
     walls: [{ x: 168, y: 250, w: 24, h: 150 }],
     surge: { every: 10, duration: 3.5, strength: 0.7, delay: 13 },
@@ -140,8 +140,8 @@ export const levels: Level[] = [
     tip: "Walls leave narrow bridges. Change sides before the next gate closes.",
     par: 58,
     bases: [
-      { x: 92, y: 92, hp: 561, every: 2.05, group: 9, bruteEvery: 10, bruteHp: 24 },
-      { x: 268, y: 92, hp: 561, every: 2.05, group: 9, bruteEvery: 10, bruteHp: 24, delay: 2.5 },
+      { x: 92, y: 92, hp: 561, every: 3.075, group: 18, bruteEvery: 10, bruteHp: 24 },
+      { x: 268, y: 92, hp: 561, every: 3.075, group: 18, bruteEvery: 10, bruteHp: 24, delay: 2.5 },
     ],
     gates: [
       { x: 82, y: 506, w: 92, kind: "x", n: 2 },
@@ -150,7 +150,7 @@ export const levels: Level[] = [
       { x: 82, y: 410, w: 98, kind: "trap", move: { range: 29, speed: 1.25, phase: 0.4 }, pulse: { period: 4.5, active: 1.9, phase: 1.1 } },
       { x: 82, y: 304, w: 98, kind: "x", n: 3, move: { range: 29, speed: 1, phase: 0.8 } },
       { x: 278, y: 304, w: 98, kind: "x", n: 2, move: { range: 29, speed: 1, phase: 3.5 } },
-      { x: 180, y: 208, w: 162, kind: "x", n: 2 },
+      { x: 180, y: 208, w: 162, kind: "x", n: 5 },
     ],
     walls: [
       { x: 42, y: 230, w: 112, h: 34 },
@@ -164,14 +164,14 @@ export const levels: Level[] = [
     name: "Red Alert",
     tip: "The red banner means a surge. Clear the lane before the next wave.",
     par: 40,
-    bases: [{ x: 180, y: 88, hp: 2480, every: 1.55, group: 10, bruteEvery: 7.5, bruteHp: 25, delay: 0.4 }],
+    bases: [{ x: 180, y: 88, hp: 6200, every: 2.325, group: 20, bruteEvery: 7.5, bruteHp: 25, delay: 0.4 }],
     gates: [
       { x: 86, y: 500, w: 112, kind: "x", n: 3, move: { range: 26, speed: 1.25 } },
       { x: 274, y: 500, w: 112, kind: "x", n: 2, move: { range: 26, speed: 1.25, phase: 2.5 } },
       { x: 274, y: 402, w: 110, kind: "trap", pulse: { period: 3.9, active: 1.4, phase: 1.6 } },
       { x: 86, y: 402, w: 110, kind: "x", n: 3, move: { range: 27, speed: 1.05, phase: 1.1 } },
       { x: 180, y: 302, w: 92, kind: "trap", move: { range: 100, speed: 0.9, phase: 2.3 }, pulse: { period: 4.8, active: 1.55, phase: 1.2 } },
-      { x: 180, y: 218, w: 166, kind: "x", n: 2 },
+      { x: 180, y: 218, w: 166, kind: "x", n: 5 },
     ],
     spinners: [{ x: 50, y: 250, r: 38, speed: 2.4 }, { x: 310, y: 250, r: 38, speed: -2.4 }],
     surge: { every: 8, duration: 3.5, strength: 0.9, delay: 9 },
@@ -181,8 +181,8 @@ export const levels: Level[] = [
     tip: "Staggered keeps share the track. Split the crowd, then finish the wounded side.",
     par: 42,
     bases: [
-      { x: 70, y: 86, hp: 774, every: 1.95, group: 9, bruteEvery: 9, bruteHp: 26, delay: 0.8 },
-      { x: 290, y: 86, hp: 774, every: 1.95, group: 9, bruteEvery: 9, bruteHp: 26, delay: 3.2 },
+      { x: 70, y: 86, hp: 2322, every: 2.925, group: 18, bruteEvery: 9, bruteHp: 26, delay: 0.8 },
+      { x: 290, y: 86, hp: 2322, every: 2.925, group: 18, bruteEvery: 9, bruteHp: 26, delay: 3.2 },
     ],
     gates: [
       { x: 70, y: 516, w: 102, kind: "x", n: 3, move: { range: 15, speed: 1.4 } },
@@ -192,7 +192,7 @@ export const levels: Level[] = [
       { x: 290, y: 344, w: 112, kind: "x", n: 2, move: { range: 10, speed: 0.9, phase: 3.8 } },
       { x: 180, y: 256, w: 84, kind: "trap", move: { range: 114, speed: 0.85, phase: 1.3 }, pulse: { period: 4.6, active: 1.4, phase: 2.7 } },
       { x: 70, y: 184, w: 122, kind: "x", n: 2 },
-      { x: 290, y: 184, w: 122, kind: "x", n: 2 },
+      { x: 290, y: 184, w: 122, kind: "x", n: 5 },
     ],
     walls: [{ x: 168, y: 158, w: 24, h: 270 }],
     spinners: [{ x: 180, y: 470, r: 56, speed: 1.85 }],
