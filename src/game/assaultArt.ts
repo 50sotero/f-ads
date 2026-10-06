@@ -9,21 +9,21 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
  * with hundreds of fighters.
  */
 
-function vertexColor(geometry: THREE.BufferGeometry, hex: number): THREE.BufferGeometry {
+function vertexColor(geometry: THREE.BufferGeometry, hex: number, face = 1): THREE.BufferGeometry {
   const position = geometry.getAttribute("position");
   const color = new THREE.Color(hex);
   const values = new Float32Array(position.count * 3);
   for (let i = 0; i < position.count; i++) color.toArray(values, i * 3);
   geometry.setAttribute("color", new THREE.Float32BufferAttribute(values, 3));
+  geometry.setAttribute("faceMask", new THREE.Float32BufferAttribute(new Float32Array(position.count).fill(face), 1));
   return geometry;
 }
 
 function finishMerged(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  // MeshStandardMaterial multiplies the team tint by vertex color. Keep every
-  // body vertex white so the blue/red instance color stays unchanged, while
-  // the small face pieces can carry their own white/dark accents.
+  // The renderer keeps body vertices in the team tint, while the face mask
+  // preserves white eyes and dark pupils without a second instanced draw.
   parts.forEach((part) => {
-    if (!part.getAttribute("color")) vertexColor(part, 0xffffff);
+    if (!part.getAttribute("color")) vertexColor(part, 0xffffff, 0);
   });
   const merged = mergeGeometries(parts, false);
   parts.forEach((part) => part.dispose());

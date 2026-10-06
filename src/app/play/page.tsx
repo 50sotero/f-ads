@@ -7,7 +7,7 @@ import { site } from "@/config/site";
 import { levels } from "@/game/levels";
 import { absoluteUrl, baseGraph, pageMetadata } from "@/lib/seo";
 
-const description = `Horde Assault is a free browser game: steer a growing cannon through purple multiplier chains and blue +1 pickups, then defeat every boss on the road. ${levels.length} routes, no download, no sign-up.`;
+const description = `Crowd Cannon is a free browser game: steer a growing cannon through purple multiplier chains and blue +1 pickups, then defeat every boss on the road. ${levels.length} routes, no download, no sign-up.`;
 
 export const metadata: Metadata = pageMetadata({
   title: "Crowd Cannon: Free Crowd Shooter Game",
@@ -23,7 +23,7 @@ export default function PlayPage() {
           ...baseGraph(),
           {
             "@type": "VideoGame",
-            name: "Horde Assault",
+            name: "Crowd Cannon",
             url: absoluteUrl("/play"),
             description,
             genre: ["Arcade", "Casual"],

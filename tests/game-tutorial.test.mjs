@@ -21,7 +21,6 @@ test("tutorial requires firing AND steering before teaching multipliers", () => 
 test("tutorial checks new actions for each lesson and completes once", () => {
   const progress = newTutorialProgress();
   const game = newGame(tutorialLevel);
-  game.assault = { tier: 1 };
   Object.assign(game.stats, { fired: 8, multiplied: 20 });
   game.cannonX = 260;
   advanceTutorial(progress, game);
@@ -29,14 +28,33 @@ test("tutorial checks new actions for each lesson and completes once", () => {
   game.stats.multiplied = 28;
   assert.equal(advanceTutorial(progress, game), true);
   assert.equal(progress.step, 2);
-  assert.equal(progress.tierAtStart, 1);
+  assert.equal(progress.pickupsAtStart, 0);
   assert.equal(advanceTutorial(progress, game), false, "a multiplier must not finish the pickup lesson");
   game.assault.tier = 2;
+  game.assault.pickupsCollected++;
   game.t = 12;
   assert.equal(advanceTutorial(progress, game), true);
   assert.equal(progress.step, 3);
   assert.equal(progress.completedAt, 12);
   assert.equal(advanceTutorial(progress, game), false);
+});
+
+test("a fully upgraded battery can still complete the pickup lesson", () => {
+  const progress = newTutorialProgress();
+  const game = newGame(tutorialLevel);
+  progress.step = 1;
+  game.assault.tier = 5;
+  game.assault.pickupsCollected = 4;
+  game.stats.multiplied = 10;
+  advanceTutorial(progress, game);
+  assert.equal(progress.step, 2);
+  assert.equal(advanceTutorial(progress, game), false);
+  game.cannonX = game.targetX = 55;
+  game.assault.pickups = [{ id: 99, x: 55, y: 561, w: 70, value: 1 }];
+  step(game, 1 / 60);
+  assert.equal(game.assault.tier, 5);
+  assert.equal(advanceTutorial(progress, game), true);
+  assert.equal(progress.step, 3);
 });
 
 test("tutorial is a three gate assault practice route", () => {

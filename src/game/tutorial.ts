@@ -1,28 +1,18 @@
 import type { Game, Level } from "./engine";
 
-type AssaultPractice = {
-  horde: number;
-  reserve: number;
-  speed: number;
-  theme: "fork" | "bridge" | "bend";
-  practice: true;
-};
-
 // Practice is separate from the twelve scored levels, so replaying a lesson
 // never awards stars, unlocks a level, or changes a saved campaign result.
-// The assertion keeps this branch compatible until the assault fields land in
-// the shared Level type; the runtime shape is the contract used by the engine.
-export const tutorialLevel = {
+export const tutorialLevel: Level = {
   name: "Training ground",
   par: 30,
-  assault: { horde: 0, reserve: 0, speed: 0, theme: "fork", practice: true } satisfies AssaultPractice,
+  assault: { horde: 0, reserve: 0, speed: 0, theme: "fork", practice: true },
   bases: [{ x: 125, y: 300, hp: 99999, every: 9999, group: 0 }],
   gates: [
-    { x: 180, y: 510, w: 170, kind: "x" as const, n: 2 },
-    { x: 180, y: 467, w: 170, kind: "x" as const, n: 3 },
-    { x: 180, y: 424, w: 170, kind: "x" as const, n: 4 },
+    { x: 180, y: 510, w: 170, kind: "x", n: 2 },
+    { x: 180, y: 467, w: 170, kind: "x", n: 3 },
+    { x: 180, y: 424, w: 170, kind: "x", n: 4 },
   ],
-} as unknown as Level & { assault: AssaultPractice };
+};
 
 export const tutorialLessons = [
   { title: "Fire + steer", text: "Hold the track to fire, then drag sideways to steer. On a keyboard, hold ← or →.", action: "Fire 8 runners and move across the lane", icon: "↔" },
@@ -35,17 +25,12 @@ export type TutorialProgress = {
   minX: number;
   maxX: number;
   multipliedAtStart: number;
-  tierAtStart: number;
+  pickupsAtStart: number;
   completedAt: number;
 };
 
 export function newTutorialProgress(): TutorialProgress {
-  return { step: 0, minX: 180, maxX: 180, multipliedAtStart: 0, tierAtStart: 1, completedAt: Infinity };
-}
-
-function assaultTier(game: Game) {
-  const assault = (game as Game & { assault?: { tier?: number } }).assault;
-  return Math.max(1, assault?.tier ?? 1);
+  return { step: 0, minX: 180, maxX: 180, multipliedAtStart: 0, pickupsAtStart: 0, completedAt: Infinity };
 }
 
 /** Lessons advance only after the player performs the action, never on a timer. */
@@ -59,10 +44,10 @@ export function advanceTutorial(progress: TutorialProgress, game: Game): boolean
   }
   if (progress.step === 1 && game.stats.multiplied - progress.multipliedAtStart >= 8) {
     progress.step = 2;
-    progress.tierAtStart = assaultTier(game);
+    progress.pickupsAtStart = game.assault?.pickupsCollected ?? 0;
     return true;
   }
-  if (progress.step === 2 && assaultTier(game) > progress.tierAtStart) {
+  if (progress.step === 2 && (game.assault?.pickupsCollected ?? 0) > progress.pickupsAtStart) {
     progress.step = 3;
     progress.completedAt = game.t;
     return true;

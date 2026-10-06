@@ -98,9 +98,21 @@ test("boss slam exposes a warning, pulses once, and does not kill the crowd", ()
   for (let i = 0; i < 15; i++) step(g, 1 / 60);
   assert.ok(g.assault);
   assert.ok(g.assault.bossWarning > 0 && g.assault.bossWarning <= 1);
-  for (let i = 0; i < 45; i++) step(g, 1 / 60);
+  g.blue.push(
+    { x: 185, y: 445, vx: 0, hp: 1, r: 4.2, big: false, used: 7, dead: false, lane: 2 },
+    { x: 188, y: 438, vx: 0, hp: 1, r: 4.2, big: false, used: 7, dead: false, lane: 2 },
+  );
+  for (let i = 0; i < 44; i++) step(g, 1 / 60);
+  const boss = g.bases[0];
+  const contactEdge = boss.y + boss.h / 2 + 4.2;
+  assert.equal(g.blue.length, 2);
+  assert.ok(g.blue.every((u) => u.y > contactEdge && u.y <= boss.y + boss.h / 2 + 112));
+  assert.ok(g.blue.every((u) => Math.abs(u.x - boss.x) <= boss.w / 2 + 30));
+  const beforeImpact = g.blue.map((u) => u.y);
+  step(g, 1 / 60);
   assert.equal(g.assault.bossPulse, 1);
   assert.ok(g.pops.some((p) => p.text === "SLAM"));
-  assert.equal(g.blue.length, 0);
+  assert.equal(g.blue.length, 2);
+  assert.ok(g.blue.every((u, i) => u.y >= beforeImpact[i] + 8));
   assert.equal(g.status, "playing");
 });

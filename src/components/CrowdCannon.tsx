@@ -47,7 +47,7 @@ const defaultAssault = (): AssaultHud => ({
 });
 
 function assaultHud(game: Game): AssaultHud {
-  const assault = (game as Game & { assault?: Partial<AssaultHud> }).assault;
+  const assault = game.assault;
   return {
     encounter: Math.max(0, assault?.encounter ?? 0),
     encounters: Math.max(1, assault?.encounters ?? 1),
@@ -470,7 +470,10 @@ export function CrowdCannon() {
 
   useEffect(() => {
     const onVisibilityChange = () => {
-      if (document.hidden && screenRef.current === "playing") setScreen("paused");
+      if (document.hidden && screenRef.current === "playing") {
+        screenRef.current = "paused";
+        setScreen("paused");
+      }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
@@ -546,7 +549,7 @@ export function CrowdCannon() {
       {screen === "playing" && (
         <>
           <div className={styles.hud}>
-            <button type="button" className={styles.pauseButton} data-testid="pause-game" onClick={() => setScreen("paused")} aria-label="Pause game"><span aria-hidden="true">Ⅱ</span></button>
+            <button type="button" className={styles.pauseButton} data-testid="pause-game" onClick={() => { screenRef.current = "paused"; setScreen("paused"); }} aria-label="Pause game"><span aria-hidden="true">Ⅱ</span></button>
             <div className={styles.levelPill} data-testid="assault-hud"><span>{tutorialStep !== null ? `TRAINING ${Math.min(3, tutorialStep + 1)} / 3` : `LEVEL ${levelIndex + 1}`}</span><strong>{tutorialStep !== null ? "Training ground" : level.name}</strong></div>
             <div className={styles.encounterProgress} data-testid="encounter-progress" role="progressbar" aria-label="Boss assault progress" aria-valuemin={1} aria-valuemax={assault.encounters} aria-valuenow={Math.min(assault.encounters, assault.encounter + 1)}>
               <span className={styles.encounterLabel}>BOSS {Math.min(assault.encounters, assault.encounter + 1)} / {assault.encounters}</span>
@@ -582,7 +585,7 @@ export function CrowdCannon() {
               <Link href="/" className={styles.homeLink} data-testid="home-link" aria-label="Back to F.ADS home">← Home</Link>
               <span className={styles.menuMeta}>HORDE ASSAULT · {levels.length} ROUTES</span>
             </div>
-            <div className={styles.brandLockup}><span>F.ADS ARCADE</span><strong><em>HORDE</em> ASSAULT</strong></div>
+            <div className={styles.brandLockup}><span>F.ADS ARCADE · HORDE ASSAULT</span><strong><em>CROWD</em> CANNON</strong></div>
             <p className={styles.menuLead}>Steer a growing cannon through purple chains, blue +1 pickups, and a full road of bosses.</p>
             <div className={styles.progressCard}><div><span>YOUR RUN</span><strong>{totalStars}<small> / {levels.length * 3} stars</small></strong></div><Stars n={Math.min(3, Math.round(totalStars / Math.max(1, levels.length)))} /></div>
             <button type="button" className={`${styles.actionButton} ${styles.primaryAction} ${styles.playButton}`} data-testid="start-game" onClick={() => save.tutorialDone ? start(firstUnbeaten) : beginTutorial()}><span>{!save.tutorialDone ? "Learn to play" : totalStars ? "Continue run" : "Start run"}</span><span aria-hidden="true">→</span></button>
