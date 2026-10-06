@@ -809,3 +809,375 @@
   .menuPanel, .modalPanel, .tip, .starReveal, .championReady { animation: none; }
   .confetti { display: none; }
 }
+
+/* The play field should read like a living arcade cabinet: the scene stays
+   visible while controls float above it in a small amount of glassy chrome. */
+.screenOverlay {
+  background: linear-gradient(180deg, rgba(3, 22, 40, 0.28), rgba(2, 17, 35, 0.66));
+  backdrop-filter: blur(2px) saturate(1.05);
+}
+
+.menuOverlay {
+  align-items: flex-start;
+  padding: clamp(14px, 4vh, 30px) 14px 24px;
+}
+
+.menuPanel,
+.modalPanel {
+  border-color: rgba(194, 239, 247, 0.28);
+  background: linear-gradient(145deg, rgba(6, 34, 56, 0.91), rgba(7, 62, 79, 0.79));
+  box-shadow: 0 24px 60px rgba(1, 11, 24, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  color: #effcff;
+  backdrop-filter: blur(14px) saturate(1.12);
+}
+
+.menuPanel {
+  width: min(100%, 410px);
+  padding: 16px 18px 15px;
+}
+
+.menuTopline,
+.modalTopline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 22px;
+}
+
+.homeLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid rgba(181, 239, 244, 0.25);
+  border-radius: 999px;
+  color: #c9f5f4;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.homeLink:hover,
+.homeLink:focus-visible {
+  border-color: rgba(181, 239, 244, 0.62);
+  background: rgba(139, 238, 237, 0.12);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.menuMeta {
+  color: rgba(204, 240, 244, 0.68);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.brandLockup {
+  margin-top: 10px;
+  color: #8be8ef;
+}
+
+.brandLockup > span {
+  color: #ff9c84;
+}
+
+.brandLockup strong {
+  color: #f3ffff;
+  font-size: clamp(31px, 9vw, 42px);
+  text-shadow: 0 3px 0 rgba(0, 17, 32, 0.24);
+}
+
+.brandLockup em {
+  color: #86edf0;
+}
+
+.menuLead {
+  margin-top: 8px;
+  margin-bottom: 13px;
+  color: #b9d3dc;
+}
+
+.progressCard {
+  min-height: 51px;
+  border-color: rgba(139, 232, 238, 0.28);
+  background: linear-gradient(115deg, rgba(78, 210, 211, 0.16), rgba(152, 238, 224, 0.06));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.progressCard span,
+.progressCard small {
+  color: #a5d1d7;
+}
+
+.progressCard strong {
+  color: #f8ffff;
+  font-size: 20px;
+}
+
+.primaryAction {
+  background: linear-gradient(145deg, #ff796e, #e14662);
+  box-shadow: 0 4px 0 #9d2e50, 0 9px 22px rgba(220, 70, 96, 0.27), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+
+.secondaryAction {
+  border-color: rgba(139, 232, 238, 0.42);
+  background: rgba(115, 224, 224, 0.13);
+  box-shadow: 0 3px 0 rgba(32, 111, 125, 0.7);
+  color: #e0ffff;
+}
+
+.ghostAction {
+  color: #b7e1e2;
+}
+
+.levelHeader {
+  margin-top: 16px;
+  color: #a6cfd6;
+}
+
+.levelOpen {
+  border-color: rgba(108, 224, 229, 0.68);
+  background: linear-gradient(145deg, rgba(39, 153, 171, 0.78), rgba(10, 91, 115, 0.92));
+  box-shadow: 0 3px 0 rgba(3, 51, 75, 0.68), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  color: #f3ffff;
+}
+
+.levelLocked {
+  border-color: rgba(160, 205, 210, 0.16);
+  background: rgba(170, 211, 215, 0.08);
+  color: rgba(208, 235, 237, 0.4);
+}
+
+.levelButton small {
+  color: rgba(223, 249, 249, 0.76);
+}
+
+.levelLocked small {
+  color: rgba(208, 233, 235, 0.42);
+}
+
+.soundButton {
+  color: #c0e4e6;
+}
+
+.soundButton:hover,
+.soundButton:focus-visible {
+  color: #f0ffff;
+}
+
+.stars,
+.star {
+  color: rgba(208, 236, 237, 0.36);
+}
+
+.starOn {
+  color: #ffd76b;
+  text-shadow: 0 1px 0 #9b681e, 0 0 10px rgba(255, 215, 107, 0.2);
+}
+
+.modalPanel {
+  padding: 22px 21px 18px;
+}
+
+.modalKicker {
+  color: #91e6eb;
+}
+
+.modalPanel h2 {
+  color: #f4ffff;
+  font-size: 34px;
+  text-shadow: 0 3px 0 rgba(0, 17, 32, 0.24);
+}
+
+.modalPanel p,
+.trainingRecap {
+  color: #c3dce3;
+}
+
+.trainingRecap span {
+  background: rgba(177, 121, 255, 0.24);
+  color: #d8b7ff;
+}
+
+.resultTime {
+  color: #afd1d7;
+}
+
+.resultBadge {
+  background: rgba(118, 235, 203, 0.18);
+  color: #98f1d5;
+}
+
+.loseBadge {
+  background: rgba(255, 122, 139, 0.2);
+  color: #ffadb7;
+}
+
+.feedback {
+  position: absolute;
+  z-index: 9;
+  top: 45%;
+  left: 50%;
+  padding: 8px 15px;
+  border: 1px solid rgba(255, 230, 132, 0.58);
+  border-radius: 999px;
+  background: rgba(6, 37, 56, 0.8);
+  box-shadow: 0 7px 20px rgba(2, 21, 38, 0.24), 0 0 22px rgba(255, 211, 95, 0.14);
+  color: #ffe795;
+  font-size: clamp(12px, 3vw, 15px);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  text-shadow: 0 2px 0 rgba(103, 52, 19, 0.28);
+  transform: translate(-50%, -50%);
+  animation: feedbackPop 1050ms ease-out both;
+  pointer-events: none;
+}
+
+.hud {
+  grid-template-rows: auto auto;
+  row-gap: 6px;
+}
+
+.hudStats,
+.levelPill,
+.pauseButton {
+  background: rgba(5, 38, 63, 0.82);
+}
+
+.hudStat strong {
+  font-size: clamp(17px, 4.5vw, 21px);
+}
+
+.castleProgress {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 9px 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(4, 38, 57, 0.72);
+  box-shadow: 0 4px 15px rgba(3, 37, 58, 0.14);
+  color: rgba(232, 250, 251, 0.82);
+  backdrop-filter: blur(8px);
+}
+
+.castleProgressTrack {
+  flex: 1;
+  min-width: 35px;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.castleProgressTrack span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ffc95b, #ff6b6e);
+  box-shadow: 0 0 10px rgba(255, 174, 76, 0.44);
+  transition: width 160ms ease-out;
+}
+
+.castleProgressLabel {
+  flex: 0 0 auto;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+.castleProgressLabel strong {
+  margin-right: 3px;
+  color: #ffe18a;
+  font-size: 11px;
+}
+
+@keyframes feedbackPop {
+  0% { opacity: 0; transform: translate(-50%, -35%) scale(0.84); }
+  16% { opacity: 1; transform: translate(-50%, -50%) scale(1.04); }
+  72% { opacity: 1; transform: translate(-50%, -58%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -75%) scale(0.98); }
+}
+
+@media (max-width: 599px) {
+  .gameShell {
+    position: fixed;
+    z-index: 50;
+    inset: 0;
+    width: 100vw;
+    width: 100dvw;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    max-height: none;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .gameShell::before {
+    border-radius: 0;
+  }
+
+  .hud {
+    top: max(10px, env(safe-area-inset-top));
+    right: max(10px, env(safe-area-inset-right));
+    left: max(10px, env(safe-area-inset-left));
+  }
+
+  .menuOverlay {
+    padding: max(12px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  }
+
+  .menuPanel {
+    width: min(100%, 430px);
+    padding: 14px 14px 13px;
+  }
+
+  .brandLockup strong {
+    font-size: clamp(29px, 10vw, 40px);
+  }
+
+  .menuLead {
+    max-width: 335px;
+    font-size: 12px;
+  }
+
+  .levelGrid {
+    gap: 7px;
+  }
+
+  .levelButton {
+    min-height: 58px;
+  }
+
+  .levelButton small {
+    font-size: 7px;
+  }
+
+  .modalPanel {
+    width: min(100%, 350px);
+  }
+
+  .feedback {
+    top: 46%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feedback,
+  .castleProgressTrack span {
+    animation: none;
+    transition: none;
+  }
+}

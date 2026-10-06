@@ -36,7 +36,7 @@ export default function PlayPage() {
           },
         ]}
       />
-      <section className="pt-2 pb-7 sm:pt-5 sm:pb-9">
+      <section className="relative -mx-3 min-h-[100dvh] pt-0 pb-0 sm:mx-0 sm:min-h-0 sm:pt-5 sm:pb-9">
         <h1 className="sr-only">Crowd Cannon, a free game from {site.name}</h1>
         <CrowdCannon />
       </section>
