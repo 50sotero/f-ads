@@ -69,8 +69,8 @@
 .lessonProgress i { width: 16px; height: 5px; border-radius: 8px; background: #c6d9e3; }
 .lessonProgress i[data-current="true"] { background: #a557ec; }
 .lessonProgress i[data-done="true"] { background: #28bb9b; }
-.trainingRow { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 12px; color: #5b7e8b; font-size: 10px; line-height: 1.3; }
-.trainingRow button { flex: 0 0 auto; padding: 7px 0 7px 4px; color: #7b3dc4; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.trainingRow { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 12px; color: #a9c5e0; font-size: 10px; line-height: 1.3; }
+.trainingRow button { flex: 0 0 auto; padding: 7px 0 7px 4px; color: #d4b2ff; font-weight: 700; text-decoration: underline; cursor: pointer; }
 .trainingRecap { display: grid; gap: 11px; margin-top: 20px; text-align: left; list-style: none; font-size: 13px; color: #c3dce3; }
 .trainingRecap li { display: flex; align-items: center; gap: 9px; }
 .trainingRecap span { display: grid; width: 26px; height: 26px; flex-shrink: 0; place-items: center; border-radius: 8px; background: rgba(177, 121, 255, 0.24); color: #d8b7ff; font-weight: 700; }

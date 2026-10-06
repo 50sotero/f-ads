@@ -222,8 +222,6 @@ function hitsSpinner(g: Game, u: Unit) {
   return false;
 }
 
-type FlowEntry = { unit: Unit; index: number };
-
 /**
  * Finds a bounded lateral push for each crowd member using a spatial grid.
  *
@@ -234,14 +232,16 @@ type FlowEntry = { unit: Unit; index: number };
  * collisions, which keeps the flow stable around obstacles.
  */
 function flowPush(units: Unit[]) {
-  const cells: Array<FlowEntry[] | undefined> = new Array(FLOW_COLS * FLOW_ROWS);
+  const cells: Array<number[] | undefined> = new Array(FLOW_COLS * FLOW_ROWS);
   const push = new Float32Array(units.length);
+  let maxRadius = 0;
   for (let i = 0; i < units.length; i++) {
     const u = units[i];
     if (u.dead) continue;
     const col = Math.max(0, Math.min(FLOW_COLS - 1, Math.floor(u.x / FLOW_CELL)));
     const row = Math.max(0, Math.min(FLOW_ROWS - 1, Math.floor((u.y + FLOW_CELL) / FLOW_CELL)));
-    (cells[row * FLOW_COLS + col] ??= []).push({ unit: u, index: i });
+    (cells[row * FLOW_COLS + col] ??= []).push(i);
+    maxRadius = Math.max(maxRadius, u.r);
   }
   for (let i = 0; i < units.length; i++) {
     const u = units[i];
@@ -249,24 +249,26 @@ function flowPush(units: Unit[]) {
     const col = Math.max(0, Math.min(FLOW_COLS - 1, Math.floor(u.x / FLOW_CELL)));
     const row = Math.max(0, Math.min(FLOW_ROWS - 1, Math.floor((u.y + FLOW_CELL) / FLOW_CELL)));
     let lateral = 0;
-    for (let dr = -2; dr <= 2; dr++) {
+    const searchRadius = Math.ceil((u.r + maxRadius + 2.4) / FLOW_CELL);
+    for (let dr = -searchRadius; dr <= searchRadius; dr++) {
       const rr = row + dr;
       if (rr < 0 || rr >= FLOW_ROWS) continue;
-      for (let dc = -2; dc <= 2; dc++) {
+      for (let dc = -searchRadius; dc <= searchRadius; dc++) {
         const cc = col + dc;
         if (cc < 0 || cc >= FLOW_COLS) continue;
         const cell = cells[rr * FLOW_COLS + cc];
         if (!cell) continue;
-        for (const other of cell) {
-          if (other.index === i || other.unit.dead) continue;
-          const dx = u.x - other.unit.x;
-          const dy = u.y - other.unit.y;
-          const desired = u.r + other.unit.r + 2.4;
+        for (const otherIndex of cell) {
+          const other = units[otherIndex];
+          if (otherIndex === i || other.dead) continue;
+          const dx = u.x - other.x;
+          const dy = u.y - other.y;
+          const desired = u.r + other.r + 2.4;
           if (Math.abs(dy) >= desired) continue;
           const distance2 = dx * dx + dy * dy;
           if (distance2 >= desired * desired) continue;
           const distance = Math.sqrt(distance2);
-          const side = Math.abs(dx) > 0.15 ? Math.sign(dx) : i < other.index ? -1 : 1;
+          const side = Math.abs(dx) > 0.15 ? Math.sign(dx) : i < otherIndex ? -1 : 1;
           const proximity = 1 - distance / desired;
           const rowWeight = 1 - Math.abs(dy) / desired;
           lateral += side * proximity * rowWeight;
