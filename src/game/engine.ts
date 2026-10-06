@@ -967,6 +967,7 @@ const ASSAULT_MAX_CELL_SAMPLES = 8;
 const ASSAULT_RED_SPEED_SCALE = 0.85;
 const ASSAULT_BOSS_W = 140;
 const ASSAULT_CORRIDOR_HALF = 72;
+const ASSAULT_BOSS_FLANK_BUFFER = 80;
 const ASSAULT_BOSS_PRESSURE_DELAY = 3;
 const ASSAULT_BOSS_PRESSURE_SPEED = 12;
 const ASSAULT_BOSS_PRESSURE_TRAVEL = 120;
@@ -1148,7 +1149,12 @@ function updateAssaultBlue(g: Game, dt: number) {
     // lane from leaking past the giant while leaving the gate choices under
     // direct player control. The lane offset is deliberately small so the
     // front still reads as a broad crowd rather than nine homing streams.
-    const passedFinalGate = u.y <= lastGateY - GATE_H || (allGatesMask !== 0 && (u.used & allGatesMask) === allGatesMask);
+    // If the boss has advanced below the last gate, start the flank turn ahead
+    // of its front so a side launch still has room to reach the footprint.
+    // Before that pressure arrives, the last gate line remains the approach
+    // boundary and side shots keep their chosen channel.
+    const bossFlankLine = Math.max(lastGateY - GATE_H, active.y + active.h / 2 + ASSAULT_BOSS_FLANK_BUFFER);
+    const passedFinalGate = u.y <= bossFlankLine || (allGatesMask !== 0 && (u.used & allGatesMask) === allGatesMask);
     // Begin the flank turn as soon as the runner clears the last gate line.
     // Waiting until the boss's current y made side launches pass its entire
     // footprint before their lateral velocity had time to reach the flank.

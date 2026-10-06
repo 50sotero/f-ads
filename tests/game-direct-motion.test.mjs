@@ -110,6 +110,27 @@ test("side-lane shots turn at the last channel and reach the boss flank", () => 
   }
 });
 
+test("late side-lane shots still reach a boss that has advanced below the gates", () => {
+  for (const launchX of [55, 307]) {
+    const game = newGame(assaultLevel({
+      bases: [{ x: 180, y: 300, hp: 99999, every: 9999, group: 0 }],
+    }));
+    game.firing = false;
+    game.assault.weaponTarget = null;
+    game.assault.cannonTarget = null;
+    game.assault.weaponTargetsEnabled = false;
+    for (let frame = 0; frame < 780; frame++) step(game, 1 / 60);
+    assert.ok(game.bases[0].y >= 419 && game.bases[0].y <= 420, "boss did not reach its pressure cap");
+
+    const runner = { x: launchX, y: 574, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false };
+    game.blue.push(runner);
+    for (let frame = 0; frame < 240 && !runner.dead; frame++) step(game, 1 / 60);
+
+    assert.equal(runner.dead, true, `late side shot at x=${launchX} leaked above the boss`);
+    assert.ok(runner.y > 400, `late side shot at x=${launchX} passed behind the boss to y=${runner.y}`);
+  }
+});
+
 test("boss contact is forward-only and does not repack surviving runners backward", () => {
   const game = newGame(assaultLevel());
   game.firing = false;
