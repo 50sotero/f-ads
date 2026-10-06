@@ -28,6 +28,70 @@ test("assault starts with a compact horde and explicit reserve state", () => {
   assert.ok(Math.max(...g.red.map((u) => u.y)) >= 370);
 });
 
+test("configured counterattacks preserve the living army and telegraph typed waves", () => {
+  const g = newGame(assaultLevel({
+    bases: [{ x: 180, y: 300, hp: 1, every: 9999, group: 0 }],
+    assault: {
+      horde: 0,
+      reserve: 0,
+      speed: 16,
+      theme: "fork",
+      counterattack: { waves: 2, runners: 2, guards: 1, brutes: 1, interval: 0.7, flankEvery: 2 },
+    },
+  }));
+  const survivor = { x: 32, y: 250, vx: 0, hp: 1, r: 4.4, big: false, used: 0, dead: false };
+  g.red.push(survivor);
+  g.blue.push({ x: 180, y: 331.2, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false });
+  g.firing = false;
+
+  step(g, 1 / 60);
+  assert.equal(g.assault.phase, "counterattack");
+  assert.equal(g.assault.encounter, 0);
+  assert.equal(g.assault.wave, 0);
+  assert.equal(g.assault.waveLane, -1);
+  assert.equal(g.assault.waveWarning, 1);
+  assert.ok(g.red.includes(survivor), "living defenders were discarded when the boss fell");
+  assert.equal(g.assault.reserve, 0, "normal reserve continued into the counterattack");
+  assert.ok(g.assault.remaining >= 9, `remaining counterattack units were undercounted: ${g.assault.remaining}`);
+
+  for (let frame = 0; frame < 60 && g.assault.wave < 1; frame++) step(g, 1 / 60);
+  assert.equal(g.assault.wave, 1);
+  assert.equal(g.assault.waveLane, 0, "the next wave did not alternate to the centre");
+  assert.ok(g.assault.waveWarning > 0, "the next wave was not telegraphed");
+  assert.ok(g.red.some((unit) => unit.kind === "guard"));
+  assert.ok(g.red.some((unit) => unit.kind === "brute"));
+  assert.equal(g.status, "playing");
+});
+
+test("counterattack cannot finish a boss encounter before every wave is cleared", () => {
+  const g = newGame(assaultLevel({
+    bases: [{ x: 180, y: 300, hp: 1, every: 9999, group: 0 }],
+    assault: {
+      horde: 0,
+      reserve: 0,
+      speed: 16,
+      theme: "fork",
+      counterattack: { waves: 1, runners: 1, guards: 0, brutes: 0, interval: 0.65 },
+    },
+  }));
+  g.blue.push({ x: 180, y: 331.2, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false });
+  g.firing = false;
+  step(g, 1 / 60);
+  assert.equal(g.status, "playing");
+  assert.equal(g.assault.phase, "counterattack");
+
+  for (let frame = 0; frame < 60 && g.red.length === 0; frame++) step(g, 1 / 60);
+  assert.equal(g.assault.wave, 1);
+  assert.equal(g.red.length, 1);
+  assert.equal(g.status, "playing", "the boss was marked won before its counterattack spawned");
+  assert.equal(g.assault.remaining, 1);
+
+  g.red[0].dead = true;
+  step(g, 1 / 60);
+  assert.equal(g.status, "won");
+  assert.equal(g.assault.remaining, 0);
+});
+
 test("practice assault pickups raise the cannon tier and emit upgrade feedback", () => {
   const g = newGame(assaultLevel({
     bases: [{ x: 125, y: 300, hp: 999, every: 9999, group: 0 }],

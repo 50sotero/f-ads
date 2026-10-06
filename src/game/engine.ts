@@ -39,6 +39,21 @@ export type BaseDef = {
   delay?: number;
 };
 export type AssaultTheme = "fork" | "bridge" | "bend";
+export type AssaultWaveKind = "runner" | "guard" | "brute";
+export type AssaultCounterattackDef = {
+  /** Number of finite reinforcement waves after each giant falls. */
+  waves: number;
+  /** Base number of fast runners in each wave. */
+  runners?: number;
+  /** Base number of durable guards in each wave. */
+  guards?: number;
+  /** Base number of slow brutes in each wave. */
+  brutes?: number;
+  /** Seconds between warning/deployment of consecutive waves. */
+  interval?: number;
+  /** Every Nth wave is centered; the other waves alternate the flanks. */
+  flankEvery?: number;
+};
 export type AssaultDef = {
   /** Number of defenders placed on the field when the encounter starts. */
   horde: number;
@@ -56,6 +71,8 @@ export type AssaultDef = {
   pickupEvery?: number;
   /** Seconds between nonlethal active-boss slams; omitted for early routes. */
   slamEvery?: number;
+  /** Optional finite reinforcement phase after each campaign giant falls. */
+  counterattack?: AssaultCounterattackDef;
 };
 export type Level = {
   name: string;
@@ -86,6 +103,8 @@ export type Unit = {
   lane?: number;
   /** Stable speed variation used by formed assault groups and gate copies. */
   pace?: number;
+  /** Counterattack role; legacy/custom assault units default to runner/brute. */
+  kind?: AssaultWaveKind;
 };
 export type Base = BaseDef & { maxHp: number; timer: number; bruteTimer: number; hitFlash: number; w: number; h: number };
 /** Runtime gate state; `overrun` is a one-shot boss break signal for the renderer. */
@@ -143,7 +162,17 @@ export type AssaultState = {
   /** Leading red y position in logical field coordinates. */
   frontline: number;
   /** Internal encounter phase; renderer may use this for transition effects. */
-  phase: "battle" | "advance";
+  phase: "battle" | "counterattack" | "advance";
+  /** Number of counterattack waves already deployed in this encounter. */
+  wave: number;
+  /** Total finite counterattack waves configured for this level. */
+  waves: number;
+  /** Lane of the incoming or most recently deployed wave (-1/0/1). */
+  waveLane: -1 | 0 | 1;
+  /** 1 while the next counterattack wave is telegraphed, easing to 0 at spawn. */
+  waveWarning: number;
+  /** Living red units plus pending counterattack units. */
+  remaining: number;
   /** Useful to tutorial/UI code that compares upgrades earned in this run. */
   startingTier: number;
   /** Current horde size before queued reserve releases. */
@@ -170,6 +199,10 @@ export type AssaultState = {
   bossPulse: number;
   /** Internal countdown until the next optional boss slam. */
   slamTimer: number;
+  /** Internal counterattack deployment timer. */
+  waveTimer: number;
+  /** Number of units already placed from the currently deploying wave. */
+  waveSpawned: number;
 };
 
 export type Status = "playing" | "won" | "lost";
@@ -264,9 +297,14 @@ function assaultGateDefs(level: Level) {
   return values.slice(0, 31).map((n, i) => ({ x: 180, y: ys[i] ?? 424 - (i - 2) * 43, w: 164, kind: "x" as const, n: Math.max(2, Math.round(n)) }));
 }
 
+function counterattackWaveTotal(config: AssaultDef | undefined) {
+  return config?.counterattack ? Math.max(0, Math.min(12, Math.floor(config.counterattack.waves))) : 0;
+}
+
 function makeAssaultState(level: Level): AssaultState {
   const config = level.assault!;
   const horde = Math.max(0, Math.floor(config.horde));
+  const waves = counterattackWaveTotal(config);
   const practicePickups: AssaultPickup[] = [{ id: 1, x: 55, y: 500, w: 70, value: 1 }];
   const campaignPickups: AssaultPickup[] = [
     { id: 1, x: 55, y: 485, w: 70, value: 1 },
@@ -293,6 +331,11 @@ function makeAssaultState(level: Level): AssaultState {
     reserve: Math.max(0, Math.floor(config.reserve)),
     frontline: config.practice || horde <= 0 ? CANNON_Y - 26 : 372,
     phase: "battle",
+    wave: 0,
+    waves,
+    waveLane: 0,
+    waveWarning: 0,
+    remaining: horde + Math.max(0, Math.floor(config.reserve)),
     startingTier: 1,
     horde,
     transition: 0,
@@ -306,6 +349,8 @@ function makeAssaultState(level: Level): AssaultState {
     bossWarning: 0,
     bossPulse: 0,
     slamTimer: Math.max(0.1, config.slamEvery ?? Infinity),
+    waveTimer: 0,
+    waveSpawned: 0,
   };
 }
 
@@ -364,26 +409,29 @@ function pop(g: Game, x: number, y: number, color: number, text?: string) {
   g.pops.push({ x, y, t: 0, color, text });
 }
 
-function assaultEnemyHp(g: Game, big = false) {
+function assaultEnemyHp(g: Game, big = false, kind?: AssaultWaveKind) {
   const config = g.level.assault!;
   const baseHp = Math.max(1, config.enemyHp ?? 1);
+  if (kind === "guard") return Math.max(2, Math.round(baseHp * 2));
   return big ? Math.max(2, Math.round(baseHp * 4)) : baseHp;
 }
 
-function makeAssaultEnemy(g: Game, x: number, y: number, big = false, lane = 0): Unit {
-  const variation = stableMotionVariation(x, y, big ? 17 : 0);
-  return {
+function makeAssaultEnemy(g: Game, x: number, y: number, big = false, lane = 0, kind?: AssaultWaveKind): Unit {
+  const variation = stableMotionVariation(x, y, big ? 17 : kind === "guard" ? 29 : 0);
+  const enemy: Unit = {
     x,
     y,
     vx: 0,
-    hp: assaultEnemyHp(g, big),
-    r: big ? 8.5 : 4.4,
+    hp: assaultEnemyHp(g, big, kind),
+    r: big ? 8.5 : kind === "guard" ? 5.2 : 4.4,
     big,
     used: 0,
     dead: false,
     lane,
     pace: 0.94 + variation * 0.12,
   };
+  if (kind) enemy.kind = kind;
+  return enemy;
 }
 
 function stableMotionVariation(x: number, y: number, salt = 0) {
@@ -439,6 +487,121 @@ function releaseAssaultReserve(g: Game, count: number) {
   }
   assault.reserve -= amount;
   if (!Number.isFinite(rear)) assault.frontline = anchor;
+}
+
+function counterattackLane(config: AssaultCounterattackDef | undefined, waveIndex: number, encounter = 0): -1 | 0 | 1 {
+  const flankEvery = Math.max(1, Math.floor(config?.flankEvery ?? 2));
+  // With the default cadence the pattern is left, centre, right, centre. This
+  // keeps the flank telegraph readable while making each successive wave ask
+  // for a different cannon position.
+  if ((waveIndex + 1) % flankEvery === 0) return 0;
+  const flank = Math.floor(waveIndex / flankEvery) % 2 === 0 ? -1 : 1;
+  return (encounter % 2 === 0 ? flank : -flank) as -1 | 1;
+}
+
+function counterattackWavePlan(config: AssaultCounterattackDef | undefined, waveIndex: number) {
+  if (!config) return { runners: 0, guards: 0, brutes: 0 };
+  const scale = 1 + Math.max(0, waveIndex) * 0.08;
+  return {
+    runners: Math.max(0, Math.round(Math.max(0, config.runners ?? 0) * scale)),
+    guards: Math.max(0, Math.round(Math.max(0, config.guards ?? 0) * scale)),
+    brutes: Math.max(0, Math.round(Math.max(0, config.brutes ?? 0) * scale)),
+  };
+}
+
+function counterattackWaveSize(config: AssaultCounterattackDef | undefined, waveIndex: number) {
+  const plan = counterattackWavePlan(config, waveIndex);
+  return plan.runners + plan.guards + plan.brutes;
+}
+
+function refreshAssaultRemaining(g: Game) {
+  const assault = g.assault;
+  if (!assault) return;
+  let remaining = 0;
+  for (const unit of g.red) if (!unit.dead) remaining++;
+  if (assault.phase === "counterattack") {
+    const counterattack = g.level.assault?.counterattack;
+    if (assault.wave < assault.waves) {
+      remaining += Math.max(0, counterattackWaveSize(counterattack, assault.wave) - assault.waveSpawned);
+      for (let wave = assault.wave + 1; wave < assault.waves; wave++) remaining += counterattackWaveSize(counterattack, wave);
+    }
+  } else {
+    remaining += Math.max(0, assault.reserve);
+  }
+  assault.remaining = remaining;
+}
+
+function spawnCounterattackWave(g: Game, waveIndex: number) {
+  const assault = g.assault;
+  const config = g.level.assault?.counterattack;
+  const active = assault ? g.bases[assault.encounter] : undefined;
+  if (!assault || !config || !active) return;
+  const plan = counterattackWavePlan(config, waveIndex);
+  const lane = counterattackLane(config, waveIndex, assault.encounter);
+  const center = active.x + lane * 105;
+  const total = plan.runners + plan.guards + plan.brutes;
+  if (total <= 0) return 0;
+  const columns = Math.min(8, Math.max(3, Math.ceil(Math.sqrt(total * 1.15))));
+  const spacing = columns > 1 ? 58 / (columns - 1) : 0;
+  const spawnY = active.y - active.h / 2 - 42;
+  const roles: AssaultWaveKind[] = [];
+  for (let i = 0; i < plan.runners; i++) roles.push("runner");
+  for (let i = 0; i < plan.guards; i++) roles.push("guard");
+  for (let i = 0; i < plan.brutes; i++) roles.push("brute");
+  const start = Math.max(0, Math.min(roles.length, assault.waveSpawned));
+  let spawned = 0;
+  for (let i = start; i < roles.length && g.red.length < ASSAULT_RED_CAP; i++) {
+    const kind = roles[i];
+    const row = Math.floor(i / columns);
+    const column = i % columns;
+    const x = Math.max(10, Math.min(W - 10, center - 29 + column * spacing + (g.rand() - 0.5) * 2.5));
+    const y = spawnY - row * 8.5 - g.rand() * 2.4;
+    g.red.push(makeAssaultEnemy(g, x, y, kind === "brute", lane * 2 + column - Math.floor(columns / 2), kind));
+    spawned++;
+  }
+  assault.waveSpawned += spawned;
+  assault.frontline = Math.max(assault.frontline, spawnY);
+  if (start === 0 && spawned > 0) pop(g, center, spawnY - 18, 1, lane === 0 ? "CENTER WAVE" : lane < 0 ? "LEFT WAVE" : "RIGHT WAVE");
+  return spawned;
+}
+
+function updateAssaultCounterattack(g: Game, dt: number) {
+  const assault = g.assault;
+  const config = g.level.assault?.counterattack;
+  if (!assault || assault.phase !== "counterattack" || !config || assault.wave >= assault.waves) {
+    if (assault) assault.waveWarning = 0;
+    return;
+  }
+  const interval = Math.max(0.65, config.interval ?? 1.4);
+  assault.waveTimer -= dt;
+  if (assault.waveTimer > 0) {
+    assault.waveWarning = Math.max(0, Math.min(1, assault.waveTimer / interval));
+    return;
+  }
+  const deployedLane = counterattackLane(config, assault.wave, assault.encounter);
+  spawnCounterattackWave(g, assault.wave);
+  if (assault.waveSpawned < counterattackWaveSize(config, assault.wave)) {
+    // A preserved battle army can temporarily fill the red cap. Keep the
+    // wave pending and deploy its remainder as soon as blue clears space,
+    // instead of advancing the wave counter and silently dropping units.
+    assault.waveLane = deployedLane;
+    assault.waveTimer = 0.25;
+    assault.waveWarning = 1;
+    refreshAssaultRemaining(g);
+    return;
+  }
+  assault.wave++;
+  assault.waveSpawned = 0;
+  assault.waveLane = deployedLane;
+  if (assault.wave < assault.waves) {
+    assault.waveTimer = interval;
+    assault.waveWarning = 1;
+    assault.waveLane = counterattackLane(config, assault.wave, assault.encounter);
+  } else {
+    assault.waveTimer = 0;
+    assault.waveWarning = 0;
+  }
+  refreshAssaultRemaining(g);
 }
 
 function blocked(g: Game, x: number, y: number, r: number) {
@@ -1123,7 +1286,7 @@ function updateAssaultBlue(g: Game, dt: number) {
     // previous target-following code made every in-flight unit swing toward the
     // latest pointer position and made the controls feel like remote steering.
     const lane = Math.max(-4, Math.min(4, u.lane ?? 0));
-    const crossedFirstGate = g.gates.length > 0 && (u.used & 1) !== 0;
+    const crossedFirstGate = assault.phase === "battle" && g.gates.length > 0 && (u.used & 1) !== 0;
     // Before the first actual gate, keep the launch decision readable. Once a
     // runner has crossed it, reduce the sideways impulse and ease the unit
     // back into the active boss's narrow battle corridor.
@@ -1145,7 +1308,7 @@ function updateAssaultBlue(g: Game, dt: number) {
     // Before that pressure arrives, the last gate line remains the approach
     // boundary and side shots keep their chosen channel.
     const bossFlankLine = Math.max(lastGateY - GATE_H, active.y + active.h / 2 + ASSAULT_BOSS_FLANK_BUFFER);
-    const passedFinalGate = u.y <= bossFlankLine || (allGatesMask !== 0 && (u.used & allGatesMask) === allGatesMask);
+    const passedFinalGate = assault.phase === "battle" && (u.y <= bossFlankLine || (allGatesMask !== 0 && (u.used & allGatesMask) === allGatesMask));
     // Begin the flank turn as soon as the runner clears the last gate line.
     // Waiting until the boss's current y made side launches pass its entire
     // footprint before their lateral velocity had time to reach the flank.
@@ -1225,7 +1388,7 @@ function updateAssaultRed(g: Game, dt: number) {
   const assault = g.assault!;
   const config = g.level.assault!;
   if (config.practice) return;
-  if (assault.reserve > 0) {
+  if (assault.phase === "battle" && assault.reserve > 0) {
     assault.spawnTimer -= dt;
     const activeTarget = Math.min(ASSAULT_RED_CAP, Math.max(0, assault.horde));
     if (assault.spawnTimer <= 0 || (g.red.length === 0 && activeTarget > 0)) {
@@ -1246,8 +1409,9 @@ function updateAssaultRed(g: Game, dt: number) {
     // made the red horde look like nine synchronized rails.
     u.vx *= Math.exp(-2.8 * dt);
     u.vx = Math.max(-180, Math.min(180, u.vx + assaultMotion.lateral[redIndex] * (ASSAULT_RED_LATERAL_ACCEL / ASSAULT_LATERAL_ACCEL) * dt));
-    if (active) applyAssaultCorridorPressure(u, active.x, dt);
-    move(g, u, config.speed * surgeSpeed * ASSAULT_RED_SPEED_SCALE * (u.big ? 0.74 : 1) * (u.pace ?? 1) * assaultMotion.forward[redIndex] * dt, dt);
+    if (assault.phase === "battle" && active) applyAssaultCorridorPressure(u, active.x, dt);
+    const roleSpeed = u.kind === "runner" ? 1.3 : u.kind === "guard" ? 0.84 : 1;
+    move(g, u, config.speed * surgeSpeed * ASSAULT_RED_SPEED_SCALE * (u.big ? 0.74 : 1) * roleSpeed * (u.pace ?? 1) * assaultMotion.forward[redIndex] * dt, dt);
     if (!u.big && hitsSpinner(g, u)) {
       u.dead = true;
       pop(g, u.x, u.y, 1);
@@ -1334,29 +1498,9 @@ function updateAssaultBossSlam(g: Game, dt: number) {
   if (assault.slamTimer < 0.8) assault.bossWarning = Math.max(0, Math.min(1, 1 - assault.slamTimer / 0.8));
 }
 
-function finishAssaultEncounter(g: Game) {
+function beginAssaultAdvance(g: Game) {
   const assault = g.assault!;
-  if (assault.phase !== "battle") return;
   const active = g.bases[assault.encounter];
-  if (active.hp > 0) return;
-  active.hp = 0;
-  active.hitFlash = 1;
-  pop(g, active.x, active.y, 0, "DOWN!");
-  for (let k = 0; k < 18; k++) pop(g, active.x + (g.rand() - 0.5) * 80, active.y + (g.rand() - 0.5) * 45, 1);
-  for (const r of g.red) if (!r.dead) pop(g, r.x, r.y, 1);
-  g.red = [];
-
-  if (assault.tier < 5) {
-    assault.tier++;
-    assault.upgradeFlash = 1;
-    pop(g, active.x, active.y - 30, 0, "UPGRADE");
-  }
-  if (assault.encounter >= assault.encounters - 1) {
-    g.status = "won";
-    g.blue = g.blue.filter((u) => !u.dead);
-    return;
-  }
-
   assault.encounter++;
   assault.advance = 1;
   assault.phase = "advance";
@@ -1367,10 +1511,15 @@ function finishAssaultEncounter(g: Game) {
   assault.spawnTimer = 1.1;
   assault.bossTimer = 0;
   assault.bossTime = 0;
-  assault.bossOriginY = g.bases[assault.encounter]?.y ?? active.y;
+  assault.bossOriginY = g.bases[assault.encounter]?.y ?? active?.y ?? 300;
   assault.bossWarning = 0;
   assault.bossPulse = 0;
   assault.slamTimer = Math.max(1, g.level.assault?.slamEvery ?? Infinity);
+  assault.wave = 0;
+  assault.waveLane = 0;
+  assault.waveWarning = 0;
+  assault.waveTimer = 0;
+  assault.waveSpawned = 0;
   for (const gt of g.gates) {
     // Each new giant gets a fresh set of panels. Keep the array indices stable
     // so surviving runners retain their `used` mask across the transition.
@@ -1385,6 +1534,71 @@ function finishAssaultEncounter(g: Game) {
   // still enter through the next gate chain.
   if (!g.level.assault?.practice && assault.horde > 0) seedAssaultHorde(g, assault.horde);
   assault.pickups.push({ id: assault.nextPickupId++, x: assault.encounter % 2 ? 55 : 305, y: 470, w: 70, value: 1 });
+  refreshAssaultRemaining(g);
+}
+
+function startAssaultCounterattack(g: Game, active: Base) {
+  const assault = g.assault!;
+  const config = g.level.assault?.counterattack;
+  if (!config || assault.waves <= 0) return false;
+  g.red = g.red.filter((unit) => !unit.dead);
+  assault.phase = "counterattack";
+  assault.horde = 0;
+  assault.reserve = 0;
+  assault.wave = 0;
+  assault.waveLane = counterattackLane(config, 0, assault.encounter);
+  assault.waveTimer = Math.max(0.65, config.interval ?? 1.4);
+  assault.waveWarning = 1;
+  assault.waveSpawned = 0;
+  assault.bossTimer = 0;
+  assault.bossWarning = 0;
+  assault.bossPulse = 0;
+  assault.frontline = Math.max(assault.frontline, active.y - active.h / 2 - 42);
+  pop(g, active.x, active.y - active.h / 2 - 18, 1, "COUNTERATTACK");
+  refreshAssaultRemaining(g);
+  return true;
+}
+
+function finishAssaultCounterattack(g: Game) {
+  const assault = g.assault!;
+  if (assault.phase !== "counterattack" || assault.wave < assault.waves || g.red.some((unit) => !unit.dead)) return;
+  assault.waveWarning = 0;
+  assault.remaining = 0;
+  if (assault.encounter >= assault.encounters - 1) {
+    g.status = "won";
+    g.blue = g.blue.filter((u) => !u.dead);
+    pop(g, W / 2, 170, 0, "ROAD CLEAR");
+    return;
+  }
+  beginAssaultAdvance(g);
+}
+
+function finishAssaultEncounter(g: Game) {
+  const assault = g.assault!;
+  if (assault.phase !== "battle") return;
+  const active = g.bases[assault.encounter];
+  if (active.hp > 0) return;
+  active.hp = 0;
+  active.hitFlash = 1;
+  pop(g, active.x, active.y, 0, "DOWN!");
+  for (let k = 0; k < 18; k++) pop(g, active.x + (g.rand() - 0.5) * 80, active.y + (g.rand() - 0.5) * 45, 1);
+
+  if (assault.tier < 5) {
+    assault.tier++;
+    assault.upgradeFlash = 1;
+    pop(g, active.x, active.y - 30, 0, "UPGRADE");
+  }
+  if (startAssaultCounterattack(g, active)) return;
+
+  for (const r of g.red) if (!r.dead) pop(g, r.x, r.y, 1);
+  g.red = [];
+  if (assault.encounter >= assault.encounters - 1) {
+    g.status = "won";
+    g.blue = g.blue.filter((u) => !u.dead);
+    assault.remaining = 0;
+    return;
+  }
+  beginAssaultAdvance(g);
 }
 
 function stepAssault(g: Game, dt: number) {
@@ -1405,6 +1619,7 @@ function stepAssault(g: Game, dt: number) {
   updateAssaultBossPressure(g, dt);
   updateAssaultGateOverruns(g);
   updateAssaultBossSlam(g, dt);
+  updateAssaultCounterattack(g, dt);
 
   if (assault.phase === "advance") {
     const portion = Math.min(dt, assault.transition);
@@ -1448,6 +1663,8 @@ function stepAssault(g: Game, dt: number) {
 
   g.blue = g.blue.filter((u) => !u.dead);
   g.red = g.red.filter((u) => !u.dead);
+  if (g.status === "playing" && assault.phase === "counterattack") finishAssaultCounterattack(g);
+  refreshAssaultRemaining(g);
   for (const p of g.pops) p.t += dt;
   g.pops = g.pops.filter((p) => p.t < 0.8);
 }
