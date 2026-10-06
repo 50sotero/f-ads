@@ -1016,7 +1016,8 @@ function updateAssaultBlue(g: Game, dt: number) {
     // the final battle queue once the last panel is behind the runner.
     const lateralScale = u.y <= lastGateY + GATE_H ? 1 : 0.2;
     u.vx = Math.max(-420, Math.min(420, u.vx + assaultMotion.lateral[blueIndex] * lateralScale * dt));
-    let dy = -(u.big ? ASSAULT_CHAMP_SPEED : ASSAULT_BLUE_SPEED) * dt;
+    let dy = -(u.big ? ASSAULT_CHAMP_SPEED : ASSAULT_BLUE_SPEED) * dt
+      * assaultMotion.forward[blueIndex] * (u.pace ?? 1);
 
     // After the final gate there is a short, explicit boss approach. This is
     // the only deliberate attraction in the assault path, and keeps a missed
@@ -1051,7 +1052,6 @@ function updateAssaultBlue(g: Game, dt: number) {
         else dy = 0;
       }
     }
-    dy *= assaultMotion.forward[blueIndex] * (u.pace ?? 1);
     const prevY = u.y;
     move(g, u, dy, dt);
 

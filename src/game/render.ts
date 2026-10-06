@@ -315,12 +315,14 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const shadowGeometry = geo(new THREE.PlaneGeometry(1, 1)); shadowGeometry.rotateX(-Math.PI / 2);
   const shadows = new THREE.InstancedMesh(shadowGeometry, shadowMaterial, MAX_UNITS + 1632); shadows.frustumCulled = false; stage.add(shadows);
   const dummy = new THREE.Object3D(), color = new THREE.Color();
+  const unitWhite = new THREE.Color(0xffffff), blueChampion = new THREE.Color(0xa8f4ff), redBrute = new THREE.Color(0xffbaa1);
   const motion = new WeakMap<Unit, { x: number; y: number; time: number; angle: number; run: number; phase: number; launchedAt: number }>();
   let unitSequence = 0;
   let shadowCount = 0;
   function drawUnits(units: Unit[], object: THREE.InstancedMesh, enemy: boolean, entry: number) {
     const count = Math.min(units.length, object.instanceMatrix.count); object.count = count;
     const runMotion = object.geometry.getAttribute("runMotion") as THREE.InstancedBufferAttribute;
+    const matrices = object.instanceMatrix.array, shadowMatrices = shadows.instanceMatrix.array;
     for (let i = 0; i < count; i++) {
       const unit = units[i];
       const size = unit.big ? (enemy ? 1.8 : 2.0) : enemy ? 0.9 : 1.13;
@@ -352,13 +354,23 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const front = currentGame?.assault?.frontline ?? boss?.y ?? 300;
       const fighting = shotFlight === 0 && state.run < 0.55 && (Math.abs(unit.y - front) < 32 || !!boss && Math.abs(unit.y - boss.y - boss.h / 2) < 25) ? (0.55 - state.run) / 0.55 : 0;
       runMotion.setXYZ(i, state.phase, shotFlight > 0 ? 0.15 : state.run, fighting);
-      dummy.position.set(wx(unit.x) + curve(z), 0.025 + shotFlight, z);
-      dummy.rotation.order = "YXZ";
-      dummy.rotation.set(shotFlight > 0 ? -0.42 * Math.sin(flight * Math.PI) : -0.14 * state.run, state.angle, 0);
       const landing = flight >= 1 ? Math.max(0, 1 - (time - state.launchedAt - 0.34) / 0.12) : 0;
-      dummy.scale.set(size * (1 + landing * 0.1), size * (1 - landing * 0.16), size * (1 + landing * 0.1)); dummy.updateMatrix(); object.setMatrixAt(i, dummy.matrix);
-      object.setColorAt(i, color.setHex(unit.big ? (enemy ? 0xffbaa1 : 0xa8f4ff) : 0xffffff));
-      dummy.position.y = 0.025; dummy.rotation.set(0, 0, 0); dummy.scale.set(size * 0.9, 1, size * 0.7); dummy.updateMatrix(); shadows.setMatrixAt(shadowCount++, dummy.matrix);
+      const pitch = shotFlight > 0 ? -0.42 * Math.sin(flight * Math.PI) : -0.14 * state.run;
+      const cy = Math.cos(state.angle), sy = Math.sin(state.angle), cp = Math.cos(pitch), sp = Math.sin(pitch);
+      const sx = size * (1 + landing * 0.1), syScale = size * (1 - landing * 0.16);
+      const x = wx(unit.x) + curve(z), offset = i * 16;
+      // Compose yaw × forward lean directly into the instance buffer. Avoid
+      // thousands of Object3D Euler/quaternion callbacks per crowded frame.
+      matrices[offset] = cy * sx; matrices[offset + 1] = 0; matrices[offset + 2] = -sy * sx; matrices[offset + 3] = 0;
+      matrices[offset + 4] = sy * sp * syScale; matrices[offset + 5] = cp * syScale; matrices[offset + 6] = cy * sp * syScale; matrices[offset + 7] = 0;
+      matrices[offset + 8] = sy * cp * sx; matrices[offset + 9] = -sp * sx; matrices[offset + 10] = cy * cp * sx; matrices[offset + 11] = 0;
+      matrices[offset + 12] = x; matrices[offset + 13] = 0.025 + shotFlight; matrices[offset + 14] = z; matrices[offset + 15] = 1;
+      object.setColorAt(i, unit.big ? (enemy ? redBrute : blueChampion) : unitWhite);
+      const shadowOffset = shadowCount++ * 16;
+      // Contact shadows remain axis aligned; all other entries retain the
+      // identity values initialized by InstancedMesh.
+      shadowMatrices[shadowOffset] = size * 0.9; shadowMatrices[shadowOffset + 10] = size * 0.7;
+      shadowMatrices[shadowOffset + 12] = x; shadowMatrices[shadowOffset + 13] = 0.025; shadowMatrices[shadowOffset + 14] = z;
     }
     object.instanceMatrix.needsUpdate = true;
     runMotion.needsUpdate = true;
