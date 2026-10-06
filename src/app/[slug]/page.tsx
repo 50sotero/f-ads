@@ -29,6 +29,7 @@ export function generateStaticParams() {
 }
 
 function description(l: LandingPage) {
+  if (l.description) return l.description;
   return `Download ${l.keyword} ${l.thing}s for free as MP4. Paste the link, pick a quality and save it. No countdowns, pop-ups or sign-up.`;
 }
 
@@ -63,7 +64,11 @@ type Props = { params: Promise<{ slug: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const l = landingBySlug((await params).slug);
   if (!l) return {};
-  return pageMetadata({ title: `${landingTitle(l)}: Free, No Waiting`, description: description(l), path: `/${l.slug}` });
+  return pageMetadata({
+    title: l.title ?? `${landingTitle(l)}: Free, No Waiting`,
+    description: description(l),
+    path: `/${l.slug}`,
+  });
 }
 
 export default async function LandingRoute({ params }: Props) {
@@ -118,6 +123,18 @@ export default async function LandingRoute({ params }: Props) {
       <SponsorRails />
 
       <Steps heading={`How to download ${l.keyword} ${l.thing}s`} steps={howSteps} />
+      {l.guide && (
+        <section className="mt-16 max-w-3xl">
+          {l.guide.map((g) => (
+            <div key={g.heading} className="mt-8 first:mt-0">
+              <h2 className="text-xl font-bold">{g.heading}</h2>
+              {g.paragraphs.map((text) => (
+                <p key={text} className="mt-2 leading-relaxed text-muted">{text}</p>
+              ))}
+            </div>
+          ))}
+        </section>
+      )}
       <Faq heading={`${title} questions`} faq={faq} />
       <SiteLinks heading="More video downloaders" exclude={l.slug} />
     </div>

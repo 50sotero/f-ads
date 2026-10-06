@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Landing pages that moved; permanent redirects keep their search ranking.
+  async redirects() {
+    return [{ source: "/twitter-video-downloader", destination: "/x-video-downloader", permanent: true }];
+  },
   // On Vercel, api/info.py is its own Python function. Locally it runs via
   // `npm run dev:api` (scripts/dev_api.py), so point the route there.
   async rewrites() {

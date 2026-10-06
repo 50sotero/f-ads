@@ -16,7 +16,8 @@ export default function Privacy() {
       <h2>Links you paste</h2>
       <p>
         The link is sent to our server so we can find the video. When everything works, we only add one to a count
-        of downloads per site; the link itself is not kept.
+        of downloads per site; the link itself is not kept. For Reddit posts, your browser also asks Reddit for the
+        post&apos;s public details (title and video id) directly, the same way it would when you open the post.
       </p>
       <h2>When something goes wrong</h2>
       <p>

@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 import { absoluteUrl, landingPages } from "@/lib/seo";
 
 // Bump when a page's text changes, so search engines know to re-read it.
-const contentUpdated = new Date("2026-10-03");
+const contentUpdated = new Date("2026-10-05");
 const legalUpdated = new Date("2026-10-02");
 
 export default function sitemap(): MetadataRoute.Sitemap {

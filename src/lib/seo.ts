@@ -21,7 +21,7 @@ export function landingBySlug(slug: string) {
 }
 
 export function landingTitle(l: Landing) {
-  return `${l.keyword} ${l.thing === "clip" ? "Clip" : "Video"} Downloader`;
+  return l.h1 ?? `${l.keyword} ${l.thing === "clip" ? "Clip" : "Video"} Downloader`;
 }
 
 /**

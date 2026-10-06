@@ -3,9 +3,9 @@ import { recordEvent } from "@/lib/telemetry";
 
 export const dynamic = "force-dynamic";
 
-// Failures only the browser sees: the lookup timing out or the network
-// dropping, and people pressing "Didn't work?" on a result.
-const CODES = new Set(["timeout", "network", "bad_response", "user_report"]);
+// Failures only the browser sees: the lookup timing out, the network dropping,
+// joining picture and sound failing, and people pressing "Didn't work?".
+const CODES = new Set(["timeout", "network", "bad_response", "merge_failed", "user_report"]);
 
 export async function POST(request: NextRequest) {
   const text = await request.text();

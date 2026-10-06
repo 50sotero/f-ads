@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { downloadMerged } from "@/lib/mergeAv";
 import { detect, normalizeUrl, type Platform } from "@/lib/platforms";
+import { isRedditPost, lookupRedditPost, type RedditVideo } from "@/lib/reddit";
 import { PlatformIcon } from "./PlatformIcon";
 import { PlatformStrip } from "./PlatformStrip";
 
@@ -12,6 +14,9 @@ type Format = {
   height: number | null;
   filesize: number | null;
   token: string;
+  /** Set when picture and sound are separate files that the browser joins (Reddit). */
+  audio_token?: string;
+  filename?: string;
 };
 
 type VideoInfo = {
@@ -79,11 +84,22 @@ export function Downloader({ placeholder = "Paste a link from X, TikTok, Instagr
       return;
     }
     setState({ status: "loading" });
+    // Reddit blocks most servers, so the browser reads the post (see src/lib/reddit.ts).
+    let reddit: RedditVideo | undefined;
+    if (found?.id === "reddit" && isRedditPost(target)) {
+      const post = await lookupRedditPost(target);
+      if (post && "link" in post) {
+        const elsewhere = detect(post.link);
+        if (elsewhere && elsewhere.id !== "reddit") return lookup(post.link);
+      } else if (post) {
+        reddit = post.video;
+      }
+    }
     try {
       const res = await fetch("/api/info", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url: target, platform: found?.id ?? null }),
+        body: JSON.stringify({ url: target, platform: found?.id ?? null, reddit }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data) {
@@ -215,6 +231,35 @@ function Result({ info, platform, source }: { info: VideoInfo; platform: Platfor
   const duration = formatDuration(info.duration);
   const [picked, setPicked] = useState<string | null>(null);
   const [reported, setReported] = useState(false);
+  // Progress of a picture + sound download being joined in the browser.
+  const [merging, setMerging] = useState<{ token: string; fraction: number | null } | null>(null);
+  const [mergeError, setMergeError] = useState<string | null>(null);
+
+  async function saveMerged(f: Format) {
+    if (merging) return;
+    setMergeError(null);
+    setMerging({ token: f.token, fraction: 0 });
+    try {
+      await downloadMerged({
+        videoUrl: `/api/download?t=${encodeURIComponent(f.token)}`,
+        audioUrl: `/api/download?t=${encodeURIComponent(f.audio_token!)}`,
+        filename: f.filename ?? "video.mp4",
+        expectedBytes: f.filesize,
+        onProgress: (fraction) => setMerging({ token: f.token, fraction }),
+      });
+    } catch (err) {
+      reportFailure({ code: "merge_failed", platform: platform?.id ?? info.platform, url: source, detail: String(err) });
+      setMergeError("Couldn't put the video and its sound together. Try another quality, or paste the link again.");
+    } finally {
+      setMerging(null);
+    }
+  }
+
+  const buttonClass = (f: Format) =>
+    f.kind === "video"
+      ? "inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-bg transition hover:opacity-90 disabled:opacity-60"
+      : "inline-flex items-center gap-2 rounded-lg border border-line px-4 py-2 text-sm font-semibold transition hover:border-muted";
+
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-4 sm:flex-row">
       {info.thumbnail && (
@@ -240,23 +285,43 @@ function Result({ info, platform, source }: { info: VideoInfo; platform: Platfor
             const size = formatSize(f.filesize);
             return (
               <li key={f.token}>
-                <a
-                  href={`/api/download?t=${encodeURIComponent(f.token)}`}
-                  download
-                  onClick={() => setPicked(`${f.label} ${f.ext.toUpperCase()}`)}
-                  className={
-                    f.kind === "video"
-                      ? "inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-bg transition hover:opacity-90"
-                      : "inline-flex items-center gap-2 rounded-lg border border-line px-4 py-2 text-sm font-semibold transition hover:border-muted"
-                  }
-                >
-                  {f.label} {f.ext.toUpperCase()}
-                  {size && <span className="font-normal opacity-70">{size}</span>}
-                </a>
+                {f.audio_token ? (
+                  <button
+                    type="button"
+                    disabled={merging !== null}
+                    onClick={() => {
+                      setPicked(`${f.label} ${f.ext.toUpperCase()} (joined)`);
+                      saveMerged(f);
+                    }}
+                    className={buttonClass(f)}
+                  >
+                    {f.label} {f.ext.toUpperCase()}
+                    {merging?.token === f.token ? (
+                      <span className="font-normal opacity-70">
+                        {merging.fraction !== null && merging.fraction < 1
+                          ? `${Math.round(merging.fraction * 100)}%`
+                          : "Preparing…"}
+                      </span>
+                    ) : (
+                      size && <span className="font-normal opacity-70">{size}</span>
+                    )}
+                  </button>
+                ) : (
+                  <a
+                    href={`/api/download?t=${encodeURIComponent(f.token)}`}
+                    download
+                    onClick={() => setPicked(`${f.label} ${f.ext.toUpperCase()}`)}
+                    className={buttonClass(f)}
+                  >
+                    {f.label} {f.ext.toUpperCase()}
+                    {size && <span className="font-normal opacity-70">{size}</span>}
+                  </a>
+                )}
               </li>
             );
           })}
         </ul>
+        {mergeError && <p className="mt-3 text-sm text-danger">{mergeError}</p>}
         <p className="mt-3 text-xs text-muted">
           {reported ? (
             "Thanks, we'll look into it."
