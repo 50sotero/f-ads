@@ -436,7 +436,24 @@ export function championShieldAim(game: Game): { target: Unit; direction: "left"
 const championTargets = new WeakMap<Unit, Unit>();
 const counterCommitments = new WeakMap<Unit, { owner: AssaultState; encounter: number }>();
 const shieldBraceFatigue = new WeakMap<Unit, { owner: Game; seconds: number }>();
+type BossSlamRecoilState = {
+  owner: Game;
+  assault: AssaultState;
+  encounter: number;
+  /** Simulation frame of the impact; the tail starts on the following frame. */
+  startFrame: number;
+  elapsed: number;
+  extra: number;
+};
+const bossSlamRecoilStates = new WeakMap<Unit, BossSlamRecoilState>();
 const SHIELD_BRACE_FATIGUE_SECONDS = 1.25;
+const ASSAULT_BOSS_SLAM_DURATION = 0.35;
+const ASSAULT_BOSS_SLAM_DECAY = 8;
+const ASSAULT_BOSS_SLAM_END_ENVELOPE = Math.exp(-ASSAULT_BOSS_SLAM_DECAY * ASSAULT_BOSS_SLAM_DURATION);
+const ASSAULT_BOSS_SLAM_DECAY_NORMALIZER = 1 - ASSAULT_BOSS_SLAM_END_ENVELOPE;
+const ASSAULT_BOSS_SLAM_INITIAL_KICK = 10;
+const ASSAULT_BOSS_SLAM_RUNNER_EXTRA = 26;
+const ASSAULT_BOSS_SLAM_CHAMPION_EXTRA = 2;
 
 /**
  * The final counterattack cleanup lets ordinary contact wear down a remaining
@@ -492,6 +509,35 @@ function applyShieldBraceFatigue(game: Game, guards: Set<Unit>, dt: number) {
       shieldBraceFatigue.set(guard, { owner: game, seconds });
     }
   }
+}
+
+/**
+ * Returns the current normalized impact envelope for a unit hit by the active
+ * boss slam. The map is deliberately external to Unit so the shared crowd
+ * objects keep their hot-loop shape. It is read-only here: decay is advanced
+ * by the simulation using `dt`, never by renderer wall-clock time.
+ */
+export function bossSlamRecoil(game: Game, unit: Unit) {
+  const assault = game.assault;
+  const config = game.level.assault;
+  if (
+    !assault
+    || !config
+    || config.practice
+    || !config.slamEvery
+    || game.status !== "playing"
+    || assault.phase !== "battle"
+  ) return 0;
+  const state = bossSlamRecoilStates.get(unit);
+  if (
+    unit.dead
+    || !state
+    || state.owner !== game
+    || state.assault !== assault
+    || state.encounter !== assault.encounter
+  ) return 0;
+  const envelope = Math.exp(-ASSAULT_BOSS_SLAM_DECAY * state.elapsed);
+  return Math.max(0, Math.min(1, (envelope - ASSAULT_BOSS_SLAM_END_ENVELOPE) / ASSAULT_BOSS_SLAM_DECAY_NORMALIZER));
 }
 
 export function launchChampion(g: Game) {
@@ -1847,6 +1893,52 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1, owner: Ass
   return { forward: assaultMotionForward, lateral: assaultMotionLateral };
 }
 
+/** Applies one frame of a live boss-slam tail after ordinary crowd motion. */
+function applyAssaultBossSlamRecoil(g: Game, u: Unit, dt: number) {
+  const assault = g.assault;
+  const config = g.level.assault;
+  if (
+    !assault
+    || !config
+    || config.practice
+    || !config.slamEvery
+    || g.status !== "playing"
+    || assault.phase !== "battle"
+  ) return;
+  const state = bossSlamRecoilStates.get(u);
+  if (
+    u.dead
+    || !state
+    || state.owner !== g
+    || state.assault !== assault
+    || state.encounter !== assault.encounter
+  ) return;
+  // The initial kick is intentionally visible for a complete frame. Starting
+  // the tail on the next frame preserves the old >=8px one-step slam motion.
+  if (assault.motionFrame <= state.startFrame) return;
+  const available = ASSAULT_BOSS_SLAM_DURATION - state.elapsed;
+  if (available <= 0) {
+    bossSlamRecoilStates.delete(u);
+    return;
+  }
+  const slice = Math.min(Math.max(0, dt), available);
+  if (slice <= 0) return;
+  const nextElapsed = state.elapsed + slice;
+  const startEnvelope = Math.exp(-ASSAULT_BOSS_SLAM_DECAY * state.elapsed);
+  const endEnvelope = Math.exp(-ASSAULT_BOSS_SLAM_DECAY * nextElapsed);
+  const dy = state.extra * (startEnvelope - endEnvelope) / ASSAULT_BOSS_SLAM_DECAY_NORMALIZER;
+  if (dy > 0) {
+    // `move` owns walls and horizontal bounds. A zero horizontal timestep keeps
+    // recoil from replaying ordinary vx motion when it is applied after the
+    // forward pass. Clamp the vertical request at the cannon line as well.
+    const maxY = CANNON_Y - u.r - 2;
+    const boundedDy = Math.max(0, Math.min(dy, maxY - u.y));
+    if (boundedDy > 0) move(g, u, boundedDy, 0);
+  }
+  state.elapsed = nextElapsed;
+  if (state.elapsed >= ASSAULT_BOSS_SLAM_DURATION) bossSlamRecoilStates.delete(u);
+}
+
 function updateAssaultBlue(g: Game, dt: number) {
   const assault = g.assault!;
   const active = g.bases[assault.encounter];
@@ -2059,6 +2151,7 @@ function updateAssaultBlue(g: Game, dt: number) {
         g.stats.multiplied++;
       }
     }
+    applyAssaultBossSlamRecoil(g, u, dt);
     if (u.dead) continue;
     if (!u.big && hitsSpinner(g, u)) {
       u.dead = true;
@@ -2217,8 +2310,23 @@ function updateAssaultBossSlam(g: Game, dt: number) {
     const targets = g.blue
       .filter((u) => !u.dead && u.y >= active.y - active.h / 2 && u.y <= front + 112 && Math.abs(u.x - active.x) <= active.w / 2 + 30)
       .sort((a, b) => a.y - b.y)
-      .slice(0, 16);
-    for (const u of targets) u.y = Math.min(CANNON_Y - u.r - 2, u.y + 10);
+      .slice(0, 120);
+    for (const u of targets) {
+      bossSlamRecoilStates.set(u, {
+        owner: g,
+        assault,
+        encounter: assault.encounter,
+        startFrame: assault.motionFrame,
+        elapsed: 0,
+        extra: u.big ? ASSAULT_BOSS_SLAM_CHAMPION_EXTRA : ASSAULT_BOSS_SLAM_RUNNER_EXTRA,
+      });
+      // Preserve the original immediate shove. The longer tail is applied
+      // after ordinary movement on following frames, so the boss clamp cannot
+      // erase the visible reversal and a target never receives a lethal hit.
+      const maxY = CANNON_Y - u.r - 2;
+      const kick = Math.max(0, Math.min(ASSAULT_BOSS_SLAM_INITIAL_KICK, maxY - u.y));
+      if (kick > 0) move(g, u, kick, 0);
+    }
     return;
   }
   if (assault.slamTimer < 0.8) assault.bossWarning = Math.max(0, Math.min(1, 1 - assault.slamTimer / 0.8));
