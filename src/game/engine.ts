@@ -1238,6 +1238,14 @@ let assaultMotionForward = new Float32Array(MAX_UNITS);
 let assaultMotionLateral = new Float32Array(MAX_UNITS);
 let assaultMotionUnitRows = new Int16Array(MAX_UNITS);
 let assaultMotionUnitCols = new Int16Array(MAX_UNITS);
+// Intent refreshes at 30 Hz, while movement, collision, and combat still run
+// every 60 Hz. WeakMap identity keys keep eligibility stable across array
+// compaction and make a newly created unit refresh on its first observation.
+const ASSAULT_MOTION_REFRESH_FRAMES = 2;
+type AssaultMotionIntent = { forward: number; lateral: number; direction: -1 | 1; nextRefreshFrame: number };
+const assaultMotionIntentCache = new WeakMap<Unit, AssaultMotionIntent>();
+let assaultMotionFrame = 0;
+let assaultMotionIntentSerial = 0;
 const ASSAULT_RED_SPEED_SCALE = 0.85;
 const ASSAULT_BOSS_W = 140;
 const ASSAULT_CORRIDOR_HALF = 72;
@@ -1473,6 +1481,33 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1) {
     assaultMotionUnitRows = new Int16Array(size);
     assaultMotionUnitCols = new Int16Array(size);
   }
+  // Blue is updated before red each simulation frame. Advance the shared
+  // cadence once at that boundary so both crowds use the same refresh clock;
+  // a missing identity always forces an immediate refresh.
+  if (forwardDirection === -1) {
+    assaultMotionFrame++;
+  }
+  const frame = assaultMotionFrame;
+  let refresh = false;
+  for (const unit of units) {
+    if (unit.dead) continue;
+    const intent = assaultMotionIntentCache.get(unit);
+    if (!intent || intent.direction !== forwardDirection || intent.nextRefreshFrame <= frame) {
+      refresh = true;
+      break;
+    }
+  }
+  if (!refresh) {
+    for (let i = 0; i < units.length; i++) {
+      const unit = units[i];
+      if (unit.dead) continue;
+      const intent = assaultMotionIntentCache.get(unit)!;
+      assaultMotionForward[i] = intent.forward;
+      assaultMotionLateral[i] = intent.lateral;
+    }
+    return { forward: assaultMotionForward, lateral: assaultMotionLateral };
+  }
+
   assaultMotionGeneration = (assaultMotionGeneration + 1) >>> 0;
   if (assaultMotionGeneration === 0) {
     assaultMotionCellGeneration.fill(0);
@@ -1509,6 +1544,12 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1) {
   for (let i = 0; i < units.length; i++) {
     const unit = units[i];
     if (unit.dead) continue;
+    const cachedIntent = assaultMotionIntentCache.get(unit);
+    if (cachedIntent && cachedIntent.direction === forwardDirection && cachedIntent.nextRefreshFrame > frame) {
+      assaultMotionForward[i] = cachedIntent.forward;
+      assaultMotionLateral[i] = cachedIntent.lateral;
+      continue;
+    }
     const unitX = unit.x;
     const unitY = unit.y;
     const unitRadius = unit.r;
@@ -1580,7 +1621,25 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1) {
     // an actually compressed wave where several neighbours compete for the
     // same space. This keeps boss slams readable while opening dense rows.
     const crowdFactor = Math.min(1, neighbourCount / 6);
-    assaultMotionLateral[i] = Math.max(-2.2, Math.min(2.2, sideForce)) * ASSAULT_LATERAL_ACCEL * crowdFactor;
+    const lateral = Math.max(-2.2, Math.min(2.2, sideForce)) * ASSAULT_LATERAL_ACCEL * crowdFactor;
+    assaultMotionLateral[i] = lateral;
+    if (cachedIntent) {
+      cachedIntent.forward = assaultMotionForward[i];
+      cachedIntent.lateral = lateral;
+      cachedIntent.direction = forwardDirection;
+      cachedIntent.nextRefreshFrame = frame + ASSAULT_MOTION_REFRESH_FRAMES;
+    } else {
+      // The first pass is immediate for every new identity. Its next refresh
+      // gets a stable one-frame phase so initial crowds and later spawns do
+      // not all create the same-frame physics spike.
+      const firstGap = 1 + (assaultMotionIntentSerial++ & 1);
+      assaultMotionIntentCache.set(unit, {
+        forward: assaultMotionForward[i],
+        lateral,
+        direction: forwardDirection,
+        nextRefreshFrame: frame + firstGap,
+      });
+    }
   }
   return { forward: assaultMotionForward, lateral: assaultMotionLateral };
 }
