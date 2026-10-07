@@ -362,8 +362,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       shader.uniforms.reserveRout = reserveRout;
       shader.vertexShader = `uniform float runTime; uniform float reserveRout; attribute float faceMask; attribute float stridePart; attribute vec4 runMotion; varying float vFaceMask; varying float vGateGlow;\n${shader.vertexShader}`.replace("#include <beginnormal_vertex>", `
         #include <beginnormal_vertex>
-        float cadence = 17.0 + sin(runMotion.x * 3.7) * 1.4;
-        float stride = sin(runTime * cadence + runMotion.x) * runMotion.y;
+        float runPhase = runMotion.w < -0.5 ? runTime * 17.0 + runMotion.x : runMotion.x;
+        float stride = sin(runPhase) * runMotion.y;
         float limbAngle = stride * sign(stridePart) * (abs(stridePart) > 1.5 ? 0.95 : -0.8);
         if (abs(stridePart) > 0.5 && abs(stridePart) < 1.5) limbAngle += runMotion.z * (0.8 + sin(runTime * 14.0 + runMotion.x + stridePart * 1.57) * 0.55);
         float limbCos = cos(limbAngle), limbSin = sin(limbAngle);
@@ -402,7 +402,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         #include <opaque_fragment>
       `);
     };
-    material.customProgramCacheKey = () => "arena-run-rim-v9"; return material;
+    material.customProgramCacheKey = () => "arena-speed-stride-v10"; return material;
   }
   const mobGeometry = geo(createMobGeometry()), reserveGeometry = geo(createHordeGeometry());
   const friendMaterial = crowdMaterial(BLUE), enemyMaterial = crowdMaterial(0xffffff);
@@ -475,6 +475,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
           state.angle += delta * Math.min(1, elapsed * 14);
         }
         state.run += (Math.min(1, speed / (enemy ? 1.8 : 7)) - state.run) * Math.min(1, elapsed * 12);
+        // Integrate stride from actual ground speed. Multiplying absolute time
+        // by a changing cadence makes feet snap when a runner brakes or turns.
+        state.phase += elapsed * (9 + Math.min(14, speed) * 2) * Math.max(0.15, state.run);
       }
       state.x = unit.x; state.y = unit.y; state.travel = travel; state.time = time; motion.set(unit, state);
       const boss = currentGame?.bases[currentGame.assault?.encounter ?? 0];

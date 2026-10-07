@@ -1231,6 +1231,118 @@ const ASSAULT_BOSS_FLANK_BUFFER = 80;
 const ASSAULT_BOSS_PRESSURE_DELAY = 3;
 const ASSAULT_BOSS_PRESSURE_SPEED = 12;
 const ASSAULT_BOSS_PRESSURE_TRAVEL = 120;
+const ASSAULT_COUNTER_TARGET_LATERAL = 90;
+const ASSAULT_COUNTER_TARGET_DEPTH = 120;
+const ASSAULT_COUNTER_TARGET_ALIGN = 36;
+const ASSAULT_COUNTER_FORWARD_RELEASE_DEPTH = 96;
+const ASSAULT_COUNTER_REVERSE_DEPTH = 48;
+const ASSAULT_COUNTER_TARGET_MAX_CELL_SAMPLES = 8;
+const ASSAULT_COUNTER_TARGET_MAX_CANDIDATES = 32;
+const ASSAULT_COUNTER_STAGING_GAP = 24;
+const ASSAULT_COUNTER_STEER_SPEED = 100;
+const ASSAULT_COUNTER_STEER_ACCEL = 240;
+const ASSAULT_COUNTER_REVERSE_SPEED = 42;
+const ASSAULT_RED_REAR_PRESSURE_START = 50;
+const ASSAULT_RED_REAR_PRESSURE_END = 200;
+const ASSAULT_RED_REAR_CORRIDOR_HALF = 124;
+const ASSAULT_COUNTER_TARGET_COLS = COLS;
+const ASSAULT_COUNTER_TARGET_ROWS = ROWS;
+const assaultCounterTargetCells: Array<Unit[] | undefined> = new Array(ASSAULT_COUNTER_TARGET_COLS * ASSAULT_COUNTER_TARGET_ROWS);
+const assaultCounterTargetCellGeneration = new Uint32Array(ASSAULT_COUNTER_TARGET_COLS * ASSAULT_COUNTER_TARGET_ROWS);
+const assaultCounterTargetCellOffsets: Array<{ dr: number; dc: number }> = [];
+for (let dr = -Math.ceil(ASSAULT_COUNTER_TARGET_DEPTH / CELL); dr <= Math.ceil(ASSAULT_COUNTER_TARGET_DEPTH / CELL); dr++) {
+  for (let dc = -Math.ceil(ASSAULT_COUNTER_TARGET_LATERAL / CELL); dc <= Math.ceil(ASSAULT_COUNTER_TARGET_LATERAL / CELL); dc++) {
+    assaultCounterTargetCellOffsets.push({ dr, dc });
+  }
+}
+assaultCounterTargetCellOffsets.sort((a, b) => {
+  const distanceA = a.dr * a.dr + a.dc * a.dc;
+  const distanceB = b.dr * b.dr + b.dc * b.dc;
+  return distanceA - distanceB || a.dr - b.dr || a.dc - b.dc;
+});
+let assaultCounterTargetGeneration = 0;
+let assaultCounterTargetCount = 0;
+
+/**
+ * Indexes living red units for a counterattack-local query. The index is
+ * rebuilt once before the blue pass, then reused by every survivor in that
+ * pass. Generation stamps keep old cell contents out without clearing the
+ * whole grid every frame, including after the uint32 generation wraps.
+ */
+function prepareAssaultCounterattackTargets(units: Unit[]) {
+  assaultCounterTargetGeneration = (assaultCounterTargetGeneration + 1) >>> 0;
+  if (assaultCounterTargetGeneration === 0) {
+    assaultCounterTargetCellGeneration.fill(0);
+    assaultCounterTargetGeneration = 1;
+  }
+  assaultCounterTargetCount = 0;
+  for (let i = 0; i < units.length; i++) {
+    const unit = units[i];
+    if (unit.dead) continue;
+    const col = Math.max(0, Math.min(ASSAULT_COUNTER_TARGET_COLS - 1, Math.floor(unit.x / CELL)));
+    const row = Math.max(0, Math.min(ASSAULT_COUNTER_TARGET_ROWS - 1, Math.floor((unit.y + CELL) / CELL)));
+    const cellIndex = row * ASSAULT_COUNTER_TARGET_COLS + col;
+    let cell = assaultCounterTargetCells[cellIndex];
+    if (assaultCounterTargetCellGeneration[cellIndex] !== assaultCounterTargetGeneration) {
+      if (!cell) {
+        cell = [];
+        assaultCounterTargetCells[cellIndex] = cell;
+      } else {
+        cell.length = 0;
+      }
+      assaultCounterTargetCellGeneration[cellIndex] = assaultCounterTargetGeneration;
+    }
+    cell!.push(unit);
+    assaultCounterTargetCount++;
+  }
+}
+
+function nearestAssaultCounterattackTarget(unit: Unit) {
+  if (assaultCounterTargetCount === 0) return null;
+  const col = Math.max(0, Math.min(ASSAULT_COUNTER_TARGET_COLS - 1, Math.floor(unit.x / CELL)));
+  const row = Math.max(0, Math.min(ASSAULT_COUNTER_TARGET_ROWS - 1, Math.floor((unit.y + CELL) / CELL)));
+  let best: Unit | null = null;
+  let bestDistance = Infinity;
+  let inspected = 0;
+  for (const offset of assaultCounterTargetCellOffsets) {
+    const rr = row + offset.dr;
+    if (rr < 0 || rr >= ASSAULT_COUNTER_TARGET_ROWS) continue;
+    const cc = col + offset.dc;
+    if (cc < 0 || cc >= ASSAULT_COUNTER_TARGET_COLS) continue;
+    const cellIndex = rr * ASSAULT_COUNTER_TARGET_COLS + cc;
+    if (assaultCounterTargetCellGeneration[cellIndex] !== assaultCounterTargetGeneration) continue;
+    const cell = assaultCounterTargetCells[cellIndex];
+    if (!cell || cell.length === 0) continue;
+    const sampleCount = Math.min(cell.length, ASSAULT_COUNTER_TARGET_MAX_CELL_SAMPLES);
+    const sampleStart = cell.length > 1
+      ? ((Math.floor(unit.x) * 17 + Math.floor(unit.y) * 13 + rr * 7 + cc * 5) % cell.length + cell.length) % cell.length
+      : 0;
+    for (let sample = 0; sample < sampleCount; sample++) {
+      if (inspected >= ASSAULT_COUNTER_TARGET_MAX_CANDIDATES) return best;
+      inspected++;
+      const sampleOffset = Math.floor(sample * cell.length / sampleCount);
+      const target = cell[(sampleStart + sampleOffset) % cell.length];
+      if (!target || target.dead) continue;
+      const dx = target.x - unit.x;
+      const dy = target.y - unit.y;
+      if (Math.abs(dx) > ASSAULT_COUNTER_TARGET_LATERAL || Math.abs(dy) > ASSAULT_COUNTER_TARGET_DEPTH) continue;
+      const distance = dx * dx + dy * dy;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = target;
+      }
+    }
+  }
+  return best;
+}
+
+/** Applies bounded lateral intent while preserving the runner's forward path. */
+function applyAssaultCounterattackGuidance(u: Unit, target: Unit, dt: number) {
+  const desired = Math.max(-ASSAULT_COUNTER_STEER_SPEED, Math.min(ASSAULT_COUNTER_STEER_SPEED, (target.x - u.x) * 3.2));
+  const current = u.vx;
+  const maxDelta = ASSAULT_COUNTER_STEER_ACCEL * dt;
+  u.vx = current + Math.max(-maxDelta, Math.min(maxDelta, desired - current));
+}
 
 /**
  * Keeps a crowd flowing toward the next visible panel after it has crossed a
@@ -1247,8 +1359,8 @@ function applyAssaultGateGuidance(u: Unit, targetX: number, targetW: number, dt:
 }
 
 /** Enemy formations still converge on the active giant's visible footprint. */
-function applyAssaultCorridorPressure(u: Unit, centerX: number, dt: number) {
-  const half = Math.max(20, ASSAULT_CORRIDOR_HALF - u.r);
+function applyAssaultCorridorPressure(u: Unit, centerX: number, dt: number, corridorHalf = ASSAULT_CORRIDOR_HALF) {
+  const half = Math.max(20, corridorHalf - u.r);
   const offset = u.x - centerX;
   const penetration = Math.abs(offset) - half;
   if (penetration <= 0) return;
@@ -1415,8 +1527,14 @@ function updateAssaultBlue(g: Game, dt: number) {
   const assault = g.assault!;
   const active = g.bases[assault.encounter];
   const spawned: Unit[] = [];
+  if (assault.phase === "counterattack") prepareAssaultCounterattackTargets(g.red);
   const assaultMotion = assaultForwardSlots(g.blue, -1);
   const lastGateY = g.gates.length ? Math.min(...g.gates.map((gate) => gate.y)) : active.y + active.h / 2 + 48;
+  let counterApproachY = Infinity;
+  if (assault.phase === "counterattack") {
+    for (const gate of g.gates) if (!gate.overrun) counterApproachY = Math.min(counterApproachY, gate.y - GATE_H);
+    if (!Number.isFinite(counterApproachY)) counterApproachY = active.y + active.h / 2 + ASSAULT_COUNTER_STAGING_GAP;
+  }
   const trackedGateCount = Math.min(30, g.gates.length);
   const allGatesMask = trackedGateCount > 0 ? (1 << trackedGateCount) - 1 : 0;
   for (let blueIndex = 0; blueIndex < g.blue.length; blueIndex++) {
@@ -1507,6 +1625,44 @@ function updateAssaultBlue(g: Game, dt: number) {
       u.vx += (want - u.vx) * Math.min(1, dt * (missedFlank ? 9 : 4.5));
     }
 
+    // A counterattack is a local reversal around the defeated giant, not a
+    // new destination for every runner on the board. Preserve a shot's launch
+    // direction until this same final approach line, then give only nearby
+    // surviving runners a bounded lateral reaction to a live red unit. The
+    // depth cap includes reds just behind a runner, so a flank can engage as
+    // its wave arrives without steering toward a distant army.
+    const passedCounterattackLine = assault.phase === "counterattack"
+      && (u.y <= counterApproachY || (allGatesMask !== 0 && (u.used & allGatesMask) === allGatesMask));
+    if (passedCounterattackLine) {
+      const target = nearestAssaultCounterattackTarget(u);
+      if (target) applyAssaultCounterattackGuidance(u, target, dt);
+
+      const targetDepth = target ? target.y - u.y : 0;
+
+      // Stop at a staging line just above the defeated boss's old front when
+      // there is no close engagement. Runners already beyond the line are
+      // never repositioned backward unless a bounded, aligned red target asks
+      // them to turn and meet a nearby unit behind them. A close target ahead
+      // also releases the line so the survivor can close the engagement.
+      // Stable personal arrival depths keep a waiting crowd from snapping into
+      // one ruler-straight row. Existing pace variation survives gate copies.
+      const arrivalOffset = Math.max(-1, Math.min(1, ((u.pace ?? 1) - 1) / 0.1)) * 18;
+      const stagingY = active.y + active.h / 2 + ASSAULT_COUNTER_STAGING_GAP + arrivalOffset;
+      const targetAligned = target !== null
+        && Math.abs(target.x - u.x) <= ASSAULT_COUNTER_TARGET_ALIGN;
+      const targetCanReverse = targetAligned && targetDepth > 0 && targetDepth <= ASSAULT_COUNTER_REVERSE_DEPTH;
+      const targetCanAdvance = targetAligned && targetDepth <= 0 && targetDepth >= -ASSAULT_COUNTER_FORWARD_RELEASE_DEPTH;
+      if (targetCanReverse) {
+        // A nearby red that has already passed the survivor is behind it in
+        // logical road space. Turn back at a low bounded speed. This is a
+        // physical step on the next frame, never a position rewrite.
+        dy = Math.min(ASSAULT_COUNTER_REVERSE_SPEED, Math.max(18, targetDepth * 2.4)) * dt;
+      } else if (!targetCanAdvance) {
+        if (u.y <= stagingY) dy = 0;
+        else dy = Math.max(dy, -(u.y - stagingY) * Math.min(1, dt * 5));
+      }
+    }
+
     // Stop at the living boss's front edge before moving. This preserves a
     // unit's forward-only motion; the old post-move correction snapped runners
     // backward into a queue every frame, which looked like a sticky conveyor.
@@ -1588,7 +1744,15 @@ function updateAssaultRed(g: Game, dt: number) {
     // made the red horde look like nine synchronized rails.
     u.vx *= Math.exp(-2.8 * dt);
     u.vx = Math.max(-180, Math.min(180, u.vx + assaultMotion.lateral[redIndex] * (ASSAULT_RED_LATERAL_ACCEL / ASSAULT_LATERAL_ACCEL) * dt));
-    if (assault.phase === "battle" && active) applyAssaultCorridorPressure(u, active.x, dt);
+    if (assault.phase === "battle" && active) {
+      const rearDepth = active.y - u.y;
+      const rearProgress = Math.max(0, Math.min(1,
+        (rearDepth - ASSAULT_RED_REAR_PRESSURE_START)
+        / (ASSAULT_RED_REAR_PRESSURE_END - ASSAULT_RED_REAR_PRESSURE_START)));
+      const rearCorridorHalf = ASSAULT_CORRIDOR_HALF
+        + (ASSAULT_RED_REAR_CORRIDOR_HALF - ASSAULT_CORRIDOR_HALF) * rearProgress;
+      applyAssaultCorridorPressure(u, active.x, dt, rearCorridorHalf);
+    }
     const roleSpeed = u.kind === "runner" ? 1.3 : u.kind === "guard" ? 0.84 : 1;
     move(g, u, config.speed * surgeSpeed * ASSAULT_RED_SPEED_SCALE * (u.big ? 0.74 : 1) * roleSpeed * (u.pace ?? 1) * assaultMotion.forward[redIndex] * dt, dt);
     if (!u.big && hitsSpinner(g, u)) {

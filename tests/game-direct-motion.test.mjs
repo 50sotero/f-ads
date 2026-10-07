@@ -15,6 +15,46 @@ const assaultLevel = (overrides = {}) => ({
   ...overrides,
 });
 
+const counterattackUnit = (x, y, overrides = {}) => ({
+  x,
+  y,
+  vx: 0,
+  hp: 1,
+  r: 4.2,
+  big: false,
+  used: 7,
+  dead: false,
+  ...overrides,
+});
+
+const counterattackGame = ({ blue = [], red = [] } = {}) => {
+  const game = newGame(assaultLevel({
+    bases: [{ x: 180, y: 300, hp: 99999, every: 9999, group: 0 }],
+    assault: {
+      horde: 0,
+      reserve: 0,
+      speed: 16,
+      theme: "fork",
+      counterattack: { waves: 1, runners: 0, guards: 0, brutes: 0, interval: 999 },
+    },
+  }));
+  game.firing = false;
+  game.assault.phase = "counterattack";
+  game.assault.wave = 0;
+  game.assault.waves = 1;
+  game.assault.waveTimer = 999;
+  game.assault.waveSpawned = 0;
+  game.assault.horde = 0;
+  game.assault.reserve = 0;
+  game.assault.weaponTarget = null;
+  game.assault.cannonTarget = null;
+  game.assault.weaponTargetsEnabled = false;
+  game.bases[0].hp = 0;
+  game.blue.push(...blue);
+  game.red.push(...red);
+  return game;
+};
+
 test("red forward spacing uses the enemy travel direction", () => {
   const game = newGame(assaultLevel({
     bases: [{ x: 180, y: 1000, hp: 99999, every: 9999, group: 0 }],
@@ -29,6 +69,22 @@ test("red forward spacing uses the enemy travel direction", () => {
   step(game, 1 / 60);
 
   assert.ok(leader.y - follower.y >= 8, "red follower overtook the forward runner");
+});
+
+test("red rear pressure widens behind the active boss", () => {
+  const game = newGame(assaultLevel({
+    bases: [{ x: 180, y: 300, hp: 99999, every: 9999, group: 0 }],
+    gates: [],
+  }));
+  game.firing = false;
+  const near = { x: 280, y: 340, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false };
+  const rear = { x: 280, y: 100, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false };
+  game.red.push(near, rear);
+
+  step(game, 1 / 60);
+
+  assert.ok(near.x < 280, "the front red unit stopped receiving boss corridor pressure");
+  assert.equal(rear.x, 280, "the rear red unit was pulled into the narrow boss corridor");
 });
 
 test("assault horde spacing is deterministic but staggered", () => {
@@ -78,6 +134,112 @@ test("changing the target after launch does not redirect an in-flight runner", (
 
   assert.equal(runner.x, launchX);
   assert.equal(game.cannonX, 55);
+});
+
+test("counterattack survivors react locally to both flanks with bounded motion", () => {
+  for (const [targetX, direction] of [[95, -1], [265, 1]]) {
+    const survivor = counterattackUnit(180, 280);
+    const target = counterattackUnit(targetX, 280, { used: 0 });
+    const game = counterattackGame({ blue: [survivor], red: [target] });
+    const firstX = survivor.x;
+    const firstY = survivor.y;
+    step(game, 1 / 60);
+
+    assert.ok(Math.abs(survivor.x - firstX) <= 0.11, "counterattack steering exceeded its per-frame bound");
+    assert.ok(survivor.y <= firstY, "counterattack steering moved a survivor backward");
+    for (let frame = 0; frame < 30; frame++) step(game, 1 / 60);
+    assert.ok(direction < 0 ? survivor.x < firstX - 10 : survivor.x > firstX + 10, `survivor did not react toward the ${direction < 0 ? "left" : "right"} flank`);
+  }
+});
+
+test("counterattack ignores an enemy outside the local lateral window", () => {
+  const survivor = counterattackUnit(180, 450);
+  const target = counterattackUnit(55, 400, { used: 0 });
+  const game = counterattackGame({ blue: [survivor], red: [target] });
+  for (let frame = 0; frame < 30; frame++) step(game, 1 / 60);
+
+  assert.equal(survivor.x, 180, "a distant flank unit steered a counterattack survivor");
+  assert.ok(survivor.y < 450, "the survivor did not retain its forward travel");
+});
+
+test("counterattack guidance brakes an existing sideways velocity continuously", () => {
+  const survivor = counterattackUnit(180, 280, { vx: 420 });
+  const game = counterattackGame({ blue: [survivor], red: [counterattackUnit(100, 280)] });
+  step(game, 1 / 60);
+  const dampedVelocity = 420 * Math.exp(-3 / 60);
+  assert.ok(Math.abs(survivor.vx - dampedVelocity) <= 4.001, `guidance snapped velocity to ${survivor.vx}`);
+});
+
+test("counterattack survivors physically turn back to an adjacent attacker", () => {
+  const survivor = counterattackUnit(180, 300);
+  const game = counterattackGame({ blue: [survivor], red: [counterattackUnit(180, 325)] });
+  step(game, 1 / 60);
+  assert.ok(survivor.y > 300 && survivor.y <= 300.701, `reverse movement jumped to y=${survivor.y}`);
+  for (let i = 0; i < 90; i++) step(game, 1 / 60);
+  assert.ok(survivor.dead || game.red.length === 0, "the nearby attacker was never engaged");
+});
+
+test("an advanced defeated boss stages incoming troops after its gates are overrun", () => {
+  const survivor = counterattackUnit(180, 550, { used: 0 });
+  const game = counterattackGame({ blue: [survivor] });
+  game.bases[0].y = 419;
+  for (const gate of game.gates) gate.overrun = true;
+  for (let i = 0; i < 180; i++) step(game, 1 / 60);
+  assert.ok(survivor.y >= 467 && survivor.y <= 472, `survivor passed through the advanced staging area to ${survivor.y}`);
+});
+
+test("fresh counterattack shots keep their committed launch lane before the final gate", () => {
+  const survivor = counterattackUnit(180, 555, { used: 0 });
+  const target = counterattackUnit(100, 555, { used: 0 });
+  const game = counterattackGame({ blue: [survivor], red: [target] });
+  for (let frame = 0; frame < 20; frame++) step(game, 1 / 60);
+
+  assert.equal(survivor.x, 180, "a fresh shot was steered before reaching the final gate");
+  assert.ok(survivor.y > 510, "fixture runner crossed the first gate during the launch-lane check");
+});
+
+test("counterattack survivors stage near the defeated boss when the road is empty", () => {
+  const survivor = counterattackUnit(180, 450);
+  const irrelevant = counterattackUnit(55, 40, { used: 0 });
+  const game = counterattackGame({ blue: [survivor], red: [irrelevant] });
+  let previousY = survivor.y;
+  for (let frame = 0; frame < 240; frame++) {
+    step(game, 1 / 60);
+    assert.ok(survivor.y <= previousY + 0.0001, "staging moved a survivor backward");
+    previousY = survivor.y;
+  }
+
+  assert.ok(survivor.y >= 350, `survivor ran above the staging line to y=${survivor.y}`);
+  assert.ok(survivor.y < 360, `survivor never reached the staging line, y=${survivor.y}`);
+  assert.ok(game.status === "playing", "an empty counterattack road ended before its pending phase");
+});
+
+test("an aligned counterattack target ahead releases the staging cap", () => {
+  const survivor = counterattackUnit(180, 365);
+  const target = counterattackUnit(180, 300, { used: 0 });
+  const game = counterattackGame({ blue: [survivor], red: [target] });
+  for (let frame = 0; frame < 30; frame++) step(game, 1 / 60);
+
+  assert.ok(survivor.dead || survivor.y < 350, `aligned target left the survivor at the staging line y=${survivor.y}`);
+  assert.ok(survivor.y <= 450, "closing toward an aligned target moved the survivor backward");
+});
+
+test("a full survivor cap still clears a counterattack while firing", () => {
+  const blue = [];
+  for (let index = 0; index < 900; index++) {
+    const row = Math.floor(index / 30);
+    const column = index % 30;
+    blue.push(counterattackUnit(12 + column * 11.5, 250 + row * 1.2));
+  }
+  const game = counterattackGame({ blue });
+  game.level.assault.counterattack = { waves: 1, runners: 12, guards: 0, brutes: 0, interval: 0.65 };
+  game.firing = true;
+  game.targetX = 55;
+  game.assault.waveTimer = 0;
+  for (let frame = 0; frame < 360 && game.status === "playing"; frame++) step(game, 1 / 60);
+
+  assert.equal(game.status, "won", "the counterattack stalled with a full survivor cap");
+  assert.ok(game.stats.kills >= 1, "the full survivor cap never engaged the incoming wave");
 });
 
 test("boss attraction starts only after the final gate line", () => {
