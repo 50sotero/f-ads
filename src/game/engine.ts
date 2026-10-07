@@ -2098,17 +2098,13 @@ function nearestAssaultCounterattackTarget(unit: Unit) {
   let best: Unit | null = null;
   let bestDistance = Infinity;
   let inspected = 0;
+  // Occupied offsets were built for this base cell and generation, so each
+  // entry is already in bounds and points at a nonempty live cell.
   for (const offsetIndex of occupied) {
     const dr = assaultCounterTargetOffsetRows[offsetIndex];
-    const rr = row + dr;
-    if (rr < 0 || rr >= ASSAULT_COUNTER_TARGET_ROWS) continue;
     const dc = assaultCounterTargetOffsetCols[offsetIndex];
-    const cc = col + dc;
-    if (cc < 0 || cc >= ASSAULT_COUNTER_TARGET_COLS) continue;
     const cellIndex = baseCellIndex + assaultCounterTargetOffsetDeltas[offsetIndex];
-    if (assaultCounterTargetCellGeneration[cellIndex] !== assaultCounterTargetGeneration) continue;
-    const cell = assaultCounterTargetCells[cellIndex];
-    if (!cell || cell.length === 0) continue;
+    const cell = assaultCounterTargetCells[cellIndex]!;
     const sampleCount = Math.min(cell.length, ASSAULT_COUNTER_TARGET_MAX_CELL_SAMPLES);
     const sampleStart = cell.length > 1
       ? ((sampleHash + dr * 7 + dc * 5) % cell.length + cell.length) % cell.length
@@ -2805,14 +2801,28 @@ function updateAssaultRed(g: Game, dt: number) {
   if (front > -Infinity) assault.frontline = Math.min(DEFENSE_Y, front);
 }
 
+const assaultFightGrid: Array<Unit[] | undefined> = new Array(COLS * ROWS);
+const assaultFightOccupiedCells: number[] = [];
+
 function resolveAssaultFights(g: Game, dt: number) {
-  const grid: Unit[][] = new Array(COLS * ROWS);
+  for (let i = 0; i < assaultFightOccupiedCells.length; i++) {
+    assaultFightGrid[assaultFightOccupiedCells[i]]!.length = 0;
+  }
+  assaultFightOccupiedCells.length = 0;
+  const grid = assaultFightGrid;
   const braceContacts = isShieldCleanup(g) ? new Set<Unit>() : null;
   for (const r of g.red) {
     if (r.dead) continue;
     const c = Math.max(0, Math.min(COLS - 1, Math.floor(r.x / CELL)));
     const rr = Math.max(0, Math.min(ROWS - 1, Math.floor((r.y + CELL) / CELL)));
-    (grid[rr * COLS + c] ??= []).push(r);
+    const cellIndex = rr * COLS + c;
+    let cell = grid[cellIndex];
+    if (!cell) {
+      cell = [];
+      grid[cellIndex] = cell;
+    }
+    if (cell.length === 0) assaultFightOccupiedCells.push(cellIndex);
+    cell.push(r);
   }
   for (const u of g.blue) {
     if (u.dead) continue;
@@ -2825,7 +2835,7 @@ function resolveAssaultFights(g: Game, dt: number) {
         const cc = c0 + dc;
         if (cc < 0 || cc >= COLS) continue;
         const cell = grid[rr * COLS + cc];
-        if (!cell) continue;
+        if (!cell || cell.length === 0) continue;
         for (const e of cell) {
           if (e.dead) continue;
           const reach = u.r + e.r;
