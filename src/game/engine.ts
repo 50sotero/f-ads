@@ -1445,6 +1445,8 @@ assaultCounterTargetOffsetEntries.sort((a, b) => {
 const assaultCounterTargetOffsetRows = new Int8Array(assaultCounterTargetOffsetEntries.length);
 const assaultCounterTargetOffsetCols = new Int8Array(assaultCounterTargetOffsetEntries.length);
 const assaultCounterTargetOffsetDeltas = new Int16Array(assaultCounterTargetOffsetEntries.length);
+const assaultCounterOccupiedOffsets: Array<number[] | undefined> = new Array(ASSAULT_COUNTER_TARGET_COLS * ASSAULT_COUNTER_TARGET_ROWS);
+const assaultCounterOccupiedGeneration = new Uint32Array(ASSAULT_COUNTER_TARGET_COLS * ASSAULT_COUNTER_TARGET_ROWS);
 for (let i = 0; i < assaultCounterTargetOffsetEntries.length; i++) {
   const { dr, dc } = assaultCounterTargetOffsetEntries[i];
   assaultCounterTargetOffsetRows[i] = dr;
@@ -1468,6 +1470,7 @@ function prepareAssaultCounterattackTargets(units: Unit[]) {
   assaultCounterTargetGeneration = (assaultCounterTargetGeneration + 1) >>> 0;
   if (assaultCounterTargetGeneration === 0) {
     assaultCounterTargetCellGeneration.fill(0);
+    assaultCounterOccupiedGeneration.fill(0);
     assaultCounterTargetGeneration = 1;
   }
   assaultCounterTargetCount = 0;
@@ -1507,6 +1510,23 @@ function nearestAssaultCounterattackTarget(unit: Unit) {
   const col = Math.max(0, Math.min(ASSAULT_COUNTER_TARGET_COLS - 1, Math.floor(unitX / CELL)));
   const row = Math.max(0, Math.min(ASSAULT_COUNTER_TARGET_ROWS - 1, Math.floor((unitY + CELL) / CELL)));
   const baseCellIndex = row * ASSAULT_COUNTER_TARGET_COLS + col;
+  // Survivors in the same grid cell share the occupied neighbour cells for
+  // this red pass. Preserve the exact offset order and per-unit samples, but
+  // avoid probing the same 99 mostly empty cells for every nearby runner.
+  let occupied = assaultCounterOccupiedOffsets[baseCellIndex];
+  if (!occupied || assaultCounterOccupiedGeneration[baseCellIndex] !== assaultCounterTargetGeneration) {
+    if (!occupied) occupied = assaultCounterOccupiedOffsets[baseCellIndex] = [];
+    occupied.length = 0;
+    for (let offset = 0; offset < assaultCounterTargetOffsetRows.length; offset++) {
+      const rr = row + assaultCounterTargetOffsetRows[offset];
+      const cc = col + assaultCounterTargetOffsetCols[offset];
+      if (rr < 0 || rr >= ASSAULT_COUNTER_TARGET_ROWS || cc < 0 || cc >= ASSAULT_COUNTER_TARGET_COLS) continue;
+      const cellIndex = baseCellIndex + assaultCounterTargetOffsetDeltas[offset];
+      if (assaultCounterTargetCellGeneration[cellIndex] === assaultCounterTargetGeneration
+        && assaultCounterTargetCells[cellIndex]?.length) occupied.push(offset);
+    }
+    assaultCounterOccupiedGeneration[baseCellIndex] = assaultCounterTargetGeneration;
+  }
   // This hash is stable for the whole query. Hoisting it out of the nonempty
   // cell loop preserves the original sample order without recomputing the
   // same unit coordinates up to 99 times.
@@ -1514,7 +1534,7 @@ function nearestAssaultCounterattackTarget(unit: Unit) {
   let best: Unit | null = null;
   let bestDistance = Infinity;
   let inspected = 0;
-  for (let offsetIndex = 0; offsetIndex < assaultCounterTargetOffsetRows.length; offsetIndex++) {
+  for (const offsetIndex of occupied) {
     const dr = assaultCounterTargetOffsetRows[offsetIndex];
     const rr = row + dr;
     if (rr < 0 || rr >= ASSAULT_COUNTER_TARGET_ROWS) continue;
