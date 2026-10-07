@@ -443,11 +443,11 @@ export function CrowdCannon() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const toWorldX = (event: PointerEvent) => {
+    const pointerX = (event: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
-      const normalized = (event.clientX - rect.left) / Math.max(1, rect.width);
-      return rendererRef.current?.aimX(normalized) ?? normalized * W;
+      return (event.clientX - rect.left) / Math.max(1, rect.width);
     };
+    const toWorldX = (normalized: number) => rendererRef.current?.aimX(normalized) ?? normalized * W;
     let lastPointerX = 0;
     const reset = () => {
       pointerRef.current = null;
@@ -466,17 +466,19 @@ export function CrowdCannon() {
       } catch {
         // Pointer capture is unavailable in a few embedded browsers.
       }
-      lastPointerX = toWorldX(event);
-      if (event.pointerType === "mouse") game.targetX = lastPointerX;
+      lastPointerX = pointerX(event);
+      if (event.pointerType === "mouse") game.targetX = toWorldX(lastPointerX);
       game.firing = true;
     };
     const move = (event: PointerEvent) => {
       const game = gameRef.current;
       if (!game || event.pointerId !== pointerRef.current || screenRef.current !== "playing") return;
-      const x = toWorldX(event);
+      const x = pointerX(event);
       // Touch is a relative drag: touching down near a screen edge must not
       // teleport the cannon or make the player cover it with their thumb.
-      game.targetX = event.pointerType === "mouse" ? x : game.targetX + x - lastPointerX;
+      // Project both points through the current camera so a combat zoom does
+      // not add a sideways jump to the next touch movement.
+      game.targetX = event.pointerType === "mouse" ? toWorldX(x) : game.targetX + toWorldX(x) - toWorldX(lastPointerX);
       lastPointerX = x;
     };
     const up = (event: PointerEvent) => {
@@ -641,7 +643,7 @@ export function CrowdCannon() {
               <span className={styles.encounterDots} aria-hidden="true">{Array.from({ length: assault.encounters }, (_, index) => <i key={index} data-done={index < assault.encounter} data-current={index === assault.encounter} />)}</span>
             </div>
           </div>
-          {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase}>
+          {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-compact={assault.phase === "battle" && hud.time > 4}>
             <span className={styles.objectiveIcon} aria-hidden="true">{assault.phase === "counterattack" ? "!" : assault.phase === "advance" ? "»" : "⚑"}</span>
             <div><strong>{assault.phase === "counterattack" ? "COUNTERATTACK" : assault.phase === "advance" ? "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
               <span>{assault.phase === "counterattack"

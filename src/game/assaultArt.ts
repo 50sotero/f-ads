@@ -81,13 +81,15 @@ function stridePart(geometry: THREE.BufferGeometry, part: number): THREE.BufferG
 /** Feet at zero, face toward -Z. Broad head, pear-shaped body, soft mitten limbs. */
 export function createMobGeometry(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
-  parts.push(form([[0.24, 0.03, 0.02], [0.34, 0.2, 0.16], [0.55, 0.25, 0.19], [0.75, 0.24, 0.18], [0.88, 0.13, 0.13], [0.91, 0.02, 0.02]], 8, 8, 2));
-  parts.push(placed(new THREE.SphereGeometry(0.235, 10, 7), 0, 1.04, -0.035, 0.96, 1.05, 0.92));
+  parts.push(form([[0.24, 0.03, 0.02], [0.36, 0.23, 0.17], [0.58, 0.285, 0.21], [0.78, 0.245, 0.18], [0.9, 0.13, 0.13], [0.92, 0.02, 0.02]], 10, 8, 2));
+  parts.push(placed(new THREE.SphereGeometry(0.27, 10, 7), 0, 1.08, -0.035, 0.96, 1.06, 0.96));
   for (const side of [-1, 1]) {
-    const arm = new THREE.CapsuleGeometry(0.105, 0.27, 2, 6);
-    arm.rotateZ(side * 0.16); parts.push(stridePart(placed(arm, side * 0.27, 0.57, -0.045), side));
-    parts.push(stridePart(placed(new THREE.CapsuleGeometry(0.11, 0.19, 2, 6), side * 0.13, 0.18, -0.045, 1, 1, 1.3), side * 2));
-    parts.push(tint(placed(new THREE.SphereGeometry(0.029, 5, 3), side * 0.08, 1.06, -0.247, 0.75, 1.4, 0.28), 0x09274f, true));
+    const arm = new THREE.CapsuleGeometry(0.115, 0.26, 2, 6);
+    arm.rotateZ(side * 0.2); parts.push(stridePart(placed(arm, side * 0.3, 0.59, -0.025), side));
+    parts.push(stridePart(placed(new THREE.CapsuleGeometry(0.12, 0.2, 2, 6), side * 0.14, 0.2, -0.035, 1, 1, 1.3), side * 2));
+    // A light sole separates the moving feet from the contact shadow at phone size.
+    parts.push(stridePart(tint(placed(new THREE.SphereGeometry(0.125, 6, 4), side * 0.14, 0.065, -0.07, 1, 0.36, 1.5), 0xe4f4ff, true), side * 2));
+    parts.push(tint(placed(new THREE.SphereGeometry(0.032, 5, 3), side * 0.087, 1.1, -0.288, 0.75, 1.4, 0.28), 0x09274f, true));
   }
   return crowdMesh(parts);
 }
@@ -95,7 +97,7 @@ export function createMobGeometry(): THREE.BufferGeometry {
 /** Armored defenders share the same animated body, with a steel cap and shield. */
 export function createGuardGeometry(): THREE.BufferGeometry {
   const parts = [createMobGeometry()];
-  parts.push(tint(placed(new THREE.SphereGeometry(0.255, 10, 4, 0, Math.PI * 2, 0, Math.PI * 0.57), 0, 1.055, -0.035, 1, 1, 0.98), 0x354768, true));
+  parts.push(tint(placed(new THREE.SphereGeometry(0.29, 10, 4, 0, Math.PI * 2, 0, Math.PI * 0.57), 0, 1.095, -0.035, 1, 1, 0.98), 0x354768, true));
   parts.push(tint(placed(new THREE.SphereGeometry(0.34, 8, 6), 0, 0.6, -0.3, 1, 1.13, 0.25), 0x344562, true));
   parts.push(tint(placed(new THREE.BoxGeometry(0.075, 0.45, 0.035), 0, 0.62, -0.384), 0xffcb5a, true));
   return crowdMesh(parts);
@@ -148,17 +150,17 @@ export function createSiegeCannon(includeChassis = true): SiegeCannonArt {
   mesh(group, cradle, dark, 0, 0.36, 0.04);
   const housing = owned.geometry(new RoundedBoxGeometry(0.7, 0.6, 0.76, 3, 0.25));
   mesh(group, housing, blue, 0, 0.6, 0.02);
-  mesh(group, owned.geometry(new RoundedBoxGeometry(0.18, 0.08, 0.4, 2, 0.03)), cream, 0, 0.907, 0.03);
+  mesh(group, owned.geometry(new RoundedBoxGeometry(0.18, 0.065, 0.34, 2, 0.025)), cream, 0, 1.047, 0.23);
   if (includeChassis) {
     const chassisRed = owned.material(0xee4c5a, 0.4);
     mesh(group, owned.geometry(new RoundedBoxGeometry(1.3, 0.24, 1.4, 2, 0.1)), chassisRed, 0, 0.29, 0.13);
     mesh(group, owned.geometry(new THREE.SphereGeometry(1, 16, 12)), blue, 0, 0.61, 0.2, 0.53, 0.43, 0.52);
     const fender = owned.geometry(new RoundedBoxGeometry(0.28, 0.47, 1.13, 3, 0.13));
-    const wheel = owned.geometry(new THREE.CylinderGeometry(0.23, 0.23, 0.18, 12).rotateZ(Math.PI / 2));
-    const hub = owned.geometry(new THREE.CylinderGeometry(0.095, 0.095, 0.19, 10).rotateZ(Math.PI / 2));
+    const wheel = owned.geometry(new THREE.CylinderGeometry(0.28, 0.28, 0.2, 12).rotateZ(Math.PI / 2));
+    const hub = owned.geometry(new THREE.CylinderGeometry(0.12, 0.12, 0.215, 10).rotateZ(Math.PI / 2));
     for (const side of [-1, 1]) {
       mesh(group, fender, blue, side * 0.52, 0.54, 0.05);
-      for (const z of [-0.3, 0.49]) { mesh(group, wheel, rubber, side * 0.58, 0.23, z); mesh(group, hub, cream, side * 0.585, 0.23, z); }
+      for (const z of [-0.3, 0.54]) { mesh(group, wheel, rubber, side * 0.65, 0.28, z); mesh(group, hub, cream, side * 0.655, 0.28, z); }
     }
   }
   barrel.position.set(0, 0.58, -0.08); group.add(barrel);

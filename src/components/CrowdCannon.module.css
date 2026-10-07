@@ -307,6 +307,9 @@
 .battleObjective { position: absolute; z-index: 4; top: max(75px, calc(env(safe-area-inset-top) + 63px)); left: 12px; right: 12px; display: flex; align-items: center; gap: 9px; padding: 9px 12px; border: 1px solid rgba(255,255,255,.5); border-radius: 14px; background: rgba(23,47,72,.84); color: #fff; box-shadow: 0 4px 0 rgba(12,24,43,.13); pointer-events: none; }
 .battleObjective[data-phase="counterattack"] { background: linear-gradient(110deg, #a12643ee, #592046ee); border-color: #ff987d; animation: tipIn 250ms ease-out; }
 .battleObjective[data-phase="advance"] { background: #167d7dec; border-color: #a5ffe1; }
+.battleObjective[data-compact="true"] { left: 50%; right: auto; transform: translateX(-50%); width: max-content; padding: 6px 11px; border-radius: 99px; background: rgba(23,47,72,.56); }
+.battleObjective[data-compact="true"] .objectiveIcon, .battleObjective[data-compact="true"] > div > span { display: none; }
+.battleObjective[data-compact="true"] strong { font-size: 10px; }
 .objectiveIcon { display: grid; flex: 0 0 29px; height: 29px; place-items: center; border-radius: 9px; background: rgba(255,255,255,.15); color: #ffe680; font-size: 22px; }
 .battleObjective > div { display: grid; gap: 2px; }
 .battleObjective strong { font-size: 12px; letter-spacing: .055em; line-height: 1.1; }
