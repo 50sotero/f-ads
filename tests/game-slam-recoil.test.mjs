@@ -43,52 +43,48 @@ const prepareControl = (unit, levelOptions = {}) => {
 
 test("boss slam keeps its initial kick, adds a bounded smooth tail, and stays nonlethal", () => {
   const runner = makeUnit();
-  const controlRunner = makeUnit();
   const game = prepare({}, runner);
-  const control = prepareControl(controlRunner);
   const initialY = runner.y;
 
   step(game, FRAME);
-  step(control, FRAME);
   assert.equal(game.assault.bossPulse, 1);
   assert.ok(runner.y - initialY >= 8, `initial kick was only ${runner.y - initialY}px`);
   assert.equal(bossSlamRecoil(game, runner), 1);
   assert.equal(runner.dead, false);
   assert.equal(runner.hp, 1);
 
-  const relative = [runner.y - controlRunner.y];
+  const positions = [runner.y];
   for (let frame = 0; frame < 21; frame++) {
     step(game, FRAME);
-    step(control, FRAME);
-    relative.push(runner.y - controlRunner.y);
+    positions.push(runner.y);
   }
 
-  assert.ok(relative[2] > relative[1], "ordinary forward motion erased the recoil tail");
-  assert.ok(relative.every((distance) => distance <= 36.01), `recoil exceeded its 10+26px cap: ${Math.max(...relative)}`);
-  assert.ok(relative.at(-1) >= 35 && relative.at(-1) <= 36.01, `recoil tail ended at ${relative.at(-1)}px`);
+  assert.ok(positions.slice(1, 7).every((y, index) => y > positions[index]), "ordinary forward motion erased the recoil tail");
+  assert.ok(positions.at(-1) - initialY <= 36.01, `recoil exceeded its 10+26px cap: ${positions.at(-1) - initialY}`);
+  assert.ok(positions.at(-1) - initialY >= 35, `recoil tail ended at ${positions.at(-1) - initialY}px`);
   assert.equal(bossSlamRecoil(game, runner), 0);
   assert.equal(game.status, "playing");
   assert.equal(runner.dead, false);
+
+  const endY = runner.y;
+  step(game, FRAME);
+  assert.ok(runner.y < endY, "forward travel stayed frozen after recoil ended");
 });
 
 test("champions receive the initial kick but resist the long recoil tail", () => {
   const champion = makeUnit({ big: true });
-  const controlChampion = makeUnit({ big: true });
   const game = prepare({}, champion);
-  const control = prepareControl(controlChampion);
   const initialY = champion.y;
 
   step(game, FRAME);
-  step(control, FRAME);
   assert.ok(champion.y - initialY >= 8, "champions lost the initial slam kick");
   assert.equal(bossSlamRecoil(game, champion), 1);
   for (let frame = 0; frame < 21; frame++) {
     step(game, FRAME);
-    step(control, FRAME);
   }
 
-  const relative = champion.y - controlChampion.y;
-  assert.ok(relative >= 10 && relative <= 13, `champion recoil was ${relative}px instead of about 12px`);
+  const displacement = champion.y - initialY;
+  assert.ok(displacement >= 10 && displacement <= 13, `champion recoil was ${displacement}px instead of about 12px`);
   assert.equal(champion.dead, false);
   assert.equal(champion.hp, 14);
   assert.equal(bossSlamRecoil(game, champion), 0);

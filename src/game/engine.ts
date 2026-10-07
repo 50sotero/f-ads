@@ -511,13 +511,7 @@ function applyShieldBraceFatigue(game: Game, guards: Set<Unit>, dt: number) {
   }
 }
 
-/**
- * Returns the current normalized impact envelope for a unit hit by the active
- * boss slam. The map is deliberately external to Unit so the shared crowd
- * objects keep their hot-loop shape. It is read-only here: decay is advanced
- * by the simulation using `dt`, never by renderer wall-clock time.
- */
-export function bossSlamRecoil(game: Game, unit: Unit) {
+function activeBossSlamRecoilState(game: Game, unit: Unit) {
   const assault = game.assault;
   const config = game.level.assault;
   if (
@@ -527,15 +521,27 @@ export function bossSlamRecoil(game: Game, unit: Unit) {
     || !config.slamEvery
     || game.status !== "playing"
     || assault.phase !== "battle"
-  ) return 0;
+    || unit.dead
+  ) return null;
   const state = bossSlamRecoilStates.get(unit);
   if (
-    unit.dead
-    || !state
+    !state
     || state.owner !== game
     || state.assault !== assault
     || state.encounter !== assault.encounter
-  ) return 0;
+  ) return null;
+  return state;
+}
+
+/**
+ * Returns the current normalized impact envelope for a unit hit by the active
+ * boss slam. The map is deliberately external to Unit so the shared crowd
+ * objects keep their hot-loop shape. It is read-only here: decay is advanced
+ * by the simulation using `dt`, never by renderer wall-clock time.
+ */
+export function bossSlamRecoil(game: Game, unit: Unit) {
+  const state = activeBossSlamRecoilState(game, unit);
+  if (!state) return 0;
   const envelope = Math.exp(-ASSAULT_BOSS_SLAM_DECAY * state.elapsed);
   return Math.max(0, Math.min(1, (envelope - ASSAULT_BOSS_SLAM_END_ENVELOPE) / ASSAULT_BOSS_SLAM_DECAY_NORMALIZER));
 }
@@ -1894,25 +1900,9 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1, owner: Ass
 }
 
 /** Applies one frame of a live boss-slam tail after ordinary crowd motion. */
-function applyAssaultBossSlamRecoil(g: Game, u: Unit, dt: number) {
-  const assault = g.assault;
-  const config = g.level.assault;
-  if (
-    !assault
-    || !config
-    || config.practice
-    || !config.slamEvery
-    || g.status !== "playing"
-    || assault.phase !== "battle"
-  ) return;
-  const state = bossSlamRecoilStates.get(u);
-  if (
-    u.dead
-    || !state
-    || state.owner !== g
-    || state.assault !== assault
-    || state.encounter !== assault.encounter
-  ) return;
+function applyAssaultBossSlamRecoil(g: Game, u: Unit, dt: number, state = activeBossSlamRecoilState(g, u)) {
+  if (!state || u.dead) return;
+  const assault = g.assault!;
   // The initial kick is intentionally visible for a complete frame. Starting
   // the tail on the next frame preserves the old >=8px one-step slam motion.
   if (assault.motionFrame <= state.startFrame) return;
@@ -2119,6 +2109,12 @@ function updateAssaultBlue(g: Game, dt: number) {
         else dy = 0;
       }
     }
+    const activeSlamRecoil = activeBossSlamRecoilState(g, u);
+    // The recoil is a visible reversal in world space. Hold only ordinary
+    // forward travel while its positive tail is active; lateral flow and the
+    // collision-aware recoil move still run normally. Forward travel resumes
+    // on the first frame after the state expires.
+    if (activeSlamRecoil && dy < 0) dy = 0;
     const prevY = u.y;
     move(g, u, dy, dt);
 
@@ -2151,7 +2147,7 @@ function updateAssaultBlue(g: Game, dt: number) {
         g.stats.multiplied++;
       }
     }
-    applyAssaultBossSlamRecoil(g, u, dt);
+    applyAssaultBossSlamRecoil(g, u, dt, activeSlamRecoil);
     if (u.dead) continue;
     if (!u.big && hitsSpinner(g, u)) {
       u.dead = true;
@@ -2322,7 +2318,7 @@ function updateAssaultBossSlam(g: Game, dt: number) {
       });
       // Preserve the original immediate shove. The longer tail is applied
       // after ordinary movement on following frames, so the boss clamp cannot
-      // erase the visible reversal and a target never receives a lethal hit.
+      // erase the visible reversal and the slam itself never changes hp.
       const maxY = CANNON_Y - u.r - 2;
       const kick = Math.max(0, Math.min(ASSAULT_BOSS_SLAM_INITIAL_KICK, maxY - u.y));
       if (kick > 0) move(g, u, kick, 0);
