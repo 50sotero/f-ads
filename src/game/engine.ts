@@ -213,6 +213,8 @@ export type AssaultState = {
   breachFlash: number;
   /** Total defenders that have touched the line during this run. */
   breaches: number;
+  /** Per-game simulation frame used to cadence crowd motion intents. */
+  motionFrame: number;
 };
 
 export type Status = "playing" | "won" | "lost";
@@ -365,6 +367,7 @@ function makeAssaultState(level: Level): AssaultState {
     maxIntegrity: 3,
     breachFlash: 0,
     breaches: 0,
+    motionFrame: 0,
   };
 }
 
@@ -1242,10 +1245,14 @@ let assaultMotionUnitCols = new Int16Array(MAX_UNITS);
 // every 60 Hz. WeakMap identity keys keep eligibility stable across array
 // compaction and make a newly created unit refresh on its first observation.
 const ASSAULT_MOTION_REFRESH_FRAMES = 2;
-type AssaultMotionIntent = { forward: number; lateral: number; direction: -1 | 1; nextRefreshFrame: number };
+type AssaultMotionIntent = {
+  forward: number;
+  lateral: number;
+  direction: -1 | 1;
+  nextRefreshFrame: number;
+  owner: AssaultState;
+};
 const assaultMotionIntentCache = new WeakMap<Unit, AssaultMotionIntent>();
-let assaultMotionFrame = 0;
-let assaultMotionIntentSerial = 0;
 const ASSAULT_RED_SPEED_SCALE = 0.85;
 const ASSAULT_BOSS_W = 140;
 const ASSAULT_CORRIDOR_HALF = 72;
@@ -1473,7 +1480,22 @@ function updateAssaultGateOverruns(g: Game) {
  * (+y) formations. No position is edited here, so the result cannot move a
  * unit backward.
  */
-function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1) {
+function assaultMotionPhase(unit: Unit, forwardDirection: -1 | 1) {
+  // The initial stagger is derived from stable spawn properties instead of a
+  // process-global counter. This keeps the same unit on the same phase when a
+  // separate game is simulated before this one, including when a Unit object
+  // is deliberately reused by a fixture.
+  const seed = Math.floor(unit.x * 17)
+    + Math.floor(unit.y * 13)
+    + Math.floor((unit.pace ?? 1) * 100)
+    + Math.floor((unit.lane ?? 0) * 7)
+    + (unit.big ? 11 : 0)
+    + (unit.kind === "guard" ? 3 : unit.kind === "brute" ? 5 : 0)
+    + (forwardDirection === -1 ? 0 : 1);
+  return seed & 1;
+}
+
+function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1, owner: AssaultState) {
   if (units.length > assaultMotionForward.length) {
     const size = Math.max(units.length, assaultMotionForward.length * 2);
     assaultMotionForward = new Float32Array(size);
@@ -1481,18 +1503,12 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1) {
     assaultMotionUnitRows = new Int16Array(size);
     assaultMotionUnitCols = new Int16Array(size);
   }
-  // Blue is updated before red each simulation frame. Advance the shared
-  // cadence once at that boundary so both crowds use the same refresh clock;
-  // a missing identity always forces an immediate refresh.
-  if (forwardDirection === -1) {
-    assaultMotionFrame++;
-  }
-  const frame = assaultMotionFrame;
+  const frame = owner.motionFrame;
   let refresh = false;
   for (const unit of units) {
     if (unit.dead) continue;
     const intent = assaultMotionIntentCache.get(unit);
-    if (!intent || intent.direction !== forwardDirection || intent.nextRefreshFrame <= frame) {
+    if (!intent || intent.owner !== owner || intent.direction !== forwardDirection || intent.nextRefreshFrame <= frame) {
       refresh = true;
       break;
     }
@@ -1545,7 +1561,10 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1) {
     const unit = units[i];
     if (unit.dead) continue;
     const cachedIntent = assaultMotionIntentCache.get(unit);
-    if (cachedIntent && cachedIntent.direction === forwardDirection && cachedIntent.nextRefreshFrame > frame) {
+    if (cachedIntent
+      && cachedIntent.owner === owner
+      && cachedIntent.direction === forwardDirection
+      && cachedIntent.nextRefreshFrame > frame) {
       assaultMotionForward[i] = cachedIntent.forward;
       assaultMotionLateral[i] = cachedIntent.lateral;
       continue;
@@ -1623,22 +1642,33 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1) {
     const crowdFactor = Math.min(1, neighbourCount / 6);
     const lateral = Math.max(-2.2, Math.min(2.2, sideForce)) * ASSAULT_LATERAL_ACCEL * crowdFactor;
     assaultMotionLateral[i] = lateral;
-    if (cachedIntent) {
+    const sameOwner = cachedIntent?.owner === owner && cachedIntent.direction === forwardDirection;
+    if (sameOwner) {
       cachedIntent.forward = assaultMotionForward[i];
       cachedIntent.lateral = lateral;
       cachedIntent.direction = forwardDirection;
+      cachedIntent.owner = owner;
       cachedIntent.nextRefreshFrame = frame + ASSAULT_MOTION_REFRESH_FRAMES;
     } else {
       // The first pass is immediate for every new identity. Its next refresh
       // gets a stable one-frame phase so initial crowds and later spawns do
       // not all create the same-frame physics spike.
-      const firstGap = 1 + (assaultMotionIntentSerial++ & 1);
-      assaultMotionIntentCache.set(unit, {
-        forward: assaultMotionForward[i],
-        lateral,
-        direction: forwardDirection,
-        nextRefreshFrame: frame + firstGap,
-      });
+      const firstGap = 1 + assaultMotionPhase(unit, forwardDirection);
+      if (cachedIntent) {
+        cachedIntent.forward = assaultMotionForward[i];
+        cachedIntent.lateral = lateral;
+        cachedIntent.direction = forwardDirection;
+        cachedIntent.owner = owner;
+        cachedIntent.nextRefreshFrame = frame + firstGap;
+      } else {
+        assaultMotionIntentCache.set(unit, {
+          forward: assaultMotionForward[i],
+          lateral,
+          direction: forwardDirection,
+          nextRefreshFrame: frame + firstGap,
+          owner,
+        });
+      }
     }
   }
   return { forward: assaultMotionForward, lateral: assaultMotionLateral };
@@ -1649,7 +1679,7 @@ function updateAssaultBlue(g: Game, dt: number) {
   const active = g.bases[assault.encounter];
   const spawned: Unit[] = [];
   if (assault.phase === "counterattack") prepareAssaultCounterattackTargets(g.red);
-  const assaultMotion = assaultForwardSlots(g.blue, -1);
+  const assaultMotion = assaultForwardSlots(g.blue, -1, assault);
   const lastGateY = g.gates.length ? Math.min(...g.gates.map((gate) => gate.y)) : active.y + active.h / 2 + 48;
   let counterApproachY = Infinity;
   if (assault.phase === "counterattack") {
@@ -1863,7 +1893,7 @@ function updateAssaultRed(g: Game, dt: number) {
     }
   }
   const active = g.bases[assault.encounter];
-  const assaultMotion = assaultForwardSlots(g.red, 1);
+  const assaultMotion = assaultForwardSlots(g.red, 1, assault);
   const surgeSpeed = surgeActive(g.level, g.t) ? 1 + Math.max(0, g.level.surge?.strength ?? 0) : 1;
   for (let redIndex = 0; redIndex < g.red.length; redIndex++) {
     const u = g.red[redIndex];
@@ -2096,6 +2126,7 @@ function stepAssault(g: Game, dt: number) {
     return;
   }
   g.t += dt;
+  assault.motionFrame++;
   updateAssaultCannon(g, dt);
   updateAssaultGatesAndSpinners(g, dt);
   updateAssaultPickups(g, dt);
