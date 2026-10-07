@@ -105,6 +105,8 @@ export type Unit = {
   pace?: number;
   /** Counterattack role; legacy/custom assault units default to runner/brute. */
   kind?: AssaultWaveKind;
+  /** Stable outer-flank target for a late counterattack runner. */
+  breakawayTargetX?: number;
   /** Starting row for the smooth road-to-road advance. */
   advanceFromY?: number;
 };
@@ -613,6 +615,19 @@ function counterattackWaveSize(config: AssaultCounterattackDef | undefined, wave
   return plan.runners + plan.guards + plan.brutes;
 }
 
+/**
+ * Gives a late counterattack runner a readable, local sidestep. The target is
+ * derived at spawn time from its authored wave lane and x position so a later
+ * wave cannot silently retarget runners from an earlier one.
+ */
+function counterattackBreakawayTarget(centerX: number, lane: -1 | 0 | 1, x: number, spawnIndex: number) {
+  const direction = lane === 0
+    ? (x < centerX - 2 ? -1 : x > centerX + 2 ? 1 : spawnIndex % 2 === 0 ? -1 : 1)
+    : lane;
+  const offset = Math.min(88, Math.max(70, Math.abs(x - centerX) + 36));
+  return Math.max(18, Math.min(W - 18, centerX + direction * offset));
+}
+
 function refreshAssaultRemaining(g: Game) {
   const assault = g.assault;
   if (!assault) return;
@@ -655,7 +670,11 @@ function spawnCounterattackWave(g: Game, waveIndex: number) {
     const column = i % columns;
     const x = Math.max(10, Math.min(W - 10, center - 29 + column * spacing + (g.rand() - 0.5) * 2.5));
     const y = spawnY - row * 8.5 - g.rand() * 2.4;
-    g.red.push(makeAssaultEnemy(g, x, y, kind === "brute", lane * 2 + column - Math.floor(columns / 2), kind));
+    const enemy = makeAssaultEnemy(g, x, y, kind === "brute", lane * 2 + column - Math.floor(columns / 2), kind);
+    if (kind === "runner" && !g.level.assault?.practice && assault.encounter > 0 && g.level.assault?.slamEvery !== undefined) {
+      enemy.breakawayTargetX = counterattackBreakawayTarget(center, lane, x, i);
+    }
+    g.red.push(enemy);
     spawned++;
   }
   assault.waveSpawned += spawned;
@@ -1271,6 +1290,8 @@ const ASSAULT_COUNTER_STAGING_GAP = 24;
 const ASSAULT_COUNTER_STEER_SPEED = 100;
 const ASSAULT_COUNTER_STEER_ACCEL = 240;
 const ASSAULT_COUNTER_REVERSE_SPEED = 42;
+const ASSAULT_BREAKAWAY_SPEED = 96;
+const ASSAULT_BREAKAWAY_ACCEL = 260;
 const ASSAULT_RED_REAR_PRESSURE_START = 50;
 const ASSAULT_RED_REAR_PRESSURE_END = 200;
 const ASSAULT_RED_REAR_CORRIDOR_HALF = 124;
@@ -1404,6 +1425,15 @@ function applyAssaultCounterattackGuidance(u: Unit, target: Unit, dt: number) {
   const current = u.vx;
   const maxDelta = ASSAULT_COUNTER_STEER_ACCEL * dt;
   u.vx = current + Math.max(-maxDelta, Math.min(maxDelta, desired - current));
+}
+
+/** Gives late counterattack runners a small, committed sidestep toward their own flank. */
+function applyAssaultRunnerBreakaway(u: Unit, dt: number) {
+  if (u.breakawayTargetX === undefined) return;
+  const offset = u.breakawayTargetX - u.x;
+  const desired = Math.max(-ASSAULT_BREAKAWAY_SPEED, Math.min(ASSAULT_BREAKAWAY_SPEED, offset * 2.4));
+  const maxDelta = ASSAULT_BREAKAWAY_ACCEL * dt;
+  u.vx += Math.max(-maxDelta, Math.min(maxDelta, desired - u.vx));
 }
 
 /**
@@ -1912,6 +1942,7 @@ function updateAssaultRed(g: Game, dt: number) {
         + (ASSAULT_RED_REAR_CORRIDOR_HALF - ASSAULT_CORRIDOR_HALF) * rearProgress;
       applyAssaultCorridorPressure(u, active.x, dt, rearCorridorHalf);
     }
+    if (assault.phase === "counterattack" && u.kind === "runner") applyAssaultRunnerBreakaway(u, dt);
     const roleSpeed = u.kind === "runner" ? 1.3 : u.kind === "guard" ? 0.84 : 1;
     move(g, u, config.speed * surgeSpeed * ASSAULT_RED_SPEED_SCALE * (u.big ? 0.74 : 1) * roleSpeed * (u.pace ?? 1) * assaultMotion.forward[redIndex] * dt, dt);
     if (!u.big && hitsSpinner(g, u)) {
