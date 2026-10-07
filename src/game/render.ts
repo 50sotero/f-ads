@@ -470,6 +470,13 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const enemies = new THREE.InstancedMesh(geo(mobGeometry.clone()), enemyMaterial, 1600);
   const guards = new THREE.InstancedMesh(geo(createGuardGeometry()), crowdMaterial(0xe72a55), 1600);
   const regularUnits: Unit[] = [], guardUnits: Unit[] = [];
+  type UploadRange = { start: number; count: number };
+  const queueUpdate = (attribute: THREE.BufferAttribute, range: UploadRange, start: number, count: number) => {
+    if (count <= 0) return;
+    range.start = start; range.count = count;
+    if (attribute.updateRanges.length === 0) attribute.updateRanges.push(range);
+    attribute.needsUpdate = true;
+  };
   type Fallen = { x: number; z: number; travel: number; side: number; angle: number; life: number; size: number; color: THREE.Color };
   const fallen: Fallen[] = [], previousUnits: Unit[] = [];
   const fallenMesh = new THREE.InstancedMesh(geo(mobGeometry.clone()), crowdMaterial(0xffffff), 96);
@@ -489,6 +496,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   for (const object of [friends, enemies, guards]) {
     object.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(object.instanceMatrix.count * 3), 3).setUsage(THREE.DynamicDrawUsage);
   }
+  const friendMatrixRange: UploadRange = { start: 0, count: 0 }, enemyMatrixRange: UploadRange = { start: 0, count: 0 }, guardMatrixRange: UploadRange = { start: 0, count: 0 };
+  const friendMotionRange: UploadRange = { start: 0, count: 0 }, enemyMotionRange: UploadRange = { start: 0, count: 0 }, guardMotionRange: UploadRange = { start: 0, count: 0 };
+  const friendColorRange: UploadRange = { start: 0, count: 0 }, enemyColorRange: UploadRange = { start: 0, count: 0 }, guardColorRange: UploadRange = { start: 0, count: 0 };
   const shadowSource = document.createElement("canvas"); shadowSource.width = shadowSource.height = 32;
   const shadowContext = shadowSource.getContext("2d")!;
   const shadowGradient = shadowContext.createRadialGradient(16, 16, 2, 16, 16, 16);
@@ -499,6 +509,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const shadowGeometry = geo(new THREE.PlaneGeometry(1, 1)); shadowGeometry.rotateX(-Math.PI / 2);
   const shadows = new THREE.InstancedMesh(shadowGeometry, shadowMaterial, MAX_UNITS + 1632); shadows.frustumCulled = false; stage.add(shadows);
   shadows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  const shadowMatrixRange: UploadRange = { start: 0, count: 0 };
   const dummy = new THREE.Object3D();
   const unitWhite = new THREE.Color(0xffffff), blueChampion = new THREE.Color(0xa8f4ff);
   const redSoldier = new THREE.Color(RED), redBrute = new THREE.Color(0xc81a4b), redRunner = new THREE.Color(0xff7135);
@@ -506,15 +517,17 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   let unitSequence = 0;
   let shadowCount = 0;
   let hasRenderedUnits = false;
-  function drawUnits(units: Unit[], object: THREE.InstancedMesh, enemy: boolean, entry: number, colorKeys: Int8Array) {
+  function drawUnits(units: Unit[], object: THREE.InstancedMesh, enemy: boolean, entry: number, colorKeys: Int8Array, matrixRange: UploadRange, motionRange: UploadRange, colorRange: UploadRange) {
     const count = Math.min(units.length, object.instanceMatrix.count); object.count = count;
     // At the crowd cap, slightly smaller ordinary runners keep the spaces
     // between heads readable. Champions and opponents retain their silhouette.
     const crowdScale = enemy ? 1 : 1 - Math.min(1, Math.max(0, (count - 600) / 300)) * 0.13;
     const runMotion = object.geometry.getAttribute("runMotion") as THREE.InstancedBufferAttribute;
+    const runMotionArray = runMotion.array;
     const matrices = object.instanceMatrix.array, shadowMatrices = shadows.instanceMatrix.array;
     const colors = object.instanceColor!.array;
     let colorsDirty = false;
+    let colorStart = count, colorEnd = -1;
     const time = currentGame?.t ?? 0;
     const boss = currentGame?.bases[currentGame.assault?.encounter ?? 0];
     const front = currentGame?.assault?.frontline ?? boss?.y ?? 300;
@@ -522,7 +535,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const unit = units[i];
       const runner = enemy && unit.kind === "runner", guard = enemy && unit.kind === "guard";
       const size = unit.big ? (enemy ? 1.9 : 2.1) : guard ? 1.18 : enemy ? 0.99 : 1.2 * crowdScale;
-      const z = wz(unit.y) - (enemy ? entry : 0);
+      const unitWorldZ = wz(unit.y), z = unitWorldZ - (enemy ? entry : 0), unitCurve = curve(z);
       let state = motion.get(unit);
       if (!state) {
         state = {
@@ -541,8 +554,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       state.glow = Math.max(0, state.glow - elapsed * 4);
       if (!enemy && unit.used !== state.used) { state.glow = 1; state.used = unit.used; }
       if (elapsed > 0) {
-        const dx = (unit.x - state.x) * SX + curve(z) - curve(wz(state.y));
-        const dz = wz(unit.y) - wz(state.y) - (travel - state.travel);
+        const stateWorldZ = wz(state.y);
+        const dx = (unit.x - state.x) * SX + unitCurve - curve(stateWorldZ);
+        const dz = unitWorldZ - stateWorldZ - (travel - state.travel);
         const speed = Math.sqrt(dx * dx + dz * dz) / elapsed;
         if (speed > 0.8) {
           const target = Math.atan2(-dx, -dz);
@@ -557,13 +571,15 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       }
       state.x = unit.x; state.y = unit.y; state.travel = travel; state.time = time;
       const fighting = shotFlight === 0 && state.run < 0.55 && (Math.abs(unit.y - front) < 32 || !!boss && Math.abs(unit.y - boss.y - boss.h / 2) < 25) ? (0.55 - state.run) / 0.55 : 0;
-      runMotion.setXYZW(i, state.phase, shotFlight > 0 ? 0.15 : state.run, fighting, state.glow);
+      const motionOffset = i * 4;
+      runMotionArray[motionOffset] = state.phase; runMotionArray[motionOffset + 1] = shotFlight > 0 ? 0.15 : state.run;
+      runMotionArray[motionOffset + 2] = fighting; runMotionArray[motionOffset + 3] = state.glow;
       const landing = flight >= 1 ? Math.max(0, 1 - (time - state.launchedAt - 0.34) / 0.12) : 0;
       const pitch = shotFlight > 0 ? -0.42 * Math.sin(flight * Math.PI) : (runner ? -0.26 : -0.14) * state.run;
       const cy = Math.cos(state.angle), sy = Math.sin(state.angle), cp = Math.cos(pitch), sp = Math.sin(pitch);
       const popScale = 1 + Math.sin(state.glow * Math.PI) * 0.18;
       const sx = size * (1 + landing * 0.1) * popScale * (runner ? 0.83 : 1), syScale = size * (1 - landing * 0.16) * popScale * (runner ? 1.08 : 1);
-      const x = wx(unit.x) + curve(z), offset = i * 16;
+      const x = wx(unit.x) + unitCurve, offset = i * 16;
       // Compose yaw × forward lean directly into the instance buffer. Avoid
       // thousands of Object3D Euler/quaternion callbacks per crowded frame.
       matrices[offset] = cy * sx; matrices[offset + 1] = 0; matrices[offset + 2] = -sy * sx; matrices[offset + 3] = 0;
@@ -577,6 +593,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         colors[colorOffset] = tint.r; colors[colorOffset + 1] = tint.g; colors[colorOffset + 2] = tint.b;
         colorKeys[i] = tintKey;
         colorsDirty = true;
+        colorStart = Math.min(colorStart, i); colorEnd = i;
       }
       const shadowOffset = shadowCount++ * 16;
       // Contact shadows remain axis aligned; all other entries retain the
@@ -584,9 +601,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       shadowMatrices[shadowOffset] = size * 1.5; shadowMatrices[shadowOffset + 10] = size * 1.1;
       shadowMatrices[shadowOffset + 12] = x + 0.34 * size; shadowMatrices[shadowOffset + 13] = 0.025; shadowMatrices[shadowOffset + 14] = z + 0.19 * size;
     }
-    object.instanceMatrix.needsUpdate = true;
-    runMotion.needsUpdate = true;
-    if (colorsDirty) object.instanceColor!.needsUpdate = true;
+    queueUpdate(object.instanceMatrix, matrixRange, 0, count * 16);
+    queueUpdate(runMotion, motionRange, 0, count * 4);
+    if (colorsDirty) queueUpdate(object.instanceColor!, colorRange, colorStart * 3, (colorEnd - colorStart + 1) * 3);
   }
 
   const impactCanvas = document.createElement("canvas"); impactCanvas.width = impactCanvas.height = 256;
@@ -968,9 +985,12 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     previousUnits.push(...game.blue, ...game.red);
     regularUnits.length = guardUnits.length = 0;
     for (const unit of game.red) (unit.kind === "guard" ? guardUnits : regularUnits).push(unit);
-    shadowCount = 0; drawUnits(game.blue, friends, false, 0, friendColorKeys); drawUnits(regularUnits, enemies, true, entry, enemyColorKeys); drawUnits(guardUnits, guards, true, entry, guardColorKeys);
+    shadowCount = 0;
+    drawUnits(game.blue, friends, false, 0, friendColorKeys, friendMatrixRange, friendMotionRange, friendColorRange);
+    drawUnits(regularUnits, enemies, true, entry, enemyColorKeys, enemyMatrixRange, enemyMotionRange, enemyColorRange);
+    drawUnits(guardUnits, guards, true, entry, guardColorKeys, guardMatrixRange, guardMotionRange, guardColorRange);
     hasRenderedUnits = true;
-    shadows.count = shadowCount; shadows.instanceMatrix.needsUpdate = true;
+    shadows.count = shadowCount; queueUpdate(shadows.instanceMatrix, shadowMatrixRange, 0, shadowCount * 16);
     // Uncommitted reserves break formation with staggered, individual motion.
     // The counterattack itself always consists of real simulated opponents.
     const retreat = counterattack ? Math.min(4, game.t - counterattackAt) : 0;
