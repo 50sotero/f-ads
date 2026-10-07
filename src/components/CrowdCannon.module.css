@@ -412,6 +412,7 @@
 .playButton { margin-top: 12px; }
 
 .levelHeader { display: flex; justify-content: space-between; margin: 16px 1px 8px; color: #b4dfe2; }
+.routeUnlockHint { margin: 0 1px 9px; color: #c7dbef; font-size: 11px; line-height: 1.3; }
 .levelGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .levelButton { position: relative; display: flex; min-width: 0; min-height: 70px; gap: 3px; flex-direction: column; align-items: center; justify-content: center; padding: 7px 3px; overflow: hidden; border-radius: 13px; font-family: "Fredoka", sans-serif; transition: transform 120ms ease, filter 120ms ease; }
 .levelButton:hover:not(:disabled), .levelButton:focus-visible { outline: none; transform: translateY(-2px); }
@@ -449,6 +450,14 @@
 .winPanel { padding-top: 23px; }
 .resultBadge { display: inline-flex; align-items: center; min-height: 24px; padding: 5px 10px; border-radius: 999px; background: rgba(118, 235, 203, 0.18); color: #98f1d5; font-size: 9px; }
 .loseBadge { background: rgba(255, 122, 139, 0.2); color: #ffadb7; }
+.loseOverlay { align-items: flex-start; padding-top: max(18px, 6vh); background: radial-gradient(ellipse at 50% 80%, #251b3544, #0d1427db); backdrop-filter: saturate(.6); }
+.losePanel { position: relative; border-color: #ff829766; background: linear-gradient(155deg, #412a49ed, #16213df5); box-shadow: 0 20px 70px #070e25aa, 0 0 70px #ff284c22; }
+.losePanel h2 { margin: 4px 0 13px; color: #fff0e3; font-size: 56px; text-transform: uppercase; transform: rotate(-3deg); text-shadow: 0 4px #b64764, 0 7px #261936; }
+.brokenShield { width: 105px; height: 98px; margin: 12px auto 3px; filter: drop-shadow(0 8px 8px #170e3288); }
+.losePanel .primaryAction { background: linear-gradient(#ffb35e, #f47153); border-color: #ffdbaf; box-shadow: 0 5px #9a3850; text-shadow: 0 2px #a84738; }
+.defeatEmbers { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.defeatEmbers i { position: absolute; top: -10px; width: 3px; height: 12px; border-radius: 50%; background: #ffc68a; box-shadow: 0 0 9px #ff7256; animation: emberFall 3s linear infinite; opacity: .6; }
+@keyframes emberFall { from { transform: translate(10px, -20px) rotate(-30deg); opacity: 0; } 20% { opacity: .7; } to { transform: translate(-120px, 105vh) rotate(-30deg); opacity: 0; } }
 .resultStars { justify-content: center; margin-top: 15px; font-size: 37px; }
 .resultTime { display: block; margin-top: 6px; color: #afd1d7; font-size: 12px; font-weight: 600; }
 .trainingRecap { display: grid; gap: 11px; margin-top: 20px; text-align: left; list-style: none; font-size: 13px; color: #c3e5e8; }
@@ -469,6 +478,9 @@
 .armoryPanel .modalKicker { margin-top: 21px; text-align: center; font-size: 9px; letter-spacing: .12em; color: #7ddcff; }
 .armoryPanel h2 { margin: 5px 0; text-align: center; font-size: 40px; line-height: 1; color: #ffdf74; text-shadow: 0 3px #856234; }
 .armoryCredits { font-size: 21px; }
+.earningGuide { display: grid; gap: 6px; padding: 10px; border: 1px solid #ffe19e55; border-radius: 12px; background: #c69a4d12; color: #cee7f4; font-size: 12px; line-height: 1.45; text-align: center; }
+.earningGuide strong { color: #ffe39b; font-size: 10px; letter-spacing: .06em; }
+.earningGuide b { color: #ffe39b; }
 .loadoutSummary { display: grid; gap: 5px; margin: 16px 0; padding: 12px; background: #10223e88; border-radius: 12px; font-size: 8px; letter-spacing: .12em; color: #8eb1d8; text-align: center; }
 .loadoutSummary strong { color: #e4f6ff; font-size: 12px; letter-spacing: 0; }
 .upgradeList { display: grid; gap: 12px; }
@@ -559,5 +571,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .menuPanel, .modalPanel, .tip, .upgradeFlash, .starReveal, .championReady { animation: none; }
-  .confetti { display: none; }
+  .confetti, .defeatEmbers { display: none; }
 }

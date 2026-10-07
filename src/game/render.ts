@@ -342,7 +342,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const chevronShape = new THREE.Shape();
   chevronShape.moveTo(-0.7, 0); chevronShape.lineTo(0, 0.65); chevronShape.lineTo(0.7, 0);
   chevronShape.lineTo(0.7, -0.35); chevronShape.lineTo(0, 0.3); chevronShape.lineTo(-0.7, -0.35); chevronShape.closePath();
-  const chevronGeometry = geo(new THREE.ShapeGeometry(chevronShape).rotateX(Math.PI / 2));
+  const chevronGeometry = geo(new THREE.ShapeGeometry(chevronShape).rotateX(-Math.PI / 2).rotateY(Math.PI));
   const flankArrows = [0, 1, 2].map((i) => {
     const arrow = mesh(flankWarning, chevronGeometry, flankMaterial, 0, 0.065, 2.2 + i * 1.25, 1, 1, 1);
     arrow.castShadow = false; return arrow;
@@ -352,6 +352,11 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const defenseMaterial = basic(0x6ef3e4, { transparent: true, opacity: 0.82 });
   const defense = new THREE.Group(); stage.add(defense);
   const defenseZ = wz(DEFENSE_Y);
+  const laneGuideMaterial = basic(0xffb65c, { transparent: true, opacity: 0.4, depthTest: false, depthWrite: false });
+  const laneGuide = new THREE.InstancedMesh(chevronGeometry, laneGuideMaterial, 12);
+  laneGuide.instanceMatrix.setUsage(THREE.DynamicDrawUsage); laneGuide.frustumCulled = false; laneGuide.renderOrder = 3; stage.add(laneGuide);
+  const laneBeacon = box(stage, laneGuideMaterial, 0, 0.055, defenseZ, 3.2, 0.02, 0.5); laneBeacon.castShadow = false; laneBeacon.renderOrder = 3;
+  let guideX = W / 2;
   for (let i = 0; i < 24; i++) {
     box(defense, defenseMaterial, -9 + i * 0.78, 0.038, defenseZ, 0.46, 0.025, 0.18).castShadow = false;
   }
@@ -585,7 +590,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const value = tags[tagCursor++ % tags.length]; value.write(text, fill); value.age = 0; value.y = 2.8; value.sprite.position.set(x, value.y, z);
   }
   const seenPops = new WeakSet<object>();
-  let currentGame: Game | null = null, shot = 0, shake = 0, previousTier = 1, previousWeapon = 1, winAt = -1, reserveInitialized = 0, previousTravel = -1;
+  let currentGame: Game | null = null, shot = 0, shake = 0, previousTier = 1, previousWeapon = 1, winAt = -1, lostAt = -1, reserveInitialized = 0, previousTravel = -1;
   let previousStatus = "playing", frameTime = 0, shadowAt = 0, previousPulse = 0, wasRushing = false, previousBreaches = 0;
   let previousPhase = "battle", previousWave = 0, previousWaveLane = 0, counterattackAt = -99, retreatCount = 0, retreatZ = -57;
   let reserveAnchor = NaN;
@@ -665,7 +670,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       sand.color.setHex(palette.ground); rock.color.setHex(palette.rock);
       foliage.forEach((material, index) => material.color.setHex(palette.trees[index]));
       bridges.visible = theme === "bridge"; dividers.visible = game.gates.every((gate) => gate.kind === "x" && Math.abs(gate.x - 180) < 15); bendGeometry(worldBends); bendGeometry(stageBends, -travel); previousTravel = travel;
-      previousStatus = "playing"; winAt = -1;
+      previousStatus = "playing"; winAt = lostAt = -1; guideX = W / 2;
       fortress.position.set(0, 0, -35); fortress.rotation.set(0, 0, 0); previousBreaches = 0;
       previousPulse = 0; wasRushing = false;
       previousPhase = game.assault?.phase ?? "battle"; previousWave = game.assault?.wave ?? 0; previousWaveLane = game.assault?.waveLane ?? 0; counterattackAt = -99; retreatCount = 0; reserveAnchor = NaN;
@@ -686,6 +691,13 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const activeBoss = game.bases[encounter];
     const counterattack = assault?.phase === "counterattack";
     const danger = game.red.length > 0 ? Math.max(0, Math.min(1, ((assault?.frontline ?? 0) - 490) / (DEFENSE_Y - 490))) : 0;
+    if (game.status === "lost" && previousStatus !== "lost") {
+      lostAt = frameTime; shake = 1.5;
+      burst(wx(game.cannonX) + curve(0), 0.8, 0, 0xff8862, 50, 2.1);
+      burst(wx(game.cannonX) + curve(0), 0.6, 0, 0x657386, 30, 1.6);
+      ring(wx(game.cannonX) + curve(0), 0, 0xff5470, 5);
+    }
+    const wreck = lostAt < 0 ? 0 : Math.min(1, (frameTime - lostAt) / 0.7);
     if ((assault?.breaches ?? 0) > previousBreaches) {
       previousBreaches = assault?.breaches ?? 0;
       burst(wx(game.cannonX), 0.5, defenseZ, 0xff4267, 35, 1.2); shake = 1.15;
@@ -730,6 +742,23 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     }
     previousPhase = assault?.phase ?? "battle";
     const waveWarning = assault?.waveWarning ?? 0;
+    laneGuide.visible = laneBeacon.visible = counterattack && game.red.length > 0 && game.status === "playing";
+    if (laneGuide.visible) {
+      let nearest = game.red[0];
+      for (const unit of game.red) if (unit.y > nearest.y) nearest = unit;
+      const targetX = waveWarning > 0 ? (activeBoss?.x ?? W / 2) + (assault?.waveLane ?? 0) * 105 : nearest.x;
+      guideX += (targetX - guideX) * Math.min(1, dt * 6);
+      const startZ = wz(waveWarning > 0 ? (activeBoss?.y ?? 419) - 60 : nearest.y);
+      for (let i = 0; i < 12; i++) {
+        const z = startZ + (defenseZ - startZ) * ((i + game.t * 2 % 1) / 12);
+        dummy.position.set(wx(guideX) + curve(z), 0.075, z); dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(0.9); dummy.updateMatrix();
+        laneGuide.setMatrixAt(i, dummy.matrix);
+      }
+      laneGuide.instanceMatrix.needsUpdate = true;
+      laneGuideMaterial.color.setHex(danger > 0.4 ? 0xff6171 : 0xffbe66);
+      laneGuideMaterial.opacity = waveWarning > 0 ? 0.56 : 0.32;
+      laneBeacon.position.x = wx(guideX) + curve(defenseZ);
+    }
     flankWarning.visible = counterattack && waveWarning > 0 && game.status === "playing";
     if (flankWarning.visible) {
       const laneX = (activeBoss?.x ?? W / 2) + (assault?.waveLane ?? 0) * 105;
@@ -797,7 +826,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       if (barrelFired) { value.recoil = 1; value.shots = shots; }
       const offset = barrelOffsets[i] ?? 0;
       const barrelZ = (barrelPositions[i]?.y ?? -12) * SZ;
-      value.group.position.set(wx(game.cannonX + offset) + curve(barrelZ), 0.02, barrelZ);
+      value.group.position.set(wx(game.cannonX + offset) + curve(barrelZ) + (i % 2 ? -1 : 1) * wreck * 0.28, 0.02 - wreck * 0.12, barrelZ);
+      value.group.rotation.set(wreck * 0.16, 0, (i % 2 ? -1 : 1) * wreck * 0.42);
+      value.barrel.rotation.x = wreck * 0.6;
       const pop = assault?.upgradeFlash ? Math.sin(Math.min(1, assault.upgradeFlash) * Math.PI) * 0.1 : 0;
       value.group.scale.set(1.22 + pop, 1.4 + pop, 1.62 + pop); value.barrel.position.z = -0.08 + value.recoil * 0.18;
       value.barrel.rotation.y = Math.asin(THREE.MathUtils.clamp((curve(0) - curve(wz(CANNON_Y - 22))) / 1.3585, -0.4, 0.4));
@@ -927,8 +958,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       else if (active && (assault?.advance ?? 0) > 0) x += waitingSide * (assault?.advance ?? 0);
       if (base.hp <= 0 && view.hp > 0) { view.deathX = view.art.group.position.x; view.deathZ = view.art.group.position.z; view.deathTravel = travel; }
       if (base.hp <= 0) { x = view.deathX; z = view.deathZ + travel - view.deathTravel; }
-      if (view.hp >= 0 && base.hp < view.hp && base.hp > 0 && game.t > view.damageAt + 0.12) {
-        burst(x, 2.4, z + 1.3, 0xffe074, 8, 1.1); view.damageAt = game.t; shake = Math.max(shake, 0.25);
+      if (view.hp >= 0 && base.hp < view.hp && base.hp > 0 && game.t > view.damageAt + 0.24) {
+        burst(x + (random() - 0.5) * 4.2, 1.1, z + 3.2, 0xfff7cf, 16, 1.6);
+        burst(x, 1.8, z + 2.8, 0xffd25b, 7, 1.3); view.damageAt = game.t; shake = Math.max(shake, 0.4);
       }
       if (base.hp <= 0 && view.hp > 0) {
         view.deadAt = frameTime;
@@ -941,10 +973,11 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const death = base.hp <= 0 ? Math.min(1, (frameTime - view.deadAt) / 0.85) : 0;
       view.art.group.visible = (active && base.hp > 0) || death < 1 && base.hp <= 0;
       view.label.sprite.visible = view.bar.visible = active && base.hp > 0;
-      view.art.group.position.set(x, -death * 2, z);
+      const hit = base.hp > 0 ? Math.max(base.hitFlash * 0.18, 1 - (game.t - view.damageAt) / 0.16, 0) : 0;
+      view.art.group.position.set(x, -death * 2, z - hit * 0.45);
       view.art.group.scale.setScalar((active ? 1.2 : 1.02) * (1 - death * 0.65));
       view.art.group.rotation.z = death * -1.3;
-      if (view.art.group.visible) view.art.animate(game.t + i * 2.3, base.hitFlash, active ? Math.max(warning, pulse) : 0);
+      if (view.art.group.visible) view.art.animate(game.t + i * 2.3, hit, active ? Math.max(warning, pulse) : 0);
       view.label.sprite.position.set(x, 6.05, z); view.label.sprite.scale.set(3.5, 1.15, 1);
       view.bar.position.set(x, 5.6, z); view.bar.scale.set(0.86, 0.65, 1);
       const fraction = Math.max(0, base.hp / base.maxHp); view.fill.scale.x = 5.15 * fraction; view.fill.position.x = -2.575 * (1 - fraction);

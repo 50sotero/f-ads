@@ -384,7 +384,7 @@ export function CrowdCannon() {
             setScreen("trained");
           }
         } else if (game.status !== "playing") {
-          endAt ||= now + 900;
+          endAt ||= now + (game.status === "lost" ? 1250 : 900);
           if (now >= endAt) finish(game);
         }
       } else {
@@ -704,6 +704,7 @@ export function CrowdCannon() {
             </div>
             <div className={styles.menuRoutes}>
             <div className={styles.levelHeader}><span>CHOOSE A ROUTE</span><span>{levels.length} ROUTES</span></div>
+            <p className={styles.routeUnlockHint}>{levels.every((_, index) => unlocked(index)) ? "All routes unlocked. Replay to earn more credits." : "Clear a route to unlock the next."}</p>
             <div className={styles.levelGrid}>
               {levels.map((item, index) => {
                 const open = unlocked(index);
@@ -719,13 +720,14 @@ export function CrowdCannon() {
       {screen === "armory" && <div className={`${styles.screenOverlay} ${styles.armoryOverlay}`} role="dialog" aria-modal="true" aria-labelledby="armory-title"><div className={`${styles.menuPanel} ${styles.armoryPanel}`}>
         <div className={styles.menuTopline}><button type="button" className={styles.homeLink} onClick={() => setScreen("menu")}>← Routes</button><span className={styles.armoryCredits}>◈ {save.credits.toLocaleString()}</span></div>
         <span className={styles.modalKicker}>BUILT FOR THE NEXT BATTLE</span><h2 id="armory-title">The Armory</h2><p className={styles.menuLead}>Permanent upgrades. Earn credits by clearing routes and improving your stars.</p>
+        <div className={styles.earningGuide}><strong>WIN BATTLES → BUILD FIREPOWER</strong><span>First clear <b>+150</b> · Each new star <b>+40</b><br />Replay any cleared route for <b>+35</b></span></div>
         <div className={styles.loadoutSummary}>EQUIPPED <strong>{loadout.tier} {loadout.tier === 1 ? "cannon" : "cannons"} · {weaponForLevel(loadout.weaponLevel).name} · {loadout.charge}/30 charge</strong></div>
         <div className={styles.upgradeList}>{UPGRADE_DEFS.map((item) => {
           const rank = save.upgrades[item.id], cost = item.costs[rank], maxed = rank === item.maxrank;
           const next = item.id === "crew" ? `Start with ${Math.min(3, rank + 2)} cannons` : item.id === "weapon" ? `Start with ${weaponForLevel(Math.min(3, rank + 2)).name}` : `Start with ${Math.min(30, (rank + 1) * 10)}/30 champion charge`;
           return <div className={styles.upgradeCard} key={item.id} data-upgrade={item.id}><UpgradeIcon kind={item.id} /><div><strong>{item.title}</strong><span>{maxed ? "Fully equipped for every route" : next}</span><div className={styles.upgradeRanks} aria-label={`Rank ${rank} of ${item.maxrank}`}>{Array.from({ length: item.maxrank }, (_, i) => <i key={i} data-owned={i < rank} />)}</div></div><button type="button" onClick={() => purchase(item.id)} disabled={maxed || save.credits < cost} aria-label={maxed ? `${item.title} maxed` : `Upgrade ${item.title} for ${cost} credits`}>{maxed ? "MAX" : <>UPGRADE<strong>◈ {cost}</strong></>}</button></div>;
         })}</div>
-        <p className={styles.armoryNotice} role="status">{armoryNotice || "First clear: +150 · Each new star: +40 · Replays: +35"}</p>
+        <p className={styles.armoryNotice} role="status">{armoryNotice || "Choose an upgrade. Equip it on every route."}</p>
         <button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => save.tutorialDone ? start(firstUnbeaten) : beginTutorial()}>Take it into battle <span aria-hidden="true">→</span></button>
       </div></div>}
 
@@ -735,7 +737,7 @@ export function CrowdCannon() {
 
       {screen === "won" && <div className={`${styles.screenOverlay} ${styles.resultOverlay}`} role="dialog" aria-modal="true" aria-labelledby="win-title"><div className={`${styles.modalPanel} ${styles.winPanel}`}><div className={styles.modalTopline}><span className={styles.modalKicker}>ROUTE {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={styles.resultBadge}>ASSAULT CLEARED</div><h2 id="win-title">{hasNext ? "Route cleared!" : "Army defeated!"}</h2><p>{hasNext ? `${level.name} secured. Leaders down, counterattacks defeated.` : "Every leader and every reinforcement defeated. The whole assault is yours."}</p><Stars n={result.stars} animated className={styles.resultStars} /><span className={styles.resultTime}>{result.time.toFixed(1)}s {result.best ? "· new best" : "· run complete"}</span><div className={styles.resultReward}><strong>◈ +{result.earned}</strong><small>UPGRADE CREDITS</small></div><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.secondaryAction}`} onClick={() => { setArmoryNotice(""); setScreen("armory"); }}>Upgrade your loadout <span aria-hidden="true">↗</span></button>{hasNext && <button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex + 1)}>Next route <span aria-hidden="true">→</span></button>}<button type="button" className={`${styles.actionButton} ${hasNext ? styles.secondaryAction : styles.primaryAction}`} onClick={() => start(levelIndex)}>Play again</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
 
-      {screen === "lost" && <div className={styles.screenOverlay} role="dialog" aria-modal="true" aria-labelledby="lose-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>ROUTE {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={`${styles.resultBadge} ${styles.loseBadge}`}>LINE BREACHED</div><h2 id="lose-title">Defense depleted</h2><p>Red fighters reached the cyan line. Watch the incoming flank, sweep toward it, and launch a champion before they break through.</p><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex)}>Try again</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
+      {screen === "lost" && <div className={`${styles.screenOverlay} ${styles.loseOverlay}`} role="dialog" aria-modal="true" aria-labelledby="lose-title"><div className={styles.defeatEmbers} aria-hidden="true">{Array.from({ length: 15 }, (_, i) => <i key={i} style={{ left: `${i * 7}%`, animationDelay: `${-(i % 5) * 0.48}s` }} />)}</div><div className={`${styles.modalPanel} ${styles.losePanel}`}><div className={styles.modalTopline}><span className={styles.modalKicker}>ROUTE {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><svg className={styles.brokenShield} viewBox="0 0 100 94" aria-hidden="true"><path d="M47 8 13 20v24c0 18 12 32 28 39l7-26-12-9 17-19Z" fill="#dfe9ef" stroke="#fff" strokeWidth="3" /><path d="m61 10 26 10v24c0 17-11 31-25 38l-8-20 12-14-13-12Z" fill="#ec6886" stroke="#ffbac1" strokeWidth="3" /><path d="m43 0 9 19-4 10 14 12-13 16 2 25" fill="none" stroke="#ffe5a1" strokeWidth="3" /></svg><div className={`${styles.resultBadge} ${styles.loseBadge}`}>LINE BREACHED</div><h2 id="lose-title">Overrun!</h2><p>The crowd reached your cannons.<br />Follow the incoming lane and launch your champion before the line breaks.</p><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex)}>Fight back <span aria-hidden="true">↻</span></button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
     </div>
   );
 }

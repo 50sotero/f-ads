@@ -219,6 +219,7 @@ export function createWarden(variant = 0): WardenArt {
   const body = owned.material([0xffce19, 0xff9243, 0xa382ed][style], 0.35);
   const cuff = owned.material([0xec582a, 0x354765, 0xffc550][style], 0.4), trim = owned.material(0x633954, 0.46);
   const armor = owned.material(style === 1 ? 0x415977 : 0xffd270, 0.32);
+  const bodyColor = body.color.clone(), armorColor = armor.color.clone(), hitColor = new THREE.Color(0xfff7df);
   const eye = owned.material(0x3b2340), ivory = owned.material(0xffedb0);
   const ball = owned.geometry(new THREE.SphereGeometry(1, 20, 14));
   const round = (w: number, h: number, d: number, r: number) => owned.geometry(new RoundedBoxGeometry(w, h, d, 3, r));
@@ -296,15 +297,19 @@ export function createWarden(variant = 0): WardenArt {
     const damage = THREE.MathUtils.clamp(hit || 0, 0, 1), windup = THREE.MathUtils.clamp(attack || 0, 0, 1);
     const stride = Math.sin(t * 4.2);
     upper.position.y = 1.43 + Math.abs(stride) * 0.07 - windup * 0.13;
-    upper.rotation.x = 0.13 - damage * 0.12 + windup * 0.22;
+    upper.position.z = -damage * 0.25;
+    upper.rotation.x = 0.13 - damage * 0.24 + windup * 0.22;
     upper.rotation.z = stride * 0.028 + Math.sin(t * 36) * damage * 0.025;
-    head.rotation.x = -0.15 + damage * 0.12;
+    head.rotation.x = -0.15 - damage * 0.3;
     arms.forEach((arm, i) => {
-      arm.rotation.x = -0.26 + Math.sin(t * 4.2 + i * Math.PI) * 0.19 - windup * 1.3;
+      arm.rotation.x = -0.26 + Math.sin(t * 4.2 + i * Math.PI) * 0.19 - windup * 1.3 + damage * 0.5;
       arm.rotation.z = (i ? 1 : -1) * (0.11 + windup * 0.12);
     });
     feet.forEach((leg, i) => { leg.rotation.x = Math.sin(t * 4.2 + i * Math.PI) * 0.18; });
-    body.emissive.setHex(0xfff9cd); body.emissiveIntensity = damage * 0.22;
+    body.color.copy(bodyColor).lerp(hitColor, damage * 0.85);
+    armor.color.copy(armorColor).lerp(hitColor, damage * 0.8);
+    body.emissive.setHex(0xfff9e8); body.emissiveIntensity = damage * 0.4;
+    armor.emissive.setHex(0xfff9e8); armor.emissiveIntensity = damage * 0.3;
   }
   animate(0, 0);
   return { group, animate, dispose() { group.clear(); owned.dispose(); } };
