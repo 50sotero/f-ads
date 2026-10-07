@@ -249,6 +249,34 @@ test("only an aligned champion commits to the boss lane", () => {
   assert.equal(champion.dead, false);
 });
 
+test("the committed charge is bounded and ordinary champions keep their base speed", () => {
+  const committedGame = armBrace({ baseX: 272 });
+  committedGame.cannonX = 272;
+  committedGame.targetX = 272;
+  committedGame.charge = 30;
+  assert.equal(launchChampion(committedGame), true);
+  const committed = committedGame.blue.at(-1);
+  assert.ok(committed);
+  const committedBefore = committed.y;
+  step(committedGame, FRAME);
+  const committedStep = committedBefore - committed.y;
+  assert.ok(committedStep > 0);
+  assert.ok(committedStep <= (66 * 1.35) / 60 + 1e-6, `committed step was ${committedStep}px`);
+
+  const ordinaryGame = armBrace({ baseX: 272 });
+  ordinaryGame.cannonX = 180;
+  ordinaryGame.targetX = 180;
+  ordinaryGame.charge = 30;
+  assert.equal(launchChampion(ordinaryGame), true);
+  const ordinary = ordinaryGame.blue.at(-1);
+  assert.ok(ordinary);
+  const ordinaryBefore = ordinary.y;
+  step(ordinaryGame, FRAME);
+  const ordinaryStep = ordinaryBefore - ordinary.y;
+  assert.ok(ordinaryStep > 0);
+  assert.ok(ordinaryStep <= 66 / 60 + 1e-6, `ordinary step was ${ordinaryStep}px`);
+});
+
 test("an aligned champion reaches the giant and keeps its commitment after another champion staggers it", () => {
   const game = armBrace({ baseX: 272 });
   game.cannonX = 272;

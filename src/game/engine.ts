@@ -508,6 +508,7 @@ const ASSAULT_BOSS_BRACE_IMPACT = 0.3;
 const ASSAULT_BOSS_CONTACT_BATCH = 12;
 const ASSAULT_BOSS_BRACE_CONTACT_LIMIT = 4;
 const ASSAULT_BOSS_BRACE_CHAMPION_FORWARD_FLOOR = 0.9;
+const ASSAULT_BOSS_BRACE_CHAMPION_SPEED_MULTIPLIER = 1.35;
 const ASSAULT_BOSS_BRACE_RED_SPEED = 1.7;
 const ASSAULT_BOSS_BRACE_RED_DURATION = 0.75;
 const ASSAULT_BOSS_BRACE_RED_LATERAL = 120;
@@ -701,7 +702,7 @@ export function championBossAim(game: Game): { target: Base; direction: "left" |
   const bossFront = target.y + target.h / 2;
   const launchY = CANNON_Y - 26;
   const distance = Math.max(0, launchY - bossFront);
-  const travel = distance / (ASSAULT_CHAMP_SPEED * ASSAULT_BOSS_BRACE_CHAMPION_FORWARD_FLOOR) + 0.15;
+  const travel = distance / (ASSAULT_CHAMP_SPEED * ASSAULT_BOSS_BRACE_CHAMPION_SPEED_MULTIPLIER * ASSAULT_BOSS_BRACE_CHAMPION_FORWARD_FLOOR) + 0.15;
   return { target, direction, canInterrupt: remaining + 1e-9 >= travel };
 }
 
@@ -2562,7 +2563,10 @@ function updateAssaultBlue(g: Game, dt: number) {
     const forwardMotion = committedBoss
       ? Math.max(assaultMotion.forward[blueIndex], ASSAULT_BOSS_BRACE_CHAMPION_FORWARD_FLOOR)
       : assaultMotion.forward[blueIndex];
-    let dy = -(u.big ? ASSAULT_CHAMP_SPEED : ASSAULT_BLUE_SPEED) * dt
+    const verticalSpeed = u.big
+      ? ASSAULT_CHAMP_SPEED * (committedBoss ? ASSAULT_BOSS_BRACE_CHAMPION_SPEED_MULTIPLIER : 1)
+      : ASSAULT_BLUE_SPEED;
+    let dy = -verticalSpeed * dt
       * forwardMotion * (u.pace ?? 1);
 
     // After the final gate there is a short, explicit boss approach. This is
