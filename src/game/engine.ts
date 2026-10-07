@@ -825,7 +825,6 @@ function refreshAssaultRemaining(g: Game) {
   let remaining = 0;
   for (const unit of g.red) if (!unit.dead) remaining++;
   if (assault.phase === "counterattack") {
-    const counterattack = g.level.assault?.counterattack;
     if (assault.wave < assault.waves) {
       remaining += Math.max(0, counterattackWaveSize(g, assault.wave) - assault.waveSpawned);
       for (let wave = assault.wave + 1; wave < assault.waves; wave++) remaining += counterattackWaveSize(g, wave);
@@ -868,7 +867,7 @@ function spawnCounterattackWave(g: Game, waveIndex: number) {
       && !g.level.assault?.practice
       && assault.encounter > 0
       && g.level.assault?.slamEvery !== undefined
-      && role !== "flank") {
+      && (assault.waves <= 1 || lane === 0)) {
       enemy.braced = true;
     }
     if (kind === "runner" && !g.level.assault?.practice && assault.encounter > 0 && g.level.assault?.slamEvery !== undefined) {
@@ -879,7 +878,7 @@ function spawnCounterattackWave(g: Game, waveIndex: number) {
   }
   assault.waveSpawned += spawned;
   assault.frontline = Math.max(assault.frontline, spawnY);
-  if (start === 0 && spawned > 0) pop(g, center, spawnY - 18, 1, lane === 0 ? "CENTER WAVE" : lane < 0 ? "LEFT WAVE" : "RIGHT WAVE");
+  if (start === 0 && spawned > 0) pop(g, center, spawnY - 18, 1, role === "flank" ? "RUNNER RUSH" : role === "shield" ? "SHIELD WAVE" : lane === 0 ? "CENTER WAVE" : lane < 0 ? "LEFT WAVE" : "RIGHT WAVE");
   return spawned;
 }
 

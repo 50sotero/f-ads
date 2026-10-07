@@ -141,6 +141,7 @@ test("custom zero-role waves keep mixed telegraphs and exact brute-only totals",
   step(runnerlessFlank, 1 / 60);
   assert.equal(runnerlessFlank.red.length, 3);
   assert.ok(runnerlessFlank.red.every((unit) => unit.kind === "guard"));
+  assert.ok(runnerlessFlank.red.every((unit) => !unit.braced), "a mixed fallback does not brace a multi-wave flank");
   assert.equal(runnerlessFlank.assault.remaining, 6, "the mixed fallback preserves both scaled wave totals");
 
   const bruteOnly = setupCounterattack({ waves: 2 });

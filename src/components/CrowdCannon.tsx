@@ -6,7 +6,7 @@ import "@fontsource/fredoka/700.css";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 
-import { applyStartingLoadout, championShieldAim, CHARGE_MAX, isShieldCleanup, launchChampion, newGame, stars, step, W, weaponForLevel, type Game } from "@/game/engine";
+import { applyStartingLoadout, championShieldAim, CHARGE_MAX, counterattackWaveRole, isShieldCleanup, launchChampion, newGame, stars, step, W, weaponForLevel, type CounterattackWaveRole, type Game } from "@/game/engine";
 import { levels } from "@/game/levels";
 import { createRenderer } from "@/game/render";
 import { advanceTutorial, newTutorialProgress, tutorialLessons, tutorialLevel, type TutorialProgress } from "@/game/tutorial";
@@ -38,6 +38,7 @@ type AssaultHud = {
   waves: number;
   waveLane: number;
   waveWarning: number;
+  waveRole: CounterattackWaveRole;
   remaining: number;
   shields: number;
   shieldAim: "left" | "right" | "aligned" | null;
@@ -70,6 +71,7 @@ const defaultAssault = (): AssaultHud => ({
   waves: 0,
   waveLane: 0,
   waveWarning: 0,
+  waveRole: "mixed",
   remaining: 0,
   shields: 0,
   shieldAim: null,
@@ -99,6 +101,7 @@ function assaultHud(game: Game): AssaultHud {
     waves: assault?.waves ?? 0,
     waveLane: assault?.waveLane ?? 0,
     waveWarning: assault?.waveWarning ?? 0,
+    waveRole: counterattackWaveRole(game, assault?.wave ?? 0),
     remaining: assault?.remaining ?? 0,
     shields: game.red.reduce((count, unit) => count + (unit.braced && !unit.dead ? 1 : 0), 0),
     shieldAim: championShieldAim(game)?.direction ?? null,
@@ -438,6 +441,7 @@ export function CrowdCannon() {
           && previous.assault.waves === nextAssault.waves
           && previous.assault.waveLane === nextAssault.waveLane
           && previous.assault.waveWarning === nextAssault.waveWarning
+          && previous.assault.waveRole === nextAssault.waveRole
           && previous.assault.remaining === nextAssault.remaining
           && previous.assault.shields === nextAssault.shields
           && previous.assault.shieldAim === nextAssault.shieldAim
@@ -608,6 +612,10 @@ export function CrowdCannon() {
   const roadCleared = !lineBroken && assault.phase === "counterattack" && assault.wave === assault.waves && assault.remaining === 0;
   const battleEnded = lineBroken || roadCleared;
   const shieldInstruction = assault.shieldAim === "left" ? "← Drag left" : assault.shieldAim === "right" ? "Drag right →" : "Aligned";
+  const incomingWave = assault.phase === "counterattack" && assault.waveWarning > 0 && !battleEnded;
+  const incomingLane = assault.waveLane < 0 ? "← LEFT" : assault.waveLane > 0 ? "RIGHT →" : "CENTER";
+  const incomingLabel = `${incomingLane} ${assault.waveRole === "flank" ? "RUNNER RUSH" : assault.waveRole === "shield" ? "SHIELD WAVE" : "WAVE INCOMING"}`;
+  const incomingAction = assault.waveRole === "flank" ? "Cover the flank before they reach your line." : assault.waveRole === "shield" ? "Charge a champion to break their shield." : "Move your cannon to cover the incoming lane.";
   const loadout = startingLoadout(save);
   const weapon = weaponForLevel(assault.weaponLevel);
   const tutorialLesson = tutorialStep !== null && tutorialStep < tutorialLessons.length ? tutorialLessons[tutorialStep] : null;
@@ -680,14 +688,15 @@ export function CrowdCannon() {
               <span className={styles.encounterDots} aria-hidden="true">{Array.from({ length: assault.encounters }, (_, index) => <i key={index} data-done={index < assault.encounter} data-current={index === assault.encounter} />)}</span>
             </div>
           </div>
-          {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-warning={assault.waveWarning > 0} data-breached={lineBroken} data-cleared={roadCleared} data-shield={!battleEnded && assault.shields > 0} data-cleanup={!battleEnded && assault.shields > 0 && assault.shieldCleanup} data-compact={!battleEnded && assault.shields === 0 && (assault.phase === "counterattack" || assault.phase === "battle" && hud.time > 4)}>
+          {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-warning={incomingWave} data-wave-role={assault.waveRole} data-breached={lineBroken} data-cleared={roadCleared} data-shield={!battleEnded && assault.shields > 0} data-cleanup={!battleEnded && assault.shields > 0 && assault.shieldCleanup} data-compact={!battleEnded && assault.shields === 0 && (assault.phase === "counterattack" || assault.phase === "battle" && hud.time > 4)}>
             <span className={styles.objectiveIcon} aria-hidden="true">{roadCleared ? "★" : lineBroken || assault.phase === "counterattack" ? "!" : assault.phase === "advance" ? "»" : "⚑"}</span>
-            <div><strong>{lineBroken ? "LINE BREACHED" : roadCleared ? "ROAD CLEAR" : assault.shields > 0 ? assault.shieldCleanup ? "OVERWHELM THEM!" : "SHIELD GUARD" : assault.phase === "counterattack" ? assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "← LEFT" : assault.waveLane > 0 ? "RIGHT →" : "CENTER"} WAVE INCOMING` : `${assault.remaining} DEFENDERS LEFT` : assault.phase === "advance" ? remixedGates ? "LANES SWITCHED" : "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
+            <div><strong>{lineBroken ? "LINE BREACHED" : roadCleared ? "ROAD CLEAR" : assault.shields > 0 ? assault.shieldCleanup ? "OVERWHELM THEM!" : "SHIELD GUARD" : assault.phase === "counterattack" ? incomingWave ? incomingLabel : `${assault.remaining} DEFENDERS LEFT` : assault.phase === "advance" ? remixedGates ? "LANES SWITCHED" : "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
               <span>{lineBroken ? "Your cannon defense is gone." : roadCleared ? "All defenders cleared." : assault.shields > 0 ? assault.shieldCleanup ? "Keep firing at the last shields. Your crowd can break them!" : hud.charge >= CHARGE_MAX ? assault.shieldAim === "aligned" ? "Aligned! Tap ★ to break the shield." : `${shieldInstruction} · line up the gold sight, then tap ★.` : `${shieldInstruction} · fire to charge ★. Normal shots blocked.`
                 : assault.phase === "counterattack"
-                ? `${assault.remaining} enemies left · ${assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "LEFT" : assault.waveLane > 0 ? "RIGHT" : "CENTER"} WAVE INCOMING` : `wave ${assault.wave} / ${assault.waves}`}`
+                ? incomingWave ? incomingAction : `${assault.remaining} enemies left · wave ${assault.wave} / ${assault.waves}`
                 : assault.phase === "advance" ? remixedGates ? "Find the new gate chain. Keep your upgrades!" : "Keep your upgrades. Push forward!" : "Then survive the counterattack"}</span></div>
             {!battleEnded && assault.phase === "counterattack" && <span className={styles.wavePips} aria-label={`${assault.wave} of ${assault.waves} waves deployed`}>{Array.from({ length: assault.waves }, (_, i) => <i key={i} data-done={i < assault.wave} />)}</span>}
+            {incomingWave && assault.shields > 0 && <span className={styles.incomingWave} data-testid="incoming-wave" data-role={assault.waveRole}>{incomingLabel}</span>}
           </div>}
           {tutorialLesson ? (
             <div className={styles.tutorialCoach} data-testid="tutorial-coach" role="status" aria-live="polite">

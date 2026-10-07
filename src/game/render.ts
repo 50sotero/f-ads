@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, bossSlamRecoil, cannonBarrelPositions, championShieldAim, shieldBracePressure, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
+import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, bossSlamRecoil, cannonBarrelPositions, championShieldAim, counterattackWaveRole, shieldBracePressure, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
 import { createGuardGeometry, createHordeGeometry, createMobGeometry, createSiegeCannon, createWarden } from "./assaultArt";
 
 // The simulation uses a moving local battlefield. The long road and bridges
@@ -896,6 +896,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     }
     previousPhase = assault?.phase ?? "battle";
     const waveWarning = assault?.waveWarning ?? 0;
+    const incomingRole = counterattackWaveRole(game, assault?.wave ?? 0);
+    const waveColor = incomingRole === "shield" ? 0xffd45a : 0xff713d;
     laneGuide.visible = laneBeacon.visible = counterattack && game.red.length > 0 && game.status === "playing";
     if (laneGuide.visible) {
       let nearest = game.red[0];
@@ -909,7 +911,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         laneGuide.setMatrixAt(i, dummy.matrix);
       }
       laneGuide.instanceMatrix.needsUpdate = true;
-      laneGuideMaterial.color.setHex(danger > 0.4 ? 0xff5268 : waveWarning > 0 ? 0xff9e28 : 0xffb54b);
+      laneGuideMaterial.color.setHex(danger > 0.4 ? 0xff5268 : waveWarning > 0 ? waveColor : 0xffb54b);
       laneGuideMaterial.opacity = waveWarning > 0 ? 0.78 : 0.48;
       laneBeacon.position.x = wx(guideX) + curve(defenseZ);
     }
@@ -918,6 +920,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const laneX = (activeBoss?.x ?? W / 2) + (assault?.waveLane ?? 0) * 105;
       const laneZ = wz((activeBoss?.y ?? 419) - (activeBoss?.h ?? 54) / 2 - 42);
       flankWarning.position.set(wx(laneX) + curve(laneZ), 0, laneZ);
+      flankMaterial.color.setHex(waveColor);
       flankMaterial.opacity = 0.4 + Math.sin(game.t * 15) * 0.2 + waveWarning * 0.2;
       flankArrows.forEach((arrow, i) => { arrow.position.z = 2.2 + i * 1.25 + (game.t * 2 % 1); });
     }
