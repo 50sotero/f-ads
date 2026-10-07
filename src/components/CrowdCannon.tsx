@@ -337,6 +337,7 @@ export function CrowdCannon() {
     let last = performance.now();
     let accumulator = 0;
     let endAt = 0;
+    let victoryDrawTime = 0;
     let shown: Game | null = null;
     let hudAt = 0;
     let needsDraw = true;
@@ -372,6 +373,7 @@ export function CrowdCannon() {
         needsDraw = true;
         accumulator = 0;
         endAt = 0;
+        victoryDrawTime = 0;
         seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0, weapon: 1, phase: "battle", bossPulse: 0 };
       }
 
@@ -452,8 +454,13 @@ export function CrowdCannon() {
       }
 
       try {
-        if (screenRef.current === "playing" || needsDraw) {
-          renderer.render(game, screenRef.current === "playing" ? elapsed : 0);
+        // Finish the 2.8s confetti emission plus its maximum 2.55s lifetime.
+        // Count rendered time so a background tab cannot truncate the collapse.
+        const celebrating = screenRef.current === "won" && victoryDrawTime < 5.5;
+        if (screenRef.current === "playing" || celebrating || needsDraw) {
+          const drawTime = screenRef.current === "playing" || celebrating ? Math.min(elapsed, 0.05) : 0;
+          renderer.render(game, drawTime);
+          if (game.status === "won") victoryDrawTime += drawTime;
           needsDraw = false;
         }
       } catch {
@@ -485,7 +492,12 @@ export function CrowdCannon() {
     };
     const toWorldX = (normalized: number) => rendererRef.current?.aimX(normalized) ?? normalized * W;
     let lastPointerX = 0;
+    // A browser may send a compatibility click to a result button that appears
+    // under a still-held firing finger. Remember the gesture through screen changes.
+    let firingPointer: number | null = null;
+    let firingRelease: { id: number; x: number; y: number } | null = null;
     const reset = () => {
+      firingPointer = null;
       pointerRef.current = null;
       keysRef.current.clear();
       if (gameRef.current) gameRef.current.firing = false;
@@ -497,6 +509,7 @@ export function CrowdCannon() {
       if (pointerRef.current !== null) return;
       event.preventDefault();
       pointerRef.current = event.pointerId;
+      firingPointer = event.pointerId;
       try {
         canvas.setPointerCapture(event.pointerId);
       } catch {
@@ -518,13 +531,24 @@ export function CrowdCannon() {
       lastPointerX = x;
     };
     const up = (event: PointerEvent) => {
-      if (event.pointerId !== pointerRef.current) return;
+      if (event.pointerId !== firingPointer) return;
+      if (event.type === "pointerup") firingRelease = { id: event.pointerId, x: event.clientX, y: event.clientY };
       try {
         canvas.releasePointerCapture(event.pointerId);
       } catch {
         // Pointer capture may already have been released by the browser.
       }
       reset();
+    };
+    const newPress = () => { firingRelease = null; };
+    const consumeFiringClick = (event: MouseEvent) => {
+      const released = firingRelease;
+      firingRelease = null;
+      if (!released || event.detail === 0) return;
+      if (Math.abs(event.clientX - released.x) > 2 || Math.abs(event.clientY - released.y) > 2) return;
+      if ("pointerId" in event && event.pointerId !== released.id) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
     };
     const keydown = (event: KeyboardEvent) => {
       if (screenRef.current !== "playing") return;
@@ -552,6 +576,8 @@ export function CrowdCannon() {
     canvas.addEventListener("pointerup", up);
     canvas.addEventListener("pointercancel", up);
     canvas.addEventListener("lostpointercapture", reset);
+    document.addEventListener("pointerdown", newPress, true);
+    document.addEventListener("click", consumeFiringClick, true);
     window.addEventListener("keydown", keydown);
     window.addEventListener("keyup", keyup);
     window.addEventListener("blur", reset);
@@ -561,6 +587,8 @@ export function CrowdCannon() {
       canvas.removeEventListener("pointerup", up);
       canvas.removeEventListener("pointercancel", up);
       canvas.removeEventListener("lostpointercapture", reset);
+      document.removeEventListener("pointerdown", newPress, true);
+      document.removeEventListener("click", consumeFiringClick, true);
       window.removeEventListener("keydown", keydown);
       window.removeEventListener("keyup", keyup);
       window.removeEventListener("blur", reset);
@@ -787,7 +815,38 @@ export function CrowdCannon() {
 
       {screen === "trained" && <div className={`${styles.screenOverlay} ${styles.resultOverlay}`} role="dialog" aria-modal="true" aria-labelledby="trained-title"><div className={styles.modalPanel}><div className={styles.modalTopline}><span className={styles.modalKicker}>TRAINING</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={styles.resultBadge}>TRAINING COMPLETE</div><h2 id="trained-title">Ready for the assault!</h2><p>Protect the cyan defense line. Each giant is followed by a counterattack—hold the line until every defender is gone.</p><ul className={styles.trainingRecap}><li><span>↔</span> Fire while you sweep across the lane.</li><li><span>×4</span> Chain the purple multiplier gates.</li><li><span>+1</span> Collect blue pickups to add a cannon.</li><li><span>↑</span> Break the red weapon lock to upgrade.</li><li><span>★</span> Launch a champion when the fight gets heavy.</li></ul><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(firstUnbeaten)}>{totalStars ? "Continue run" : "Play route 1"}<span aria-hidden="true">→</span></button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
 
-      {screen === "won" && <div className={`${styles.screenOverlay} ${styles.resultOverlay}`} role="dialog" aria-modal="true" aria-labelledby="win-title"><div className={`${styles.modalPanel} ${styles.winPanel}`}><div className={styles.modalTopline}><span className={styles.modalKicker}>ROUTE {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><div className={styles.resultBadge}>ASSAULT CLEARED</div><h2 id="win-title">{hasNext ? "Route cleared!" : "Army defeated!"}</h2><p>{hasNext ? `${level.name} secured. Leaders down, counterattacks defeated.` : "Every leader and every reinforcement defeated. The whole assault is yours."}</p><Stars n={result.stars} animated className={styles.resultStars} /><span className={styles.resultTime}>{result.time.toFixed(1)}s {result.best ? "· new best" : "· run complete"}</span><div className={styles.resultReward}><strong>◈ +{result.earned}</strong><small>UPGRADE CREDITS</small></div><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.secondaryAction}`} onClick={() => { setArmoryNotice(""); setScreen("armory"); }}>Upgrade your loadout <span aria-hidden="true">↗</span></button>{hasNext && <button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex + 1)}>Next route <span aria-hidden="true">→</span></button>}<button type="button" className={`${styles.actionButton} ${hasNext ? styles.secondaryAction : styles.primaryAction}`} onClick={() => start(levelIndex)}>Play again</button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
+      {screen === "won" && <div className={`${styles.screenOverlay} ${styles.resultOverlay} ${!hasNext ? styles.campaignOverlay : ""}`} role="dialog" aria-modal="true" aria-labelledby="win-title">
+        {!hasNext && <div className={styles.victoryConfetti} aria-hidden="true">{Array.from({ length: 24 }, (_, i) => <i key={i} style={{ left: `${(i * 37) % 100}%`, animationDelay: `${(i % 8) * 0.12}s`, background: ["#ffe279", "#65e3ff", "#f79aca", "#fff6ca"][i % 4] }} />)}</div>}
+        <div className={`${styles.modalPanel} ${styles.winPanel} ${!hasNext ? styles.campaignPanel : ""}`}>
+          <div className={styles.modalTopline}><span className={styles.modalKicker}>{hasNext ? `ROUTE ${levelIndex + 1}` : "CAMPAIGN FINALE"}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div>
+          {!hasNext && <svg className={styles.campaignTrophy} viewBox="0 0 160 120" aria-hidden="true">
+            <ellipse cx="80" cy="107" rx="40" ry="7" fill="#091d38" opacity=".35" />
+            <path d="M48 25H25v12c0 21 12 31 29 31M112 25h23v12c0 21-12 31-29 31" fill="none" stroke="#dd9130" strokeWidth="12" strokeLinejoin="round" />
+            <path d="M48 22H25v12c0 21 12 31 29 31M112 22h23v12c0 21-12 31-29 31" fill="none" stroke="#ffe491" strokeWidth="7" strokeLinejoin="round" />
+            <path d="M70 64h20v26l17 9v8H53v-8l17-9Z" fill="#de9633" />
+            <path d="M72 65h9v25l-15 9h33v5H60v-5l12-10Z" fill="#ffe27b" />
+            <path d="M44 14h72l-6 35c-3 19-15 29-30 29S53 68 50 49Z" fill="#f6b947" stroke="#ffdf80" strokeWidth="3" />
+            <path d="M48 18h32v55c-14 0-23-11-26-26Z" fill="#ffe888" />
+            <path d="m80 28 6 12 14 2-10 10 2 14-12-7-12 7 2-14-10-10 14-2Z" fill="#c8752b" />
+            <path d="m80 25 6 12 14 2-10 10 2 14-12-7-12 7 2-14-10-10 14-2Z" fill="#fff7c6" />
+            <path d="m23 76 3 7 8 2-8 3-3 7-2-7-8-3 8-2Zm113-68 2 5 6 2-6 2-2 6-2-6-6-2 6-2Z" fill="#9ff5ff" />
+          </svg>}
+          <div className={styles.resultBadge}>{hasNext ? "ASSAULT CLEARED" : `ALL ${levels.length} ROUTES CONQUERED`}</div>
+          <h2 id="win-title">{hasNext ? "Route cleared!" : "You held the line!"}</h2>
+          <p>{hasNext ? `${level.name} secured. Leaders down, counterattacks defeated.` : "The last fortress has fallen. Your crowd conquered the whole campaign."}</p>
+          <Stars n={result.stars} animated className={styles.resultStars} />
+          <span className={styles.resultTime}>{result.time.toFixed(1)}s {result.best ? "· new best" : "· run complete"}</span>
+          {!hasNext && <div className={styles.campaignStats}><div><strong>{totalStars}<small> / {levels.length * 3}</small></strong><span>CAMPAIGN STARS</span></div><div><strong>{hud.assault.integrity}<small> / {hud.assault.maxIntegrity}</small></strong><span>DEFENSE HELD</span></div></div>}
+          <div className={styles.resultReward}><strong>◈ +{result.earned}</strong><small>UPGRADE CREDITS</small></div>
+          <div className={styles.modalActions}>
+            {!hasNext && <button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => setScreen("menu")}>Return to your routes <span aria-hidden="true">→</span></button>}
+            <button type="button" className={`${styles.actionButton} ${styles.secondaryAction}`} onClick={() => { setArmoryNotice(""); setScreen("armory"); }}>Upgrade your loadout <span aria-hidden="true">↗</span></button>
+            {hasNext && <button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex + 1)}>Next route <span aria-hidden="true">→</span></button>}
+            <button type="button" className={`${styles.actionButton} ${hasNext ? styles.secondaryAction : styles.ghostAction}`} onClick={() => start(levelIndex)}>{hasNext ? "Play again" : "Replay the final assault"}</button>
+            {hasNext && <button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button>}
+          </div>
+        </div>
+      </div>}
 
       {screen === "lost" && <div className={`${styles.screenOverlay} ${styles.loseOverlay}`} role="dialog" aria-modal="true" aria-labelledby="lose-title"><div className={styles.defeatEmbers} aria-hidden="true">{Array.from({ length: 15 }, (_, i) => <i key={i} style={{ left: `${i * 7}%`, animationDelay: `${-(i % 5) * 0.48}s` }} />)}</div><div className={`${styles.modalPanel} ${styles.losePanel}`}><div className={styles.modalTopline}><span className={styles.modalKicker}>ROUTE {levelIndex + 1}</span><Link href="/" className={styles.homeLink} aria-label="Back to F.ADS home">← Home</Link></div><svg className={styles.brokenShield} viewBox="0 0 100 94" aria-hidden="true"><path d="M47 8 13 20v24c0 18 12 32 28 39l7-26-12-9 17-19Z" fill="#dfe9ef" stroke="#fff" strokeWidth="3" /><path d="m61 10 26 10v24c0 17-11 31-25 38l-8-20 12-14-13-12Z" fill="#ec6886" stroke="#ffbac1" strokeWidth="3" /><path d="m43 0 9 19-4 10 14 12-13 16 2 25" fill="none" stroke="#ffe5a1" strokeWidth="3" /></svg><div className={`${styles.resultBadge} ${styles.loseBadge}`}>LINE BREACHED</div><h2 id="lose-title">Overrun!</h2><p>The crowd reached your cannons.<br />Follow the incoming lane and launch your champion before the line breaks.</p><div className={styles.modalActions}><button type="button" className={`${styles.actionButton} ${styles.primaryAction}`} onClick={() => start(levelIndex)}>Fight back <span aria-hidden="true">↻</span></button><button type="button" className={`${styles.actionButton} ${styles.ghostAction}`} onClick={() => setScreen("menu")}>Route select</button></div></div></div>}
     </div>

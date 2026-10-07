@@ -461,6 +461,22 @@
 .modalActions .ghostAction { margin-top: -3px; }
 .resultOverlay { background: linear-gradient(180deg, rgba(5, 42, 68, 0.34), rgba(4, 25, 49, 0.66)); }
 .winPanel { padding-top: 23px; }
+.campaignOverlay { background: radial-gradient(ellipse at 50% 35%, #527a9477, #11234bd9 75%); }
+.campaignPanel { position: relative; border-color: #e9c16eaa; background: radial-gradient(ellipse at 50% 20%, #386080, #172d51 70%); box-shadow: 0 24px 70px #06172d88, inset 0 1px 0 #ffe7a33d; }
+.campaignTrophy { display: block; width: 150px; height: 112px; margin: 3px auto 0; filter: drop-shadow(0 0 18px #ffd56b40); animation: trophyIn 650ms 150ms cubic-bezier(.2,.8,.2,1.3) both; }
+.campaignPanel .resultBadge { margin-bottom: 6px; background: #ffcf6420; color: #ffe6a0; font-size: 9px; }
+.campaignPanel h2 { font-size: 31px; color: #fff4cd; }
+.campaignPanel .resultStars { margin-top: 11px; }
+.campaignStats { display: flex; justify-content: center; gap: 25px; margin: 14px 0 0; }
+.campaignStats > div { display: grid; gap: 3px; }
+.campaignStats strong { color: #fff1b7; font-size: 23px; line-height: 1; }
+.campaignStats small { color: #b5d6e1; font-size: 12px; }
+.campaignStats span { color: #b5d6e1; font-size: 8px; letter-spacing: .06em; }
+.victoryConfetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.victoryConfetti i { position: absolute; top: -24px; width: 9px; height: 15px; border-radius: 2px; animation: victoryFall 3.3s ease-in both; }
+.victoryConfetti i:nth-child(3n) { width: 12px; height: 7px; }
+@keyframes trophyIn { from { opacity: 0; transform: translateY(18px) scale(.65) rotate(-9deg); } to { opacity: 1; transform: none; } }
+@keyframes victoryFall { 0% { transform: translate3d(-20px, -20px, 0) rotate(0); opacity: 0; } 8% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translate3d(45px, 100dvh, 0) rotate(540deg); opacity: 0; } }
 .resultBadge { display: inline-flex; align-items: center; min-height: 24px; padding: 5px 10px; border-radius: 999px; background: rgba(118, 235, 203, 0.18); color: #98f1d5; font-size: 9px; }
 .loseBadge { background: rgba(255, 122, 139, 0.2); color: #ffadb7; }
 .loseOverlay { align-items: flex-start; padding-top: max(18px, 6vh); background: radial-gradient(ellipse at 50% 80%, #251b3544, #0d1427db); backdrop-filter: saturate(.6); }
@@ -587,6 +603,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .campaignTrophy { animation: none; }
+  .victoryConfetti { display: none; }
   .menuPanel, .modalPanel, .tip, .upgradeFlash, .starReveal, .championReady { animation: none; }
   .confetti, .defeatEmbers { display: none; }
 }

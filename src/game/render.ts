@@ -757,22 +757,36 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       if (pickup.y > CANNON_Y) continue;
       framePoint(wx(pickup.x - pickup.w / 2) - 0.2, 1.5, wz(pickup.y));
       framePoint(wx(pickup.x + pickup.w / 2) + 0.2, 1.5, wz(pickup.y));
-      // The billboard number is wider than a narrow +1 panel. Fit the
-      // actual readable label too, especially beside the lower phone edge.
-      frameLabel(wx(pickup.x), 2.1, wz(pickup.y) + 0.13, 5.6, 2.2);
+      // Portrait pickup text is kept inside the final view below. Its wide
+      // billboard must not zoom the whole battle out as a side panel nears us.
+      if (!portrait) frameLabel(wx(pickup.x), 2.1, wz(pickup.y) + 0.13, 5.6, 2.2);
     }
     for (const lock of [currentGame?.assault?.cannonTarget, currentGame?.assault?.weaponTarget]) {
       if (!lock) continue;
       framePoint(wx(lock.x) - 2.65, 3.1, wz(lock.y));
       framePoint(wx(lock.x) + 2.65, 3.1, wz(lock.y));
     }
+    const selectedGuard = portrait && currentGame ? championShieldAim(currentGame)?.target : null;
     for (const unit of currentGame?.red ?? []) {
       if (unit.dead || !unit.braced) continue;
+      if (portrait && unit !== selectedGuard) continue;
       // The shield cue can sit above the crowd's leading edge. Keep its
       // complete label below the HUD, including the first incoming guard.
       frameLabel(wx(unit.x), 5.6, wz(unit.y), 4.5, 1.7);
     }
     const active = currentGame?.bases[currentGame.assault?.encounter ?? 0];
+    const assault = currentGame?.assault;
+    if (portrait && assault?.phase === "counterattack" && assault.waveWarning > 0 && active) {
+      // The next rush is actionable before it reaches the current front.
+      // Keep its ellipse and chevrons visible without fitting empty road edges.
+      const x = wx(active.x + assault.waveLane * 105);
+      const z = wz(active.y - active.h / 2 - 42);
+      for (const side of [-1, 1]) {
+        framePoint(x + side * 2.5, 0.1, z - 1.5);
+        framePoint(x + side * 2.5, 0.1, z + 1.5);
+        framePoint(x + side * 0.8, 0.1, z + 6.4);
+      }
+    }
     if (active) {
       const combatY = currentGame?.assault?.phase === "counterattack" ? currentGame.assault.frontline : active.y;
       const combatZ = wz(combatY), height = active.hp > 0 ? 6.2 : 2.8;
@@ -781,7 +795,27 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       // front must stay below the HUD even when a counterattack moves uphill.
       topY = Math.max(topY, projected.y);
       if (!portrait) framingScale = Math.max(framingScale, projected.y / 0.68);
-      for (const x of [-8.8, 8.8]) framePoint(x, 1.5, combatZ);
+      if (!portrait) {
+        for (const x of [-8.8, 8.8]) framePoint(x, 1.5, combatZ);
+      } else if (active.hp > 0) {
+        // Fit the guardian and its health display, not both empty road edges
+        // at this distant depth combined with nearby side pickups.
+        const half = Math.max(4.6, active.w * SX / 2);
+        framePoint(wx(active.x) - half, 1.5, combatZ);
+        framePoint(wx(active.x) + half, 1.5, combatZ);
+        frameLabel(wx(active.x), 6.05, combatZ, 3.5, 1.15);
+      } else {
+        // A real flank reaching the front still needs room. Keep its physical
+        // extent visible without treating the entire road as a target.
+        let left = active.x, right = active.x;
+        for (const unit of currentGame?.red ?? []) {
+          if (unit.dead || unit.y < combatY - 90) continue;
+          left = Math.min(left, unit.x - unit.r - 6);
+          right = Math.max(right, unit.x + unit.r + 6);
+        }
+        framePoint(wx(left), 2.8, combatZ);
+        framePoint(wx(right), 2.8, combatZ);
+      }
     }
     if (portrait) {
       // Fit the useful road between the battery and battlefront, then place
@@ -1074,6 +1108,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       if (view.value !== reward) { view.label.write(reward, tier >= 5 ? "#fff2a2" : "#ffffff"); view.value = reward; }
       view.group.position.set(wx(pickup.x) + curve(wz(pickup.y)), 0.03, wz(pickup.y)); view.group.scale.set(pickup.w * SX, 1.04, 1);
       view.label.sprite.scale.x = 5.4 / view.group.scale.x;
+      view.label.sprite.position.set(0, 1.98, 0.13);
       view.material.emissiveIntensity = 0.4 + Math.sin(game.t * 4 + i) * 0.12;
     });
 
@@ -1351,7 +1386,25 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const combatY = assault?.phase === "counterattack" ? assault.frontline : activeBoss?.y ?? 300;
     const desiredLookZ = assault?.phase === "advance" ? cameraTarget.z : Math.max(-30, Math.min(-14, wz(combatY) * 0.5));
     combatLookZ += (desiredLookZ - combatLookZ) * Math.min(1, dt * 2.5);
-    updateCamera(dt); renderer.render(scene, camera);
+    updateCamera(dt);
+    if (camera.aspect < 0.85) {
+      for (const view of pickups) {
+        if (!view.group.visible) continue;
+        const label = view.label.sprite;
+        label.getWorldPosition(projected);
+        projected.applyMatrix4(camera.matrixWorldInverse);
+        const halfWidth = 5.4 * camera.projectionMatrix.elements[0] / (-2 * projected.z);
+        projected.applyMatrix4(camera.projectionMatrix);
+        const x = Math.max(-0.94 + halfWidth, Math.min(0.94 - halfWidth, projected.x));
+        if (x !== projected.x) {
+          projected.x = x;
+          projected.unproject(camera);
+          view.group.worldToLocal(projected);
+          label.position.copy(projected);
+        }
+      }
+    }
+    renderer.render(scene, camera);
   }
   function resize(width: number, height: number) {
     camera.aspect = width / height;
