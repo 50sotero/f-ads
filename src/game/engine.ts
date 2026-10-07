@@ -501,7 +501,7 @@ const ASSAULT_BOSS_SLAM_DECAY_NORMALIZER = 1 - ASSAULT_BOSS_SLAM_END_ENVELOPE;
 const ASSAULT_BOSS_SLAM_INITIAL_KICK = 10;
 const ASSAULT_BOSS_SLAM_RUNNER_EXTRA = 26;
 const ASSAULT_BOSS_SLAM_CHAMPION_EXTRA = 2;
-const ASSAULT_BOSS_BRACE_DURATION = 4;
+const ASSAULT_BOSS_BRACE_DURATION = 4.75;
 const ASSAULT_BOSS_BRACE_STAGGER = 0.6;
 const ASSAULT_BOSS_BRACE_IMPACT = 0.3;
 const ASSAULT_BOSS_CONTACT_BATCH = 12;
@@ -609,7 +609,7 @@ function bossBraceEncounterEligible(game: Game, assault: AssaultState) {
   return game.status === "playing"
     && Boolean(config)
     && !config?.practice
-    && config?.horde > 0
+    && (config?.horde ?? 0) > 0
     && (config?.slamEvery ?? 0) > 0
     && assault.phase === "battle"
     && Boolean(active)
@@ -3095,7 +3095,7 @@ function stepAssault(g: Game, dt: number) {
               contacts++;
               if (contacts >= ASSAULT_BOSS_CONTACT_BATCH || active.hp <= 0) break;
             }
-            if (active.hp > 0) {
+            if (active.hp > 0 && contacts < ASSAULT_BOSS_CONTACT_BATCH) {
               for (const u of g.blue) {
                 if (u.dead || u.big || !bossContacting(active, u)) continue;
                 const winding = bossBraceRuntime(g, true)?.phase === "winding";

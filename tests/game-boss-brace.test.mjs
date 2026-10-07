@@ -29,7 +29,6 @@ const makeUnit = ({ x = 180, y = 331, big = false } = {}) => ({
 });
 
 const prepare = (options = {}) => {
-  const practice = options.practice ?? false;
   const horde = options.horde ?? 24;
   const game = newGame(makeLevel(options));
   game.firing = false;
@@ -54,7 +53,7 @@ test("brace permits ordinary damage but limits one contact batch and only trigge
 
   step(game, FRAME);
 
-  assert.deepEqual(bossBrace(game), { phase: "winding", progress: 0, seconds: 4 });
+  assert.deepEqual(bossBrace(game), { phase: "winding", progress: 0, seconds: 4.75 });
   assert.equal(game.bases[0].hp, 71, "ordinary contacts still damaged the giant");
   assert.equal(game.stats.baseHits, 4, "the winding batch capped ordinary contacts at four");
   assert.equal(game.blue.length, 4, "remaining runners were left alive for the warning window");
@@ -94,6 +93,22 @@ test("a champion contact interrupts the winding brace and restores normal contac
   assert.equal(bossBrace(game)?.phase, "staggered");
   step(game, 0.31);
   assert.equal(bossBrace(game), null, "the brief stagger cleaned up");
+});
+
+test("the capped winding batch does not take an extra ordinary contact after twelve champions", () => {
+  const game = prepare();
+  const champions = Array.from({ length: 12 }, () => {
+    const champion = makeUnit({ big: true });
+    champion.hp = 1;
+    return champion;
+  });
+  game.blue.push(...champions, makeUnit());
+
+  step(game, FRAME);
+
+  assert.equal(game.bases[0].hp, 15, "the batch stopped at twelve contacts");
+  assert.equal(game.blue.length, 1, "the ordinary contact remained for the next batch");
+  assert.equal(bossBrace(game)?.phase, "staggered");
 });
 
 test("a remote champion cannot interrupt the brace", () => {
@@ -139,7 +154,7 @@ test("unopposed expiry produces a nonlethal impact cue", () => {
 
   const elapsedFrames = advanceUntil(game, () => bossBrace(game)?.phase === "impact");
 
-  assert.ok(elapsedFrames >= 230 && elapsedFrames <= 250, `brace warning lasted ${elapsedFrames} frames`);
+  assert.ok(elapsedFrames >= 280 && elapsedFrames <= 295, `brace warning lasted ${elapsedFrames} frames`);
   assert.equal(game.bases[0].hp, 75, "impact did not change boss hp");
   assert.equal(game.status, "playing");
   assert.equal(game.assault.bossPulse, 1);
