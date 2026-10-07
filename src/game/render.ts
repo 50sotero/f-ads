@@ -394,8 +394,6 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     box(defense, dark, side * 9.15, 0.28, defenseZ, 0.46, 0.56, 0.7);
     box(defense, defenseMaterial, side * 9.15, 0.61, defenseZ, 0.37, 0.1, 0.54).castShadow = false;
   }
-  const defenseLabel = makeLabel("DEFEND", 2.2, 0.62, "#bdfff4", 90);
-  defenseLabel.sprite.position.set(-6.8, 0.24, defenseZ + 0.72); stage.add(defenseLabel.sprite);
   const dangerMaterial = basic(0xff335c, { transparent: true, opacity: 0, depthWrite: false });
   const dangerStrip = box(stage, dangerMaterial, 0, 0.022, defenseZ - 1.35, 18.2, 0.01, 2.6);
   dangerStrip.castShadow = false;
@@ -703,6 +701,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const projected = new THREE.Vector3();
   function updateCamera(dt = 1) {
     const followX = cameraFollow;
+    const portrait = camera.aspect < 0.85;
+    camera.clearViewOffset();
     camera.position.copy(cameraHome); camera.position.z -= travel;
     camera.position.y -= combatFocus * 5;
     camera.position.z -= combatFocus * 2;
@@ -713,15 +713,19 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     camera.lookAt(cameraTarget.x + curve(combatLookZ) + followX, cameraTarget.y, combatLookZ - travel); camera.updateMatrixWorld();
     // Frame the actual battery and actionable panels. Fitting both empty
     // cannon extremes at once kept the camera too far from every collision.
-    let framingScale = 1;
+    let framingScale = 1, minX = Infinity, maxX = -Infinity, topY = -Infinity;
     const framePoint = (x: number, y: number, z: number, bottom = 0.86) => {
       projected.set(x + curve(z), y, z - travel).project(camera);
-      framingScale = Math.max(framingScale, Math.abs(projected.x) / 0.93, Math.max(0, -projected.y) / bottom);
+      minX = Math.min(minX, projected.x); maxX = Math.max(maxX, projected.x);
+      topY = Math.max(topY, projected.y);
+      if (!portrait) framingScale = Math.max(framingScale, Math.abs(projected.x) / 0.93, Math.max(0, -projected.y) / bottom);
     };
     const cannonX = wx(currentGame?.cannonX ?? W / 2);
     const batteryHalf = currentGame ? Math.max(...cannonBarrelPositions(currentGame.assault?.tier ?? 1).map((barrel) => Math.abs(barrel.x) * SX)) + 1.2 : 1.2;
     framePoint(cannonX - batteryHalf, 0.4, 0.8);
     framePoint(cannonX + batteryHalf, 0.4, 0.8);
+    projected.set(cannonX + curve(0.8), 0.4, 0.8 - travel).project(camera);
+    const cannonY = projected.y;
     for (const gate of currentGame?.gates ?? []) {
       if (gate.overrun) continue;
       framePoint(wx(gate.cx - gate.w / 2) - 0.2, 1.5, wz(gate.y));
@@ -737,6 +741,14 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       framePoint(wx(lock.x) - 2.65, 3.1, wz(lock.y));
       framePoint(wx(lock.x) + 2.65, 3.1, wz(lock.y));
     }
+    for (const unit of currentGame?.red ?? []) {
+      if (unit.dead || !unit.braced) continue;
+      // The shield cue can sit above the crowd's leading edge. Keep its
+      // complete label below the HUD, including the first incoming guard.
+      framePoint(wx(unit.x) - 2.15, 6.6, wz(unit.y));
+      framePoint(wx(unit.x) + 2.15, 6.6, wz(unit.y));
+      if (!portrait) framingScale = Math.max(framingScale, projected.y / 0.68);
+    }
     const active = currentGame?.bases[currentGame.assault?.encounter ?? 0];
     if (active) {
       const combatY = currentGame?.assault?.phase === "counterattack" ? currentGame.assault.frontline : active.y;
@@ -744,9 +756,17 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       projected.set(wx(active.x) + curve(combatZ), height, combatZ - travel).project(camera);
       // Reserve ranks may extend beyond the horizon; the actual collision
       // front must stay below the HUD even when a counterattack moves uphill.
-      framingScale = Math.max(framingScale, projected.y / 0.68);
+      topY = Math.max(topY, projected.y);
+      if (!portrait) framingScale = Math.max(framingScale, projected.y / 0.68);
       for (const x of [-8.8, 8.8]) framePoint(x, 1.5, combatZ);
     }
+    if (portrait) {
+      // Fit the useful road between the battery and battlefront, then place
+      // that composition lower in the screen. A centered lens left a large
+      // empty foreground whenever an edge battery forced a wider view.
+      framingScale = Math.max(1, (maxX - minX) / 1.86, (topY - cannonY) / 1.32);
+    }
+    const baseFov = camera.fov;
     if (framingScale > 1) {
       camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * framingScale));
       camera.updateProjectionMatrix();
@@ -756,6 +776,12 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     displayedFov = Math.max(camera.fov, displayedFov + (camera.fov - displayedFov) * Math.min(1, dt * 2.5));
     camera.fov = displayedFov;
     camera.updateProjectionMatrix();
+    if (portrait) {
+      const scale = Math.tan(THREE.MathUtils.degToRad(baseFov / 2)) / Math.tan(THREE.MathUtils.degToRad(displayedFov / 2));
+      const centerX = (minX + maxX) * 0.5 * scale;
+      const centerY = cannonY * scale + 0.64;
+      camera.setViewOffset(camera.aspect * 1000, 1000, centerX * camera.aspect * 500, -centerY * 500, camera.aspect * 1000, 1000);
+    }
     sun.position.set(-25, 45, -12 - travel); sun.target.position.set(0, 0, -20 - travel);
   }
   function render(game: Game, dt: number) {
@@ -813,7 +839,6 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     defenseMaterial.color.setHex(danger > 0.4 ? 0xff5470 : 0x6ef3e4);
     defenseMaterial.opacity = danger > 0.4 ? 0.7 + Math.sin(game.t * 14) * 0.3 : 0.85;
     dangerMaterial.opacity = danger * (0.13 + Math.sin(game.t * 12) * 0.055);
-    defenseLabel.sprite.position.x = -6.8 + curve(defenseZ);
     while (wallViews.length < game.walls.length) wallViews.push(wallView());
     wallViews.forEach((view, i) => {
       const wall = game.walls[i]; view.visible = !!wall; if (!wall) return;
