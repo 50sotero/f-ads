@@ -683,7 +683,14 @@ export function CrowdCannon() {
             <div className={styles.assaultStat} data-testid="cannon-tier"><strong>{assault.tier}</strong><span>CANNONS</span></div>
             {assault.reserve > 0 && <div className={styles.assaultStat}><strong>{assault.reserve}</strong><span>RESERVE</span></div>}
           </div>
-          <button type="button" className={`${styles.championButton} ${hud.charge >= CHARGE_MAX ? styles.championReady : ""}`} data-testid="champion-button" onClick={launch} disabled={hud.charge < CHARGE_MAX} aria-label={hud.charge >= CHARGE_MAX ? "Launch champion" : `Champion charge ${Math.floor(hud.charge)} of ${CHARGE_MAX}`}>
+          <button type="button" className={`${styles.championButton} ${hud.charge >= CHARGE_MAX ? styles.championReady : ""}`} data-testid="champion-button" onClick={launch} onPointerDown={(event) => {
+            // A second thumb does not produce a compatibility click while the
+            // steering thumb is held. Launch without releasing that drag.
+            if (event.pointerType === "touch" && !event.isPrimary) {
+              event.preventDefault();
+              launch();
+            }
+          }} disabled={hud.charge < CHARGE_MAX} aria-label={hud.charge >= CHARGE_MAX ? "Launch champion" : `Champion charge ${Math.floor(hud.charge)} of ${CHARGE_MAX}`}>
             {hud.charge >= CHARGE_MAX && <span className={styles.championCallout} role="status"><strong>{assault.shields > 0 ? "BREAK THE SHIELD" : "CHAMPION READY"}</strong><small>{assault.shields > 0 ? "Aim, then tap ★ or Space" : assault.frontline > 505 ? "Save the line!" : "Tap ★ or press Space"}</small></span>}
             <span className={styles.championRing} style={{ background: `conic-gradient(from -90deg, #ffe37b ${Math.min(100, (hud.charge / CHARGE_MAX) * 100)}%, rgba(255,255,255,.2) 0)` }} />
             <span className={styles.championCore} aria-hidden="true">★</span>
