@@ -332,6 +332,34 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const aimRingMaterial = basic(0xd1f7ff, { transparent: true, opacity: 0.55, depthWrite: false });
   const aimRingGeometry = geo(new THREE.RingGeometry(0.94, 1, 32)); aimRingGeometry.rotateX(-Math.PI / 2);
   const aimRing = mesh(stage, aimRingGeometry, aimRingMaterial, 0, 0.025, 0, 1, 1, 0.65); aimRing.castShadow = false;
+  const RING_CAPACITY = 20;
+  const ringMaterial = basic(0xffffff, { transparent: true, opacity: 1, depthWrite: false });
+  ringMaterial.vertexColors = true;
+  const ringGeometry = geo(aimRingGeometry.clone());
+  const ringAlpha = new THREE.InstancedBufferAttribute(new Float32Array(RING_CAPACITY), 1).setUsage(THREE.DynamicDrawUsage);
+  const ringAlphaArray = ringAlpha.array;
+  ringGeometry.setAttribute("ringAlpha", ringAlpha);
+  ringMaterial.onBeforeCompile = (shader) => {
+    shader.vertexShader = `attribute float ringAlpha; varying float vRingAlpha;\n${shader.vertexShader}`
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\n        vRingAlpha = ringAlpha;");
+    shader.fragmentShader = `varying float vRingAlpha;\n${shader.fragmentShader}`
+      .replace("#include <color_fragment>", "#include <color_fragment>\n        diffuseColor.a *= vRingAlpha;");
+  };
+  ringMaterial.customProgramCacheKey = () => "arena-ring-alpha-v1";
+  const ringMesh = new THREE.InstancedMesh(ringGeometry, ringMaterial, RING_CAPACITY);
+  ringMesh.frustumCulled = false; ringMesh.visible = false; ringMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); stage.add(ringMesh);
+  const ringColors = new THREE.InstancedBufferAttribute(new Float32Array(RING_CAPACITY * 3), 3).setUsage(THREE.DynamicDrawUsage);
+  ringMesh.instanceColor = ringColors;
+  const ringColorArray = ringColors.array;
+  const ringMatrixArray = ringMesh.instanceMatrix.array;
+  for (let i = 0; i < RING_CAPACITY; i++) {
+    const matrixOffset = i * 16;
+    ringMatrixArray[matrixOffset] = ringMatrixArray[matrixOffset + 5] = ringMatrixArray[matrixOffset + 10] = ringMatrixArray[matrixOffset + 15] = 1;
+    ringColorArray[i * 3] = 0.714;
+    ringColorArray[i * 3 + 1] = 0.961;
+    ringColorArray[i * 3 + 2] = 1;
+  }
+  let ringColorDirty = true;
   const trajectoryMaterial = basic(0xc7f6ff, { transparent: true, opacity: 0.25, depthWrite: false });
   const trajectory = new THREE.InstancedMesh(cube, trajectoryMaterial, 30); trajectory.frustumCulled = false; stage.add(trajectory);
   const warningMaterial = basic(0xff543b, { transparent: true, opacity: 0, depthWrite: false });
@@ -455,6 +483,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     object.geometry.setAttribute("runMotion", new THREE.InstancedBufferAttribute(new Float32Array(object.instanceMatrix.count * 4), 4).setUsage(THREE.DynamicDrawUsage));
     stage.add(object);
   }
+  const friendColorKeys = new Int8Array(friends.instanceMatrix.count).fill(-1);
+  const enemyColorKeys = new Int8Array(enemies.instanceMatrix.count).fill(-1);
+  const guardColorKeys = new Int8Array(guards.instanceMatrix.count).fill(-1);
   for (const object of [friends, enemies, guards]) {
     object.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(object.instanceMatrix.count * 3), 3).setUsage(THREE.DynamicDrawUsage);
   }
@@ -475,7 +506,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   let unitSequence = 0;
   let shadowCount = 0;
   let hasRenderedUnits = false;
-  function drawUnits(units: Unit[], object: THREE.InstancedMesh, enemy: boolean, entry: number) {
+  function drawUnits(units: Unit[], object: THREE.InstancedMesh, enemy: boolean, entry: number, colorKeys: Int8Array) {
     const count = Math.min(units.length, object.instanceMatrix.count); object.count = count;
     // At the crowd cap, slightly smaller ordinary runners keep the spaces
     // between heads readable. Champions and opponents retain their silhouette.
@@ -483,6 +514,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const runMotion = object.geometry.getAttribute("runMotion") as THREE.InstancedBufferAttribute;
     const matrices = object.instanceMatrix.array, shadowMatrices = shadows.instanceMatrix.array;
     const colors = object.instanceColor!.array;
+    let colorsDirty = false;
     const time = currentGame?.t ?? 0;
     const boss = currentGame?.bases[currentGame.assault?.encounter ?? 0];
     const front = currentGame?.assault?.frontline ?? boss?.y ?? 300;
@@ -538,9 +570,14 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       matrices[offset + 4] = sy * sp * syScale; matrices[offset + 5] = cp * syScale; matrices[offset + 6] = cy * sp * syScale; matrices[offset + 7] = 0;
       matrices[offset + 8] = sy * cp * sx; matrices[offset + 9] = -sp * sx; matrices[offset + 10] = cy * cp * sx; matrices[offset + 11] = 0;
       matrices[offset + 12] = x; matrices[offset + 13] = 0.025 + shotFlight; matrices[offset + 14] = z; matrices[offset + 15] = 1;
-      const tint = enemy ? unit.big ? redBrute : runner ? redRunner : guard ? unitWhite : redSoldier : unit.big ? blueChampion : unitWhite;
-      const colorOffset = i * 3;
-      colors[colorOffset] = tint.r; colors[colorOffset + 1] = tint.g; colors[colorOffset + 2] = tint.b;
+      const tintKey = enemy ? unit.big ? 1 : runner ? 2 : guard ? 3 : 4 : unit.big ? 5 : 6;
+      if (colorKeys[i] !== tintKey) {
+        const tint = enemy ? unit.big ? redBrute : runner ? redRunner : guard ? unitWhite : redSoldier : unit.big ? blueChampion : unitWhite;
+        const colorOffset = i * 3;
+        colors[colorOffset] = tint.r; colors[colorOffset + 1] = tint.g; colors[colorOffset + 2] = tint.b;
+        colorKeys[i] = tintKey;
+        colorsDirty = true;
+      }
       const shadowOffset = shadowCount++ * 16;
       // Contact shadows remain axis aligned; all other entries retain the
       // identity values initialized by InstancedMesh.
@@ -549,7 +586,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     }
     object.instanceMatrix.needsUpdate = true;
     runMotion.needsUpdate = true;
-    if (object.instanceColor) object.instanceColor.needsUpdate = true;
+    if (colorsDirty) object.instanceColor!.needsUpdate = true;
   }
 
   type BossView = { art: ReturnType<typeof createWarden>; label: Label; bar: THREE.Group; fill: THREE.Mesh; hp: number; deadAt: number; damageAt: number; deathX: number; deathZ: number; deathTravel: number };
@@ -576,13 +613,20 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       particleList.push({ x, y, z, vx: Math.cos(angle) * speed, vy: (2 + random() * 4) * force, vz: Math.sin(angle) * speed, life, size: (0.08 + random() * 0.14) * force, color: confetti ? [BLUE, 0xffd43b, 0xf13686, 0x9e44ff, 0x78edc9][i % 5] : hex });
     }
   }
-  const rings = Array.from({ length: 20 }, () => {
-    const material = basic(0xb6f5ff, { transparent: true, opacity: 0, depthWrite: false });
-    const object = new THREE.Mesh(aimRingGeometry, material); object.position.y = 0.04; stage.add(object); return { object, material, age: 2, max: 1 };
-  });
+  const ringAge = new Float32Array(RING_CAPACITY); ringAge.fill(2);
+  const ringMax = new Float32Array(RING_CAPACITY); ringMax.fill(1);
+  const ringActive = new Uint8Array(RING_CAPACITY);
+  const ringColor = new THREE.Color();
   let ringCursor = 0;
   function ring(x: number, z: number, hex: number, max = 2) {
-    const value = rings[ringCursor++ % rings.length]; value.age = 0; value.max = max; value.object.position.set(x, 0.045, z); value.material.color.setHex(hex);
+    const index = ringCursor++ % RING_CAPACITY;
+    ringAge[index] = 0; ringMax[index] = max; ringActive[index] = 1; ringColor.setHex(hex);
+    const colorOffset = index * 3;
+    ringColorArray[colorOffset] = ringColor.r; ringColorArray[colorOffset + 1] = ringColor.g; ringColorArray[colorOffset + 2] = ringColor.b;
+    const matrixOffset = index * 16;
+    ringMatrixArray[matrixOffset] = ringMatrixArray[matrixOffset + 5] = ringMatrixArray[matrixOffset + 10] = 0.3;
+    ringMatrixArray[matrixOffset + 12] = x; ringMatrixArray[matrixOffset + 13] = 0.045; ringMatrixArray[matrixOffset + 14] = z;
+    ringColorDirty = true;
   }
   const tags = Array.from({ length: 10 }, () => { const value = makeLabel("", 3.1, 1.1, "#ffffff", 96); stage.add(value.sprite); return { ...value, age: 2, y: 0 }; });
   let tagCursor = 0;
@@ -677,7 +721,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       particleList.length = 0; fallen.length = previousUnits.length = 0;
       bosses.forEach((boss) => { boss.hp = -1; boss.deadAt = -99; boss.damageAt = -99; });
       gates.forEach((value) => { value.group.visible = false; value.nextBurst = 0; value.brokenAt = -1; });
-      tags.forEach((value) => { value.age = 2; }); rings.forEach((value) => { value.age = 2; });
+      tags.forEach((value) => { value.age = 2; }); ringAge.fill(2); ringActive.fill(0); ringAlpha.array.fill(0); ringAlpha.needsUpdate = true;
     }
     const assault = game.assault;
     const encounter = assault?.encounter ?? 0, tier = assault?.tier ?? 1;
@@ -910,7 +954,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     previousUnits.push(...game.blue, ...game.red);
     regularUnits.length = guardUnits.length = 0;
     for (const unit of game.red) (unit.kind === "guard" ? guardUnits : regularUnits).push(unit);
-    shadowCount = 0; drawUnits(game.blue, friends, false, 0); drawUnits(regularUnits, enemies, true, entry); drawUnits(guardUnits, guards, true, entry);
+    shadowCount = 0; drawUnits(game.blue, friends, false, 0, friendColorKeys); drawUnits(regularUnits, enemies, true, entry, enemyColorKeys); drawUnits(guardUnits, guards, true, entry, guardColorKeys);
     hasRenderedUnits = true;
     shadows.count = shadowCount; shadows.instanceMatrix.needsUpdate = true;
     // Uncommitted reserves break formation with staggered, individual motion.
@@ -1034,7 +1078,26 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     fallenMesh.count = fallen.length; fallenMesh.instanceMatrix.needsUpdate = true;
     fallenMesh.geometry.getAttribute("runMotion").needsUpdate = true;
     if (fallenMesh.instanceColor) fallenMesh.instanceColor.needsUpdate = true;
-    rings.forEach((value) => { value.age += dt * 2.8; value.object.visible = value.age < 1; value.material.opacity = Math.max(0, 0.55 * (1 - value.age)); value.object.scale.setScalar(0.3 + value.age * value.max); });
+    let activeRings = false;
+    let ringAlphaDirty = false;
+    let ringMatrixDirty = false;
+    for (let i = 0; i < RING_CAPACITY; i++) {
+      if (!ringActive[i]) continue;
+      const age = ringAge[i] += dt * 2.8;
+      if (age >= 1) {
+        ringAlphaArray[i] = 0; ringActive[i] = 0; ringAge[i] = 2; ringAlphaDirty = true;
+        continue;
+      }
+      activeRings = true; ringAlphaDirty = true; ringMatrixDirty = true;
+      const scale = 0.3 + age * ringMax[i];
+      ringAlphaArray[i] = Math.max(0, 0.55 * (1 - age));
+      const offset = i * 16;
+      ringMatrixArray[offset] = ringMatrixArray[offset + 5] = ringMatrixArray[offset + 10] = scale;
+    }
+    ringMesh.visible = activeRings;
+    if (ringMatrixDirty) ringMesh.instanceMatrix.needsUpdate = true;
+    if (ringAlphaDirty) ringAlpha.needsUpdate = true;
+    if (ringColorDirty) { ringColors.needsUpdate = true; ringColorDirty = false; }
     tags.forEach((value) => { value.age += dt; value.sprite.visible = value.age < 0.85; value.sprite.position.y = value.y + value.age * 2; value.sprite.material.opacity = Math.max(0, 1 - value.age / 0.85); });
     // Crowds use inexpensive soft contact shadows. The slower-moving scenery
     // shadow map can be refreshed at 15 Hz without repeating its draw calls
