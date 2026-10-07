@@ -301,7 +301,7 @@ function mulberry32(seed: number) {
   };
 }
 
-function assaultGateDefs(level: Level) {
+function assaultGateDefs(level: Level): GateDef[] {
   if (!level.assault) return level.gates ?? [];
   if (level.gates?.length) return level.gates;
   const values = level.assault?.gateValues?.length ? level.assault.gateValues : [2, 3, 4];
@@ -2012,6 +2012,44 @@ function updateAssaultBossSlam(g: Game, dt: number) {
   if (assault.slamTimer < 0.8) assault.bossWarning = Math.max(0, Math.min(1, 1 - assault.slamTimer / 0.8));
 }
 
+/**
+ * Rebuild the next assault encounter's panel orientation from authored route
+ * geometry. Later campaign encounters alternate the branch direction so a
+ * player has to make a fresh launch decision after every giant. The runtime
+ * gate objects retain their width, row, multiplier and overrun mask; only the
+ * lane centre and (when present) the mirrored movement phase change.
+ */
+function remixAssaultGates(g: Game, encounter: number) {
+  const config = g.level.assault;
+  if (!config || config.practice || config.horde <= 0 || g.gates.length === 0) return;
+
+  const authored = assaultGateDefs(g.level);
+  const mirror = encounter % 2 === 1;
+  for (let index = 0; index < g.gates.length; index++) {
+    const gate = g.gates[index];
+    const source = authored[index];
+    if (!source) continue;
+
+    const sourceX = source.x;
+    const sourceMove = source.move;
+    const sourceOffset = sourceMove
+      ? Math.sin(g.t * sourceMove.speed + (sourceMove.phase ?? 0)) * sourceMove.range
+      : 0;
+    gate.x = mirror ? W - sourceX : sourceX;
+    gate.cx = mirror ? W - sourceX - sourceOffset : sourceX + sourceOffset;
+
+    // Mirroring the speed and phase keeps a moving panel's live trajectory a
+    // true left/right reflection while preserving the authored range.
+    if (sourceMove) {
+      gate.move = mirror
+        ? { ...sourceMove, speed: -sourceMove.speed, phase: -(sourceMove.phase ?? 0) }
+        : { ...sourceMove };
+    } else {
+      delete gate.move;
+    }
+  }
+}
+
 function beginAssaultAdvance(g: Game) {
   const assault = g.assault!;
   const active = g.bases[assault.encounter];
@@ -2041,6 +2079,7 @@ function beginAssaultAdvance(g: Game) {
     gt.flash = 0;
     if (gt.kind === "x") gt.n = Math.min(9, Math.max(2, (gt.n ?? 2) + 1));
   }
+  remixAssaultGates(g, assault.encounter);
   // Preserve the surviving formation's lanes and row order during travel.
   // Its depth settles into the new approach, keeping the leading runners in
   // front of the next giant without snapping the entire army to the cannon.
