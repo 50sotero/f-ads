@@ -31,6 +31,22 @@ test("red forward spacing uses the enemy travel direction", () => {
   assert.ok(leader.y - follower.y >= 8, "red follower overtook the forward runner");
 });
 
+test("assault horde spacing is deterministic but staggered", () => {
+  const level = assaultLevel({
+    bases: [{ x: 180, y: 300, hp: 99999, every: 9999, group: 0 }],
+    assault: { horde: 320, reserve: 0, speed: 16, theme: "fork" },
+  });
+  const first = newGame(level, 7);
+  const second = newGame(level, 7);
+  assert.deepEqual(first.red, second.red, "the formed horde changed for the same seed");
+
+  const firstRow = first.red.slice(0, 17);
+  const secondRow = first.red.slice(17, 35);
+  assert.ok(Math.abs(firstRow[0].x - secondRow[0].x) > 1, "adjacent rows shared one rigid left edge");
+  assert.ok(Math.abs(firstRow.at(-1).x - secondRow.at(-1).x) > 1, "adjacent rows shared one rigid right edge");
+  assert.ok(new Set(first.red.map((unit) => unit.pace)).size > 8, "formed runners did not get stable pace variation");
+});
+
 test("cannon barrel offsets are centered and match every assault volley", () => {
   assert.deepEqual(cannonBarrelOffsets(1), [0]);
   assert.deepEqual(cannonBarrelOffsets(5), [-24, 0, 24, -12, 12]);

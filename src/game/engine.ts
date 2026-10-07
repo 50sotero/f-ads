@@ -479,22 +479,80 @@ function stableMotionVariation(x: number, y: number, salt = 0) {
   return value - Math.floor(value);
 }
 
-/** Places a compact left-lane formation with a readable leading edge. */
+const ASSAULT_FORMATION_FRONT_SPAN = 160;
+const ASSAULT_FORMATION_REAR_SPAN = 240;
+const ASSAULT_FORMATION_ROW_SPACING = 9.7;
+
+/**
+ * Keeps the authored formation broad while breaking up its hard rectangular
+ * outline. The row breathing and alternating phase are deterministic; the
+ * small seeded jitter keeps equal-depth runners from sharing one rail.
+ */
+function organicFormationRearSpan(center: number) {
+  // Side-centred fixtures keep the original playable envelope while the
+  // campaign's centred road can open to the wider rear footprint.
+  const half = Math.min(ASSAULT_FORMATION_REAR_SPAN / 2, Math.max(90, center - 35));
+  return half * 2;
+}
+
+function organicFormationSpan(center: number, row: number) {
+  const rearSpan = organicFormationRearSpan(center);
+  const frontSpan = Math.min(ASSAULT_FORMATION_FRONT_SPAN, rearSpan);
+  const taper = Math.min(1, row / 6);
+  return frontSpan + (rearSpan - frontSpan) * taper;
+}
+
+function organicFormationRowColumns(columns: number, frontColumns: number, row: number) {
+  const taper = Math.min(1, row / 6);
+  return Math.max(3, Math.min(columns, Math.round(frontColumns + (columns - frontColumns) * taper)));
+}
+
+function organicFormationSlot(index: number, columns: number, frontColumns: number) {
+  let row = 0;
+  let column = index;
+  while (column >= organicFormationRowColumns(columns, frontColumns, row)) {
+    column -= organicFormationRowColumns(columns, frontColumns, row);
+    row++;
+  }
+  return { row, column, columns: organicFormationRowColumns(columns, frontColumns, row) };
+}
+
+function organicFormationX(center: number, row: number, column: number, rowColumns: number, jitter: number) {
+  const span = organicFormationSpan(center, row);
+  const spacing = rowColumns > 1 ? span / (rowColumns - 1) : 0;
+  const breathing = 0.975 + 0.025 * (0.5 + 0.5 * Math.sin(row * 1.71 + center * 0.02));
+  const stagger = (row & 1 ? 0.34 : -0.18) * spacing;
+  const drift = Math.sin(row * 2.37 + center * 0.013) * 1.25;
+  const raw = center + (column - (rowColumns - 1) / 2) * spacing * breathing + stagger + drift + (jitter - 0.5) * 0.6;
+  const edge = span / 2;
+  return Math.max(12, Math.min(W - 12, Math.max(center - edge, Math.min(center + edge, raw))));
+}
+
+function organicFormationY(anchor: number, row: number, jitter: number) {
+  const wave = Math.sin(row * 1.63 + anchor * 0.013) * 0.18;
+  return anchor - row * ASSAULT_FORMATION_ROW_SPACING + wave + (jitter - 0.5) * 0.16;
+}
+
+/** Places a tapered formation with a readable leading edge. */
+function assaultFormationColumns(count: number, center: number, spacing: number, minimum: number) {
+  const byWidth = Math.ceil(organicFormationRearSpan(center) / spacing) + 1;
+  const byCount = Math.ceil(Math.sqrt(count * 1.08));
+  return Math.min(23, Math.max(minimum, byWidth, byCount));
+}
+
 function seedAssaultHorde(g: Game, count: number) {
   const assault = g.assault;
   if (!assault || count <= 0) return;
-  const columns = Math.min(18, Math.max(10, Math.ceil(Math.sqrt(count * 1.08))));
-  const spacing = columns > 1 ? 170 / (columns - 1) : 0;
   const center = g.bases[assault.encounter]?.x ?? W / 2;
-  const left = center - 85;
+  const columns = assaultFormationColumns(count, center, 11, 10);
+  const frontColumns = Math.max(3, Math.min(columns, Math.round(organicFormationSpan(center, 0) / 10) + 1));
   const front = 372;
   for (let i = 0; i < count; i++) {
-    const row = Math.floor(i / columns);
-    const column = i % columns;
-    const x = Math.max(12, Math.min(W - 12, left + column * spacing + (g.rand() - 0.5) * 3));
-    const y = front - row * 8.7 - g.rand() * 2.3;
+    const slot = organicFormationSlot(i, columns, frontColumns);
+    const x = organicFormationX(center, slot.row, slot.column, slot.columns, g.rand());
+    const y = organicFormationY(front, slot.row, g.rand());
     const big = i > 32 && i % 47 === 0;
-    const lane = columns > 1 ? Math.round((column / (columns - 1)) * 8) - 4 : 0;
+    const lane = slot.columns > 1 ? Math.round((slot.column / (slot.columns - 1)) * 8) - 4 : 0;
     g.red.push(makeAssaultEnemy(g, x, y, big, lane));
   }
   assault.frontline = front;
@@ -506,10 +564,9 @@ function releaseAssaultReserve(g: Game, count: number) {
   if (!assault || count <= 0 || assault.reserve <= 0) return;
   const amount = Math.min(Math.floor(count), assault.reserve, ASSAULT_RED_CAP - g.red.length);
   if (amount <= 0) return;
-  const columns = Math.min(16, Math.max(8, Math.ceil(Math.sqrt(amount * 1.1))));
-  const spacing = columns > 1 ? 170 / (columns - 1) : 0;
   const center = g.bases[assault.encounter]?.x ?? W / 2;
-  const left = center - 85;
+  const columns = assaultFormationColumns(amount, center, 14, 8);
+  const frontColumns = Math.max(3, Math.min(columns, Math.round(organicFormationSpan(center, 0) / 10) + 1));
   let rear = Infinity;
   for (const enemy of g.red) if (!enemy.dead) rear = Math.min(rear, enemy.y);
   // Reinforcements form a continuous carpet behind the last living row. If a
@@ -517,12 +574,11 @@ function releaseAssaultReserve(g: Game, count: number) {
   // instead of leaving an empty screen between the cannon and the boss.
   const anchor = Number.isFinite(rear) ? rear : Math.min(372, assault.frontline);
   for (let i = 0; i < amount; i++) {
-    const row = Math.floor(i / columns);
-    const column = i % columns;
-    const x = Math.max(12, Math.min(W - 12, left + column * spacing + (g.rand() - 0.5) * 3));
-    const y = anchor - 8 - row * 8.7 - g.rand() * 2.3;
+    const slot = organicFormationSlot(i, columns, frontColumns);
+    const x = organicFormationX(center, slot.row, slot.column, slot.columns, g.rand());
+    const y = organicFormationY(anchor - 8, slot.row, g.rand());
     const big = i > 12 && i % 43 === 0;
-    const lane = columns > 1 ? Math.round((column / (columns - 1)) * 8) - 4 : 0;
+    const lane = slot.columns > 1 ? Math.round((slot.column / (slot.columns - 1)) * 8) - 4 : 0;
     g.red.push(makeAssaultEnemy(g, x, y, big, lane));
   }
   assault.reserve -= amount;
@@ -1137,7 +1193,10 @@ function updateAssaultCannon(g: Game, dt: number) {
   const volley = positions.length;
   for (let k = 0; k < volley && g.blue.length < MAX_UNITS; k++) {
     const position = positions[k];
-    g.blue.push({ x: g.cannonX + position.x + (g.rand() - 0.5) * 0.8, y: CANNON_Y - 22 + position.y, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false });
+    const x = g.cannonX + position.x + (g.rand() - 0.5) * 0.8;
+    const y = CANNON_Y - 22 + position.y;
+    const pace = 0.94 + stableMotionVariation(x, y, g.stats.fired + k) * 0.12;
+    g.blue.push({ x, y, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false, pace });
     g.stats.fired++;
     assault.barrelShots[k]++;
     g.charge = Math.min(CHARGE_MAX, g.charge + 1);
@@ -1158,6 +1217,13 @@ const ASSAULT_LATERAL_ACCEL = 1400;
 const ASSAULT_RED_LATERAL_ACCEL = 520;
 const ASSAULT_MAX_NEIGHBOURS = 48;
 const ASSAULT_MAX_CELL_SAMPLES = 8;
+const ASSAULT_MOTION_COLS = Math.ceil(W / ASSAULT_MOTION_CELL);
+const ASSAULT_MOTION_ROWS = Math.ceil((H + ASSAULT_MOTION_CELL) / ASSAULT_MOTION_CELL) + 1;
+const assaultMotionCells: Array<number[] | undefined> = new Array(ASSAULT_MOTION_COLS * ASSAULT_MOTION_ROWS);
+const assaultMotionCellGeneration = new Uint32Array(ASSAULT_MOTION_COLS * ASSAULT_MOTION_ROWS);
+let assaultMotionGeneration = 0;
+let assaultMotionForward = new Float32Array(MAX_UNITS);
+let assaultMotionLateral = new Float32Array(MAX_UNITS);
 const ASSAULT_RED_SPEED_SCALE = 0.85;
 const ASSAULT_BOSS_W = 140;
 const ASSAULT_CORRIDOR_HALF = 72;
@@ -1241,26 +1307,43 @@ function updateAssaultGateOverruns(g: Game) {
  * unit backward.
  */
 function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1) {
-  const cols = Math.ceil(W / ASSAULT_MOTION_CELL);
-  const rows = Math.ceil((H + ASSAULT_MOTION_CELL) / ASSAULT_MOTION_CELL) + 1;
-  const cells: Array<number[] | undefined> = new Array(cols * rows);
-  const forward = new Float32Array(units.length);
-  const lateral = new Float32Array(units.length);
-  forward.fill(1);
+  if (units.length > assaultMotionForward.length) {
+    const size = Math.max(units.length, assaultMotionForward.length * 2);
+    assaultMotionForward = new Float32Array(size);
+    assaultMotionLateral = new Float32Array(size);
+  }
+  assaultMotionGeneration = (assaultMotionGeneration + 1) >>> 0;
+  if (assaultMotionGeneration === 0) {
+    assaultMotionCellGeneration.fill(0);
+    assaultMotionGeneration = 1;
+  }
+  assaultMotionForward.fill(1, 0, units.length);
+  assaultMotionLateral.fill(0, 0, units.length);
 
   for (let i = 0; i < units.length; i++) {
     const unit = units[i];
     if (unit.dead) continue;
-    const col = Math.max(0, Math.min(cols - 1, Math.floor(unit.x / ASSAULT_MOTION_CELL)));
-    const row = Math.max(0, Math.min(rows - 1, Math.floor((unit.y + ASSAULT_MOTION_CELL) / ASSAULT_MOTION_CELL)));
-    (cells[row * cols + col] ??= []).push(i);
+    const col = Math.max(0, Math.min(ASSAULT_MOTION_COLS - 1, Math.floor(unit.x / ASSAULT_MOTION_CELL)));
+    const row = Math.max(0, Math.min(ASSAULT_MOTION_ROWS - 1, Math.floor((unit.y + ASSAULT_MOTION_CELL) / ASSAULT_MOTION_CELL)));
+    const cellIndex = row * ASSAULT_MOTION_COLS + col;
+    let cell = assaultMotionCells[cellIndex];
+    if (assaultMotionCellGeneration[cellIndex] !== assaultMotionGeneration) {
+      if (!cell) {
+        cell = [];
+        assaultMotionCells[cellIndex] = cell;
+      } else {
+        cell.length = 0;
+      }
+      assaultMotionCellGeneration[cellIndex] = assaultMotionGeneration;
+    }
+    cell!.push(i);
   }
 
   for (let i = 0; i < units.length; i++) {
     const unit = units[i];
     if (unit.dead) continue;
-    const col = Math.max(0, Math.min(cols - 1, Math.floor(unit.x / ASSAULT_MOTION_CELL)));
-    const row = Math.max(0, Math.min(rows - 1, Math.floor((unit.y + ASSAULT_MOTION_CELL) / ASSAULT_MOTION_CELL)));
+    const col = Math.max(0, Math.min(ASSAULT_MOTION_COLS - 1, Math.floor(unit.x / ASSAULT_MOTION_CELL)));
+    const row = Math.max(0, Math.min(ASSAULT_MOTION_ROWS - 1, Math.floor((unit.y + ASSAULT_MOTION_CELL) / ASSAULT_MOTION_CELL)));
     const search = 2;
     let limit = 1;
     let sideForce = 0;
@@ -1268,12 +1351,14 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1) {
     let inspected = 0;
     neighbourSearch: for (let dr = -search; dr <= search; dr++) {
       const rr = row + dr;
-      if (rr < 0 || rr >= rows) continue;
+      if (rr < 0 || rr >= ASSAULT_MOTION_ROWS) continue;
       for (let dc = -search; dc <= search; dc++) {
         const cc = col + dc;
-        if (cc < 0 || cc >= cols) continue;
-        const cell = cells[rr * cols + cc];
-        if (!cell) continue;
+        if (cc < 0 || cc >= ASSAULT_MOTION_COLS) continue;
+        const cellIndex = rr * ASSAULT_MOTION_COLS + cc;
+        if (assaultMotionCellGeneration[cellIndex] !== assaultMotionGeneration) continue;
+        const cell = assaultMotionCells[cellIndex];
+        if (!cell || cell.length === 0) continue;
         // Dense multiplication can put hundreds of units in one cell. Sample
         // evenly and cap the total work per runner instead of reopening a
         // quadratic all-pairs pass.
@@ -1288,7 +1373,7 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1) {
           const otherIndex = cell[(sampleStart + sampleOffset) % cell.length];
           if (otherIndex === i) continue;
           const other = units[otherIndex];
-          if (other.dead) continue;
+          if (!other || other.dead) continue;
           const signedDx = unit.x - other.x;
           const verticalGap = unit.y - other.y;
           const forwardGap = (other.y - unit.y) * forwardDirection;
@@ -1316,14 +1401,14 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1) {
         }
       }
     }
-    forward[i] = Math.max(0, limit);
+    assaultMotionForward[i] = Math.max(0, limit);
     // A lone pair should drift apart gently; reserve the stronger impulse for
     // an actually compressed wave where several neighbours compete for the
     // same space. This keeps boss slams readable while opening dense rows.
     const crowdFactor = Math.min(1, neighbourCount / 6);
-    lateral[i] = Math.max(-2.2, Math.min(2.2, sideForce)) * ASSAULT_LATERAL_ACCEL * crowdFactor;
+    assaultMotionLateral[i] = Math.max(-2.2, Math.min(2.2, sideForce)) * ASSAULT_LATERAL_ACCEL * crowdFactor;
   }
-  return { forward, lateral };
+  return { forward: assaultMotionForward, lateral: assaultMotionLateral };
 }
 
 function updateAssaultBlue(g: Game, dt: number) {
