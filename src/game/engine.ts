@@ -42,6 +42,18 @@ export type BaseDef = {
 };
 export type AssaultTheme = "fork" | "bridge" | "bend";
 export type AssaultWaveKind = "runner" | "guard" | "brute";
+export type BossBracePhase = "winding" | "staggered" | "impact";
+/**
+ * Read-only public cue for the active giant's one-shot reactive brace.
+ * `seconds` is the remaining time in the current phase. Winding progress
+ * rises from 0 to 1; impact progress falls from 1 to 0 during its short
+ * visual window.
+ */
+export type BossBraceSnapshot = Readonly<{
+  phase: BossBracePhase;
+  progress: number;
+  seconds: number;
+}>;
 export type AssaultCounterattackDef = {
   /** Number of finite reinforcement waves after each giant falls. */
   waves: number;
@@ -458,6 +470,29 @@ type BossSlamRecoilState = {
   extra: number;
 };
 const bossSlamRecoilStates = new WeakMap<Unit, BossSlamRecoilState>();
+type BossBraceRuntime = {
+  owner: Game;
+  assault: AssaultState;
+  encounter: number;
+  phase: BossBracePhase | null;
+  elapsed: number;
+  triggered: boolean;
+  invalidated: boolean;
+};
+type BossBraceChampionDrive = {
+  owner: Game;
+  assault: AssaultState;
+  encounter: number;
+};
+type BossBraceRedDrive = {
+  owner: Game;
+  assault: AssaultState;
+  encounter: number;
+  seconds: number;
+};
+const bossBraceStates = new WeakMap<Game, BossBraceRuntime>();
+const bossBraceChampionDrives = new WeakMap<Unit, BossBraceChampionDrive>();
+const bossBraceRedDrives = new WeakMap<Unit, BossBraceRedDrive>();
 const SHIELD_BRACE_FATIGUE_SECONDS = 1.25;
 const ASSAULT_BOSS_SLAM_DURATION = 0.35;
 const ASSAULT_BOSS_SLAM_DECAY = 8;
@@ -466,6 +501,16 @@ const ASSAULT_BOSS_SLAM_DECAY_NORMALIZER = 1 - ASSAULT_BOSS_SLAM_END_ENVELOPE;
 const ASSAULT_BOSS_SLAM_INITIAL_KICK = 10;
 const ASSAULT_BOSS_SLAM_RUNNER_EXTRA = 26;
 const ASSAULT_BOSS_SLAM_CHAMPION_EXTRA = 2;
+const ASSAULT_BOSS_BRACE_DURATION = 4;
+const ASSAULT_BOSS_BRACE_STAGGER = 0.6;
+const ASSAULT_BOSS_BRACE_IMPACT = 0.3;
+const ASSAULT_BOSS_CONTACT_BATCH = 12;
+const ASSAULT_BOSS_BRACE_CONTACT_LIMIT = 4;
+const ASSAULT_BOSS_BRACE_CHAMPION_FORWARD_FLOOR = 0.9;
+const ASSAULT_BOSS_BRACE_RED_SPEED = 1.7;
+const ASSAULT_BOSS_BRACE_RED_DURATION = 0.75;
+const ASSAULT_BOSS_BRACE_RED_LATERAL = 120;
+const ASSAULT_BOSS_BRACE_RED_DEPTH = 180;
 
 /**
  * The final counterattack cleanup lets ordinary contact wear down a remaining
@@ -558,6 +603,217 @@ export function bossSlamRecoil(game: Game, unit: Unit) {
   return Math.max(0, Math.min(1, (envelope - ASSAULT_BOSS_SLAM_END_ENVELOPE) / ASSAULT_BOSS_SLAM_DECAY_NORMALIZER));
 }
 
+function bossBraceEncounterEligible(game: Game, assault: AssaultState) {
+  const config = game.level.assault;
+  const active = game.bases[assault.encounter];
+  return game.status === "playing"
+    && Boolean(config)
+    && !config?.practice
+    && config?.horde > 0
+    && (config?.slamEvery ?? 0) > 0
+    && assault.phase === "battle"
+    && Boolean(active)
+    && active!.hp > 0;
+}
+
+function bossBraceRuntime(game: Game, invalidate = false) {
+  const assault = game.assault;
+  const state = bossBraceStates.get(game);
+  if (!assault || !state || state.owner !== game || state.assault !== assault || state.encounter !== assault.encounter) return null;
+  const active = game.bases[assault.encounter];
+  if (!bossBraceEncounterEligible(game, assault) || !active || state.invalidated) {
+    // Keep the once-per-encounter decision while removing a cue from a dead
+    // boss, a counterattack, a transition, or a stopped simulation. A later
+    // encounter gets a fresh runtime because its encounter index changes.
+    if (invalidate) {
+      state.phase = null;
+      state.invalidated = true;
+    }
+    return null;
+  }
+  return state;
+}
+
+function ensureBossBraceRuntime(game: Game, assault: AssaultState) {
+  const previous = bossBraceStates.get(game);
+  if (
+    previous
+    && previous.owner === game
+    && previous.assault === assault
+    && previous.encounter === assault.encounter
+  ) return previous;
+  const state: BossBraceRuntime = {
+    owner: game,
+    assault,
+    encounter: assault.encounter,
+    phase: null,
+    elapsed: 0,
+    triggered: false,
+    invalidated: false,
+  };
+  bossBraceStates.set(game, state);
+  return state;
+}
+
+/** Returns the active giant's one-shot brace cue without exposing its timers. */
+export function bossBrace(game: Game): BossBraceSnapshot | null {
+  const state = bossBraceRuntime(game);
+  if (!state || !state.phase) return null;
+  if (state.phase === "winding") {
+    const progress = Math.max(0, Math.min(1, state.elapsed / ASSAULT_BOSS_BRACE_DURATION));
+    return {
+      phase: state.phase,
+      progress,
+      seconds: Math.max(0, ASSAULT_BOSS_BRACE_DURATION - state.elapsed),
+    };
+  }
+  if (state.phase === "staggered") {
+    const progress = Math.max(0, Math.min(1, state.elapsed / ASSAULT_BOSS_BRACE_STAGGER));
+    return {
+      phase: state.phase,
+      progress,
+      seconds: Math.max(0, ASSAULT_BOSS_BRACE_STAGGER - state.elapsed),
+    };
+  }
+  const progress = Math.max(0, Math.min(1, 1 - state.elapsed / ASSAULT_BOSS_BRACE_IMPACT));
+  return {
+    phase: state.phase,
+    progress,
+    seconds: Math.max(0, ASSAULT_BOSS_BRACE_IMPACT - state.elapsed),
+  };
+}
+
+function beginBossBrace(game: Game, assault: AssaultState) {
+  const state = ensureBossBraceRuntime(game, assault);
+  if (state.triggered || state.invalidated) return false;
+  state.triggered = true;
+  state.phase = "winding";
+  state.elapsed = 0;
+  assault.bossWarning = 0;
+  pop(game, game.bases[assault.encounter].x, game.bases[assault.encounter].y - game.bases[assault.encounter].h / 2 - 24, 1, "GIANT WINDING UP");
+  return true;
+}
+
+function bossBraceContactCount(game: Game, active: Base) {
+  let ordinary = 0;
+  for (const unit of game.blue) {
+    if (unit.dead || unit.big) continue;
+    if (!bossContacting(active, unit)) continue;
+    ordinary++;
+  }
+  return ordinary;
+}
+
+function bossContacting(active: Base, unit: Unit) {
+  return Math.abs(unit.x - active.x) <= active.w / 2 + unit.r
+    && unit.y <= active.y + active.h / 2 + unit.r + 0.5
+    && unit.y >= active.y - active.h / 2 - unit.r - 0.5;
+}
+
+function maybeBeginBossBrace(game: Game, active: Base) {
+  const assault = game.assault!;
+  if (!bossBraceEncounterEligible(game, assault)) return;
+  const threshold = active.maxHp * 0.75;
+  const existing = bossBraceStates.get(game);
+  if (
+    existing
+    && existing.owner === game
+    && existing.assault === assault
+    && existing.encounter === assault.encounter
+    && (existing.triggered || existing.invalidated)
+  ) return;
+  // Until the next twelve ordinary contacts cannot cross 75%, no scan of the
+  // full blue crowd is needed. This keeps the normal boss-contact cadence
+  // close to the pre-brace path on high-hp encounters.
+  if (active.hp > threshold + ASSAULT_BOSS_CONTACT_BATCH) return;
+  const state = ensureBossBraceRuntime(game, assault);
+  if (state.triggered || state.invalidated) return;
+  const ordinary = bossBraceContactCount(game, active);
+  // Arm on an observed 75% crossing, or just before a contact batch would
+  // cross it. The latter keeps the next batch readable instead of allowing a
+  // twelve-runner pileup to spend the whole warning in one frame.
+  const nextBatchDamage = Math.min(12, ordinary);
+  if (active.hp <= threshold || (nextBatchDamage > 0 && active.hp - nextBatchDamage <= threshold)) {
+    beginBossBrace(game, assault);
+  }
+}
+
+function applyBossBraceRedDrive(game: Game, active: Base) {
+  const assault = game.assault!;
+  const centerY = active.y + active.h / 2;
+  for (const unit of game.red) {
+    if (unit.dead) continue;
+    if (Math.abs(unit.x - active.x) > active.w / 2 + ASSAULT_BOSS_BRACE_RED_LATERAL) continue;
+    if (Math.abs(unit.y - centerY) > ASSAULT_BOSS_BRACE_RED_DEPTH) continue;
+    bossBraceRedDrives.set(unit, {
+      owner: game,
+      assault,
+      encounter: assault.encounter,
+      seconds: ASSAULT_BOSS_BRACE_RED_DURATION,
+    });
+  }
+}
+
+function bossBraceRedSpeed(game: Game, unit: Unit, dt: number) {
+  const state = bossBraceRedDrives.get(unit);
+  const assault = game.assault;
+  if (
+    !state
+    || state.owner !== game
+    || !assault
+    || state.assault !== assault
+    || state.encounter !== assault.encounter
+    || assault.phase !== "battle"
+    || game.status !== "playing"
+    || unit.dead
+  ) {
+    if (state) bossBraceRedDrives.delete(unit);
+    return 1;
+  }
+  const speed = state.seconds > 0 ? ASSAULT_BOSS_BRACE_RED_SPEED : 1;
+  state.seconds = Math.max(0, state.seconds - Math.max(0, dt));
+  if (state.seconds <= 0) bossBraceRedDrives.delete(unit);
+  return speed;
+}
+
+function updateBossBrace(game: Game, dt: number) {
+  const assault = game.assault;
+  const state = assault ? bossBraceRuntime(game, true) : null;
+  if (!state || !state.phase) return;
+  if (state.phase === "winding") {
+    state.elapsed += Math.max(0, dt);
+    assault!.bossWarning = Math.max(0, Math.min(1, state.elapsed / ASSAULT_BOSS_BRACE_DURATION));
+    if (state.elapsed < ASSAULT_BOSS_BRACE_DURATION - 1e-9) return;
+    const active = game.bases[assault!.encounter];
+    if (!active || active.hp <= 0) {
+      state.phase = null;
+      state.invalidated = true;
+      return;
+    }
+    state.phase = "impact";
+    state.elapsed = 0;
+    assault!.bossWarning = 0;
+    assault!.bossPulse = 1;
+    assault!.slamTimer = Math.max(1, game.level.assault?.slamEvery ?? Infinity);
+    pop(game, active.x, active.y - active.h / 2 - 10, 1, "BRACE IMPACT");
+    applyAssaultBossSlamImpact(game, active);
+    applyBossBraceRedDrive(game, active);
+    return;
+  }
+  if (state.phase === "staggered") {
+    state.elapsed += Math.max(0, dt);
+    if (state.elapsed < ASSAULT_BOSS_BRACE_STAGGER - 1e-9) return;
+    state.phase = null;
+    state.elapsed = 0;
+    return;
+  }
+  state.elapsed += Math.max(0, dt);
+  if (state.elapsed >= ASSAULT_BOSS_BRACE_IMPACT - 1e-9) {
+    state.phase = null;
+    state.elapsed = 0;
+  }
+}
+
 export function launchChampion(g: Game) {
   if (g.status !== "playing" || g.charge < CHARGE_MAX) return false;
   g.charge = 0;
@@ -565,6 +821,10 @@ export function launchChampion(g: Game) {
   const aim = championShieldAim(g);
   const champion: Unit = { x: g.cannonX, y: CANNON_Y - 26, vx: 0, hp: 14, r: 11, big: true, used: 0, dead: false };
   if (aim?.direction === "aligned") championTargets.set(champion, aim.target);
+  const brace = bossBraceRuntime(g, true);
+  if (brace?.phase === "winding") {
+    bossBraceChampionDrives.set(champion, { owner: g, assault: g.assault!, encounter: g.assault!.encounter });
+  }
   g.blue.push(champion);
   return true;
 }
@@ -2234,8 +2494,18 @@ function updateAssaultBlue(g: Game, dt: number) {
         applyAssaultCorridorPressure(u, active.x, dt);
       }
     }
+    const braceChampionDrive = u.big && bossBraceChampionDrives.get(u);
+    const braceRuntime = braceChampionDrive
+      && braceChampionDrive.owner === g
+      && braceChampionDrive.assault === assault
+      && braceChampionDrive.encounter === assault.encounter
+      ? bossBraceRuntime(g, true)
+      : null;
+    const forwardMotion = braceRuntime?.phase === "winding"
+      ? Math.max(assaultMotion.forward[blueIndex], ASSAULT_BOSS_BRACE_CHAMPION_FORWARD_FLOOR)
+      : assaultMotion.forward[blueIndex];
     let dy = -(u.big ? ASSAULT_CHAMP_SPEED : ASSAULT_BLUE_SPEED) * dt
-      * assaultMotion.forward[blueIndex] * (u.pace ?? 1);
+      * forwardMotion * (u.pace ?? 1);
 
     // After the final gate there is a short, explicit boss approach. This is
     // the only deliberate attraction in the assault path, and keeps a missed
@@ -2441,8 +2711,9 @@ function updateAssaultRed(g: Game, dt: number) {
       applyAssaultRunnerBreakaway(u, dt);
       runnerRoadSpeedScale = assaultRunnerRoadSpeedScale(u, assault, dt);
     }
+    const braceRedSpeed = bossBraceRedSpeed(g, u, dt);
     const roleSpeed = u.kind === "runner" ? 1.3 : u.kind === "guard" ? 0.84 : 1;
-    move(g, u, config.speed * surgeSpeed * ASSAULT_RED_SPEED_SCALE * (u.big ? 0.74 : 1) * roleSpeed * runnerRoadSpeedScale * (u.pace ?? 1) * assaultMotion.forward[redIndex] * dt, dt);
+    move(g, u, config.speed * surgeSpeed * ASSAULT_RED_SPEED_SCALE * (u.big ? 0.74 : 1) * roleSpeed * runnerRoadSpeedScale * braceRedSpeed * (u.pace ?? 1) * assaultMotion.forward[redIndex] * dt, dt);
     if (!u.big && hitsSpinner(g, u)) {
       u.dead = true;
       pop(g, u.x, u.y, 1);
@@ -2534,12 +2805,67 @@ function resolveAssaultFights(g: Game, dt: number) {
   if (braceContacts) applyShieldBraceFatigue(g, braceContacts, dt);
 }
 
+function resolveAssaultBossContact(g: Game, active: Base, unit: Unit) {
+  const assault = g.assault!;
+  const damage = unit.big ? Math.max(5, Math.floor(unit.hp * 1.5)) : 1;
+  active.hp = Math.max(0, active.hp - damage);
+  active.hitFlash = 1;
+  g.stats.baseHits += damage;
+  unit.dead = true;
+  assault.bossTimer = 0.025;
+  pop(g, unit.x, unit.y, 0, unit.big ? "BOOM" : undefined);
+  if (!unit.big) return;
+
+  const state = bossBraceStates.get(g);
+  if (
+    state
+    && state.owner === g
+    && state.assault === assault
+    && state.encounter === assault.encounter
+    && state.phase === "winding"
+  ) {
+    state.phase = "staggered";
+    state.elapsed = 0;
+    assault.bossWarning = 0;
+    assault.slamTimer = Math.max(1, g.level.assault?.slamEvery ?? Infinity);
+    pop(g, active.x, active.y - active.h / 2 - 24, 1, "STAGGERED");
+  }
+}
+
+/** Applies the existing bounded, nonlethal recoil to the nearest blue crowd. */
+function applyAssaultBossSlamImpact(g: Game, active: Base) {
+  const assault = g.assault!;
+  const front = active.y + active.h / 2;
+  const targets = g.blue
+    .filter((u) => !u.dead && u.y >= active.y - active.h / 2 && u.y <= front + 112 && Math.abs(u.x - active.x) <= active.w / 2 + 30)
+    .sort((a, b) => a.y - b.y)
+    .slice(0, 120);
+  for (const u of targets) {
+    bossSlamRecoilStates.set(u, {
+      owner: g,
+      assault,
+      encounter: assault.encounter,
+      startFrame: assault.motionFrame,
+      elapsed: 0,
+      extra: u.big ? ASSAULT_BOSS_SLAM_CHAMPION_EXTRA : ASSAULT_BOSS_SLAM_RUNNER_EXTRA,
+    });
+    // Preserve the immediate shove. The longer tail is applied after ordinary
+    // movement on following frames, so the collision-aware movement path keeps
+    // owning walls and the impact never changes hp.
+    const maxY = CANNON_Y - u.r - 2;
+    const kick = Math.max(0, Math.min(ASSAULT_BOSS_SLAM_INITIAL_KICK, maxY - u.y));
+    if (kick > 0) move(g, u, kick, 0);
+  }
+}
+
 function updateAssaultBossSlam(g: Game, dt: number) {
   const assault = g.assault!;
   const config = g.level.assault!;
   assault.bossPulse = Math.max(0, assault.bossPulse - dt * 4);
   assault.bossWarning = 0;
   if (config.practice || assault.phase !== "battle" || !config.slamEvery) return;
+  const brace = bossBraceRuntime(g, true);
+  if (brace?.phase === "winding" || brace?.phase === "staggered") return;
   const active = g.bases[assault.encounter];
   if (!active || active.hp <= 0) return;
   const every = Math.max(1, config.slamEvery);
@@ -2548,27 +2874,7 @@ function updateAssaultBossSlam(g: Game, dt: number) {
     assault.slamTimer += every;
     assault.bossPulse = 1;
     pop(g, active.x, active.y - active.h / 2 - 10, 1, "SLAM");
-    const front = active.y + active.h / 2;
-    const targets = g.blue
-      .filter((u) => !u.dead && u.y >= active.y - active.h / 2 && u.y <= front + 112 && Math.abs(u.x - active.x) <= active.w / 2 + 30)
-      .sort((a, b) => a.y - b.y)
-      .slice(0, 120);
-    for (const u of targets) {
-      bossSlamRecoilStates.set(u, {
-        owner: g,
-        assault,
-        encounter: assault.encounter,
-        startFrame: assault.motionFrame,
-        elapsed: 0,
-        extra: u.big ? ASSAULT_BOSS_SLAM_CHAMPION_EXTRA : ASSAULT_BOSS_SLAM_RUNNER_EXTRA,
-      });
-      // Preserve the original immediate shove. The longer tail is applied
-      // after ordinary movement on following frames, so the boss clamp cannot
-      // erase the visible reversal and the slam itself never changes hp.
-      const maxY = CANNON_Y - u.r - 2;
-      const kick = Math.max(0, Math.min(ASSAULT_BOSS_SLAM_INITIAL_KICK, maxY - u.y));
-      if (kick > 0) move(g, u, kick, 0);
-    }
+    applyAssaultBossSlamImpact(g, active);
     return;
   }
   if (assault.slamTimer < 0.8) assault.bossWarning = Math.max(0, Math.min(1, 1 - assault.slamTimer / 0.8));
@@ -2692,6 +2998,12 @@ function finishAssaultEncounter(g: Game) {
   if (assault.phase !== "battle") return;
   const active = g.bases[assault.encounter];
   if (active.hp > 0) return;
+  const brace = bossBraceStates.get(g);
+  if (brace && brace.assault === assault && brace.encounter === assault.encounter) {
+    brace.phase = null;
+    brace.invalidated = true;
+    bossBraceStates.delete(g);
+  }
   active.hp = 0;
   active.hitFlash = 1;
   pop(g, active.x, active.y, 0, "DOWN!");
@@ -2718,6 +3030,7 @@ function finishAssaultEncounter(g: Game) {
 function stepAssault(g: Game, dt: number) {
   const assault = g.assault!;
   if (g.status !== "playing") {
+    bossBraceRuntime(g, true);
     for (const p of g.pops) p.t += dt;
     g.pops = g.pops.filter((p) => p.t < 0.8);
     assault.upgradeFlash = Math.max(0, assault.upgradeFlash - dt * 2.4);
@@ -2735,6 +3048,7 @@ function stepAssault(g: Game, dt: number) {
   updateAssaultBossPressure(g, dt);
   updateAssaultGateOverruns(g);
   updateAssaultBossSlam(g, dt);
+  updateBossBrace(g, dt);
   updateAssaultCounterattack(g, dt);
 
   if (assault.phase === "advance") {
@@ -2766,19 +3080,40 @@ function stepAssault(g: Game, dt: number) {
           // A full row can strike across the giant's broad front. Resolving
           // twelve contacts keeps a multiplied wave flowing while the giant
           // stands against it, without a pile of overlapping idle runners.
+          maybeBeginBossBrace(g, active);
+          const brace = bossBraceRuntime(g, true);
           let contacts = 0;
-          for (const u of g.blue) {
-            if (u.dead) continue;
-            if (Math.abs(u.x - active.x) > active.w / 2 + u.r) continue;
-            if (u.y > active.y + active.h / 2 + u.r + 0.5 || u.y < active.y - active.h / 2 - u.r - 0.5) continue;
-            const damage = u.big ? Math.max(5, Math.floor(u.hp * 1.5)) : 1;
-            active.hp = Math.max(0, active.hp - damage);
-            active.hitFlash = 1;
-            g.stats.baseHits += damage;
-            u.dead = true;
-            assault.bossTimer = 0.025;
-            pop(g, u.x, u.y, 0, u.big ? "BOOM" : undefined);
-            if (++contacts >= 12 || active.hp <= 0) break;
+          let ordinaryContacts = 0;
+          if (brace?.phase === "winding") {
+            // Scan champions first so a deliberate launch can break the brace
+            // even when ordinary runners arrived in the same broad row. Two
+            // bounded scans run only during this one-shot cue; no candidate
+            // arrays are allocated on the normal contact path.
+            for (const u of g.blue) {
+              if (u.dead || !u.big || !bossContacting(active, u)) continue;
+              resolveAssaultBossContact(g, active, u);
+              contacts++;
+              if (contacts >= ASSAULT_BOSS_CONTACT_BATCH || active.hp <= 0) break;
+            }
+            if (active.hp > 0) {
+              for (const u of g.blue) {
+                if (u.dead || u.big || !bossContacting(active, u)) continue;
+                const winding = bossBraceRuntime(g, true)?.phase === "winding";
+                if (winding && ordinaryContacts >= ASSAULT_BOSS_BRACE_CONTACT_LIMIT) break;
+                resolveAssaultBossContact(g, active, u);
+                contacts++;
+                ordinaryContacts++;
+                if (contacts >= ASSAULT_BOSS_CONTACT_BATCH || active.hp <= 0) break;
+              }
+            }
+          } else {
+            // Preserve the original direct scan and its twelve-contact cap for
+            // every ordinary assault frame and every non-brace encounter.
+            for (const u of g.blue) {
+              if (u.dead || !bossContacting(active, u)) continue;
+              resolveAssaultBossContact(g, active, u);
+              if (++contacts >= ASSAULT_BOSS_CONTACT_BATCH || active.hp <= 0) break;
+            }
           }
         }
       }
