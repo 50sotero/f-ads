@@ -18,11 +18,13 @@ const makeLevel = (options = {}) => {
   const slamEvery = Object.hasOwn(options, "slamEvery") ? options.slamEvery : 9;
   const baseX = options.baseX ?? 180;
   const counterattack = options.counterattack;
+  const walls = options.walls ?? [];
   return {
     name: "boss brace fixture",
     par: 30,
     bases: [{ x: baseX, y: 300, hp: 100, every: 9999, group: 0 }],
     gates: [{ x: baseX, y: 0, w: 1, kind: "x", n: 2 }],
+    walls,
     assault: {
       horde,
       reserve: 0,
@@ -228,6 +230,47 @@ test("an ignored brace starts a bounded physical breakthrough that pushes the bl
 
   advanceUntil(game, () => bossBreakthrough(game) === null, 60);
   assert.equal(bossBreakthrough(game), null, "the breakthrough did not leave a stale phase");
+});
+
+test("breakthrough shoves only the swept body cohort by the giant's small step", () => {
+  const game = armBrace({ walls: [{ x: 230, y: 300, w: 20, h: 50 }] });
+  game.assault.bossTimer = Infinity;
+  advanceUntil(game, () => bossBrace(game)?.phase === "impact");
+
+  const active = game.bases[0];
+  const front = active.y + active.h / 2;
+  const rear = active.y - active.h / 2;
+  const makeProbe = (x, y) => ({
+    x,
+    y,
+    vx: 0,
+    hp: 1,
+    r: 4.2,
+    big: false,
+    used: 0,
+    dead: false,
+    pace: 0,
+  });
+  const frontUnit = makeProbe(active.x, front - 2);
+  const insideUnit = makeProbe(active.x, active.y);
+  const behindUnit = makeProbe(active.x, rear - 8);
+  const aheadUnit = makeProbe(active.x, front + 8);
+  const wallUnit = makeProbe(240, front - 2);
+  game.blue = [frontUnit, insideUnit, behindUnit, aheadUnit, wallUnit];
+  const before = game.blue.map((unit) => unit.y);
+  const beforeBaseY = active.y;
+
+  const dt = 1 / 120;
+  step(game, dt);
+  const giantStep = game.bases[0].y - beforeBaseY;
+  assert.ok(giantStep > 0 && giantStep <= 36 * dt + 1e-9, `giant step was ${giantStep}px`);
+  assert.ok(frontUnit.y - before[0] > 0, "front overlap was not displaced");
+  assert.ok(insideUnit.y - before[1] > 0, "body overlap was not displaced");
+  assert.ok(frontUnit.y - before[0] <= giantStep + 1e-9);
+  assert.ok(insideUnit.y - before[1] <= giantStep + 1e-9);
+  assert.equal(behindUnit.y, before[2], "blue behind the old rear edge was moved");
+  assert.equal(aheadUnit.y, before[3], "blue ahead of the new front was moved");
+  assert.equal(wallUnit.y, before[4], "the shove crossed an authored wall");
 });
 
 test("breakthrough momentum carries marked nearby reds into the same encounter counterattack", () => {

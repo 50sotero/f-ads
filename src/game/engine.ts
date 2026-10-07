@@ -526,7 +526,6 @@ const ASSAULT_BOSS_BRACE_CHAMPION_FORWARD_FLOOR = 0.9;
 const ASSAULT_BOSS_BRACE_CHAMPION_SPEED_MULTIPLIER = 1.35;
 const ASSAULT_BOSS_BREAKTHROUGH_DURATION = 2.25;
 const ASSAULT_BOSS_BREAKTHROUGH_SPEED = 36;
-const ASSAULT_BOSS_BREAKTHROUGH_BLUE_DEPTH = 150;
 const ASSAULT_BOSS_BREAKTHROUGH_RED_SPEED = 1.25;
 const ASSAULT_BOSS_BRACE_RED_LATERAL = 120;
 const ASSAULT_BOSS_BRACE_RED_DEPTH = 180;
@@ -2276,21 +2275,23 @@ function applyAssaultCorridorPressure(u: Unit, centerX: number, dt: number, corr
 
 /** Pushes only the blue units occupying the giant's advancing collision lane. */
 function applyAssaultBossBreakthroughPush(g: Game, active: Base, previousFront: number, nextFront: number) {
-  if (nextFront <= previousFront) return;
-  const upperDepth = previousFront - ASSAULT_BOSS_BREAKTHROUGH_BLUE_DEPTH;
-  const lowerDepth = nextFront + ASSAULT_BOSS_BREAKTHROUGH_BLUE_DEPTH;
+  const displacement = nextFront - previousFront;
+  if (displacement <= 0) return;
+  const previousRear = previousFront - active.h;
   for (const unit of g.blue) {
     if (
       unit.dead
       || Math.abs(unit.x - active.x) > active.w / 2 + unit.r
-      || unit.y < upperDepth
-      || unit.y > lowerDepth
+      // A blue unit only joins the swept collision cohort when its circle
+      // overlaps the giant's body during this step. Units behind the old rear
+      // edge and units still ahead of the new front keep their own path.
+      || unit.y + unit.r < previousRear
+      || unit.y - unit.r > nextFront
     ) continue;
-    const destination = Math.min(CANNON_Y - unit.r - 2, nextFront + unit.r);
-    if (destination <= unit.y + 1e-9) continue;
-    // Use the normal wall-aware mover for the shove. A wall can redirect a
-    // unit laterally, but no position is rewritten around authored geometry.
-    move(g, unit, destination - unit.y, 0);
+    // Preserve each unit's offset from the advancing body. The shove is
+    // bounded by the giant's actual movement in this step; the normal mover
+    // still owns authored walls and field bounds.
+    move(g, unit, displacement, 0);
   }
 }
 
