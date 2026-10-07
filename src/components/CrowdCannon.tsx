@@ -6,7 +6,7 @@ import "@fontsource/fredoka/700.css";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 
-import { applyStartingLoadout, championShieldAim, CHARGE_MAX, counterattackSideEntry, counterattackWaveRole, isShieldCleanup, launchChampion, newGame, stars, step, W, weaponForLevel, type CounterattackWaveRole, type Game } from "@/game/engine";
+import { applyStartingLoadout, bossBrace, bossBraceChampionIncoming, championBossAim, championShieldAim, CHARGE_MAX, counterattackSideEntry, counterattackWaveRole, isShieldCleanup, launchChampion, newGame, stars, step, W, weaponForLevel, type CounterattackWaveRole, type Game } from "@/game/engine";
 import { levels } from "@/game/levels";
 import { createRenderer } from "@/game/render";
 import { advanceTutorial, newTutorialProgress, tutorialLessons, tutorialLevel, type TutorialProgress } from "@/game/tutorial";
@@ -52,6 +52,10 @@ type AssaultHud = {
   integrity: number;
   maxIntegrity: number;
   breachFlash: number;
+  brace: ReturnType<typeof bossBrace>;
+  braceChampion: boolean;
+  bossAim: "left" | "right" | "aligned" | null;
+  bossCanInterrupt: boolean;
 };
 type HudState = { crowd: number; time: number; charge: number; assault: AssaultHud };
 
@@ -91,11 +95,16 @@ const defaultAssault = (): AssaultHud => ({
   integrity: 3,
   maxIntegrity: 3,
   breachFlash: 0,
+  brace: null,
+  braceChampion: false,
+  bossAim: null,
+  bossCanInterrupt: false,
 });
 
 function assaultHud(game: Game): AssaultHud {
   const assault = game.assault;
   const entry = counterattackSideEntry(game);
+  const bossAim = championBossAim(game);
   let raidLane: -1 | 0 | 1 = 0, raidY = -Infinity, leftRaid = 0, rightRaid = 0;
   for (const unit of game.red) {
     if (unit.dead || !unit.sideEntry) continue;
@@ -134,6 +143,10 @@ function assaultHud(game: Game): AssaultHud {
     integrity: assault?.integrity ?? 3,
     maxIntegrity: assault?.maxIntegrity ?? 3,
     breachFlash: assault?.breachFlash ?? 0,
+    brace: bossBrace(game),
+    braceChampion: bossBraceChampionIncoming(game),
+    bossAim: bossAim?.direction ?? null,
+    bossCanInterrupt: bossAim?.canInterrupt ?? false,
   };
 }
 
@@ -367,7 +380,7 @@ export function CrowdCannon() {
     let hudAt = 0;
     let needsDraw = true;
     let seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0, weapon: 1, phase: "battle", bossPulse: 0 };
-    const heardShieldBreaks = new WeakSet<object>();
+    const heardCombatCues = new WeakSet<object>();
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
       renderer.resize(Math.max(1, rect.width), Math.max(1, rect.height));
@@ -424,8 +437,8 @@ export function CrowdCannon() {
         if (game.assault?.phase === "counterattack" && seen.phase !== "counterattack") soundRef.current("alert");
         if ((game.assault?.bossPulse ?? 0) > seen.bossPulse + 0.1) soundRef.current("slam");
         for (const pop of game.pops) {
-          if (pop.text !== "SHIELD BREAK" || heardShieldBreaks.has(pop)) continue;
-          heardShieldBreaks.add(pop); soundRef.current("shield");
+          if (!["SHIELD BREAK", "GIANT WINDING UP", "STAGGERED"].includes(pop.text ?? "") || heardCombatCues.has(pop)) continue;
+          heardCombatCues.add(pop); soundRef.current(pop.text === "GIANT WINDING UP" ? "alert" : "shield");
         }
         seen = { fired: game.stats.fired, multiplied: game.stats.multiplied, baseHits: game.stats.baseHits, champions: game.stats.champions, weapon: game.assault?.weaponLevel ?? 1, phase: game.assault?.phase ?? "battle", bossPulse: game.assault?.bossPulse ?? 0 };
         const training = tutorialRef.current;
@@ -670,6 +683,9 @@ export function CrowdCannon() {
   const lineBroken = assault.integrity === 0;
   const roadCleared = !lineBroken && assault.phase === "counterattack" && assault.wave === assault.waves && assault.remaining === 0;
   const battleEnded = lineBroken || roadCleared;
+  const giantWinding = !battleEnded && assault.brace?.phase === "winding";
+  const giantStaggered = !battleEnded && assault.brace?.phase === "staggered";
+  const bossInstruction = assault.bossAim === "left" ? "← Drag left" : "Drag right →";
   const shieldInstruction = assault.shieldAim === "left" ? "← Drag left" : assault.shieldAim === "right" ? "Drag right →" : "Aligned";
   const incomingWave = assault.phase === "counterattack" && assault.waveWarning > 0 && !battleEnded;
   const incomingLane = assault.waveLane < 0 ? "← LEFT" : assault.waveLane > 0 ? "RIGHT →" : "CENTER";
@@ -752,10 +768,10 @@ export function CrowdCannon() {
               <span className={styles.encounterDots} aria-hidden="true">{Array.from({ length: assault.encounters }, (_, index) => <i key={index} data-done={index < assault.encounter} data-current={index === assault.encounter} />)}</span>
             </div>
           </div>
-          {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-warning={incomingWave} data-wave-role={assault.waveRole} data-side-raid={sideDanger} data-breached={lineBroken} data-cleared={roadCleared} data-shield={!battleEnded && !sideDanger && assault.shields > 0} data-cleanup={!battleEnded && !sideDanger && assault.shields > 0 && assault.shieldCleanup} data-compact={!battleEnded && !sideDanger && assault.shields === 0 && (assault.phase === "counterattack" || assault.phase === "battle" && hud.time > 4)}>
+          {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-warning={incomingWave} data-wave-role={assault.waveRole} data-side-raid={sideDanger} data-brace={giantWinding ? "winding" : giantStaggered ? "staggered" : undefined} data-breached={lineBroken} data-cleared={roadCleared} data-shield={!battleEnded && !sideDanger && assault.shields > 0} data-cleanup={!battleEnded && !sideDanger && assault.shields > 0 && assault.shieldCleanup} data-compact={!battleEnded && !sideDanger && !giantWinding && !giantStaggered && assault.shields === 0 && (assault.phase === "counterattack" || assault.phase === "battle" && hud.time > 4)}>
             <span className={styles.objectiveIcon} aria-hidden="true">{roadCleared ? "★" : lineBroken || assault.phase === "counterattack" ? "!" : assault.phase === "advance" ? "»" : "⚑"}</span>
-            <div><strong>{lineBroken ? "LINE BREACHED" : roadCleared ? "ROAD CLEAR" : sideDanger ? sideLabel : assault.shields > 0 ? assault.shieldCleanup ? "OVERWHELM THEM!" : "SHIELD GUARD" : assault.phase === "counterattack" ? incomingWave ? incomingLabel : `${assault.remaining} DEFENDERS LEFT` : assault.phase === "advance" ? remixedGates ? "LANES SWITCHED" : "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
-              <span>{lineBroken ? "Your cannon defense is gone." : roadCleared ? "All defenders cleared." : sideDanger ? sideAction : assault.shields > 0 ? assault.shieldCleanup ? "Keep firing at the last shields. Your crowd can break them!" : hud.charge >= CHARGE_MAX ? assault.shieldAim === "aligned" ? "Aligned! Tap ★ to break the shield." : `${shieldInstruction} · line up the gold sight, then tap ★.` : `${shieldInstruction} · fire to charge ★. Normal shots blocked.`
+            <div><strong>{lineBroken ? "LINE BREACHED" : roadCleared ? "ROAD CLEAR" : sideDanger ? sideLabel : giantWinding ? "GIANT WINDING UP" : giantStaggered ? "SLAM INTERRUPTED!" : assault.shields > 0 ? assault.shieldCleanup ? "OVERWHELM THEM!" : "SHIELD GUARD" : assault.phase === "counterattack" ? incomingWave ? incomingLabel : `${assault.remaining} DEFENDERS LEFT` : assault.phase === "advance" ? remixedGates ? "LANES SWITCHED" : "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
+              <span>{lineBroken ? "Your cannon defense is gone." : roadCleared ? "All defenders cleared." : sideDanger ? sideAction : giantWinding ? assault.braceChampion ? "Champion charging! Keep firing." : !assault.bossCanInterrupt ? "Slam incoming. Keep firing to rebuild the front!" : hud.charge >= CHARGE_MAX ? assault.bossAim === "aligned" ? "Aligned! Tap ★ to interrupt the slam." : `${bossInstruction} to line up the gold sight, then tap ★.` : "Keep firing to charge ★. Brace for the slam!" : giantStaggered ? "Keep firing! Their leader is exposed." : assault.shields > 0 ? assault.shieldCleanup ? "Keep firing at the last shields. Your crowd can break them!" : hud.charge >= CHARGE_MAX ? assault.shieldAim === "aligned" ? "Aligned! Tap ★ to break the shield." : `${shieldInstruction} · line up the gold sight, then tap ★.` : `${shieldInstruction} · fire to charge ★. Normal shots blocked.`
                 : assault.phase === "counterattack"
                 ? incomingWave ? incomingAction : `${assault.remaining} enemies left · wave ${assault.wave} / ${assault.waves}`
                 : assault.phase === "advance" ? remixedGates ? "Find the new gate chain. Keep your upgrades!" : "Keep your upgrades. Push forward!" : "Then survive the counterattack"}</span></div>
@@ -796,7 +812,7 @@ export function CrowdCannon() {
               launch();
             }
           }} disabled={battleEnded || hud.charge < CHARGE_MAX} aria-label={battleEnded ? "Champion unavailable" : hud.charge >= CHARGE_MAX ? "Launch champion" : `Champion charge ${Math.floor(hud.charge)} of ${CHARGE_MAX}`}>
-            {!battleEnded && !sideDanger && !contextualHint && hud.charge >= CHARGE_MAX && <span className={styles.championCallout} role="status"><strong>{assault.shields > 0 ? assault.shieldCleanup ? "FINISH THEM!" : assault.shieldAim === "aligned" ? "ALIGNED · LAUNCH!" : "BREAK THE SHIELD" : "CHAMPION READY"}</strong><small>{assault.shields > 0 ? assault.shieldCleanup ? "Keep firing, or tap ★ to break through" : assault.shieldAim === "aligned" ? "Tap ★ or press Space" : `${shieldInstruction} to aim your champion` : assault.frontline > 505 ? "Save the line!" : "Tap ★ or press Space"}</small></span>}
+            {!battleEnded && !sideDanger && (!giantWinding || assault.bossCanInterrupt) && !contextualHint && hud.charge >= CHARGE_MAX && <span className={styles.championCallout} role="status"><strong>{giantWinding ? assault.bossAim === "aligned" ? "ALIGNED · LAUNCH!" : "AIM AT THE GIANT" : assault.shields > 0 ? assault.shieldCleanup ? "FINISH THEM!" : assault.shieldAim === "aligned" ? "ALIGNED · LAUNCH!" : "BREAK THE SHIELD" : "CHAMPION READY"}</strong><small>{giantWinding ? assault.bossAim === "aligned" ? "Tap ★ or press Space" : `${bossInstruction} to aim your champion` : assault.shields > 0 ? assault.shieldCleanup ? "Keep firing, or tap ★ to break through" : assault.shieldAim === "aligned" ? "Tap ★ or press Space" : `${shieldInstruction} to aim your champion` : assault.frontline > 505 ? "Save the line!" : "Tap ★ or press Space"}</small></span>}
             <span className={styles.championRing} style={{ background: `conic-gradient(from -90deg, #ffe37b ${Math.min(100, (hud.charge / CHARGE_MAX) * 100)}%, rgba(255,255,255,.2) 0)` }} />
             <span className={styles.championCore} aria-hidden="true">★</span>
             <span className={styles.championLabel}>{battleEnded ? "ENDED" : hud.charge >= CHARGE_MAX ? "GO!" : "CHARGE"}</span>

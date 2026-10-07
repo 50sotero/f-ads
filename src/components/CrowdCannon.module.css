@@ -332,6 +332,9 @@
 .battleObjective[data-side-raid="true"] { border-color: #ffbe74; background: linear-gradient(110deg, #9e3d31f5, #61324bef); }
 .battleObjective[data-side-raid="true"] strong { color: #ffefc0; }
 .battleObjective[data-side-raid="true"] .objectiveIcon { color: #ffe087; }
+.battleObjective[data-brace="winding"] { border-color: #ffd273; background: linear-gradient(110deg, #7c3528f2, #573444f2); }
+.battleObjective[data-brace="winding"] strong { color: #ffe0a2; }
+.battleObjective[data-brace="staggered"] { border-color: #a4ffe3; background: #176b60ed; }
 .battleObjective[data-breached="true"] { background: #872d43ed; border-color: #ffad98; color: #fff0e4; }
 .battleObjective[data-cleared="true"] { background: #176b60ed; border-color: #adffe1; color: #e6fff5; }
 .objectiveIcon { display: grid; flex: 0 0 29px; height: 29px; place-items: center; border-radius: 9px; background: rgba(255,255,255,.15); color: #ffe680; font-size: 22px; }

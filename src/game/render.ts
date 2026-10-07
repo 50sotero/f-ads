@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, bossSlamRecoil, cannonBarrelPositions, championShieldAim, counterattackSideEntry, counterattackWaveRole, shieldBracePressure, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
+import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, bossBrace, bossSlamRecoil, cannonBarrelPositions, championBossAim, championShieldAim, counterattackSideEntry, counterattackWaveRole, shieldBracePressure, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
 import { createGuardGeometry, createHordeGeometry, createMobGeometry, createRaiderGeometry, createSiegeCannon, createWarden } from "./assaultArt";
 
 // The simulation uses a moving local battlefield. The long road and bridges
@@ -366,8 +366,12 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const trajectoryMaterial = basic(0x8eefff, { transparent: true, opacity: 0.25, depthWrite: false });
   const trajectory = new THREE.InstancedMesh(cube, trajectoryMaterial, 50); trajectory.frustumCulled = false; stage.add(trajectory);
   const selectedGates = new Set<number>();
-  const warningMaterial = basic(0xff543b, { transparent: true, opacity: 0, depthWrite: false });
+  const warningMaterial = basic(0xff543b, { transparent: true, opacity: 0, depthWrite: false, depthTest: false });
   const warningRing = mesh(stage, aimRingGeometry, warningMaterial, 0, 0.045, -18, 4, 1, 2.5); warningRing.castShadow = false;
+  warningRing.renderOrder = 6;
+  const bossAimMaterial = basic(0xffdc64, { transparent: true, opacity: 0.9, depthWrite: false, depthTest: false });
+  const bossAimRing = mesh(stage, aimRingGeometry, bossAimMaterial, 0, 0.075, 0, 1.2, 1, 0.8);
+  bossAimRing.castShadow = false; bossAimRing.renderOrder = 7;
   const flankMaterial = basic(0xff713d, { transparent: true, opacity: 0, depthWrite: false });
   const flankWarning = new THREE.Group(); stage.add(flankWarning);
   mesh(flankWarning, aimRingGeometry, flankMaterial, 0, 0.055, 0, 2.4, 1, 1.45).castShadow = false;
@@ -503,6 +507,15 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   // Draw priority targets after the billboard gate numbers. They still test
   // against real scene depth, but a value plaque must not hide their bodies.
   bracedGuards.material.transparent = true; bracedGuards.renderOrder = 8;
+  // Reveal only the selected shield where opaque crowd depth hides it. The
+  // ordinary mesh retains real depth; visible portions receive no overlay.
+  const guardRevealMaterial = crowdMaterial(0xdb2851);
+  guardRevealMaterial.transparent = true; guardRevealMaterial.opacity = 0.82;
+  guardRevealMaterial.depthWrite = false; guardRevealMaterial.depthFunc = THREE.GreaterDepth;
+  guardRevealMaterial.emissive.setHex(0x9c681b); guardRevealMaterial.emissiveIntensity = 0.22;
+  const guardReveal = new THREE.InstancedMesh(geo(bracedGuards.geometry.clone()), guardRevealMaterial, 1);
+  guardReveal.instanceMatrix.setUsage(THREE.DynamicDrawUsage); guardReveal.frustumCulled = false; guardReveal.renderOrder = 8;
+  stage.add(guardReveal);
   const regularUnits: Unit[] = [], guardUnits: Unit[] = [], bracedUnits: Unit[] = [];
   const shieldLabel = makeLabel("SHIELD", 4.3, 1.45, "#ffe5a0", 127, true);
   stage.add(shieldLabel.sprite); shieldLabel.sprite.visible = false; shieldLabel.sprite.renderOrder = 10;
@@ -541,7 +554,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   // Twelve thousand silhouettes already cover the visible reserve field;
   // deeper rows sit above the viewport and would only add vertex work.
   const reserves = new THREE.InstancedMesh(reserveGeometry, crowdMaterial(RED), 12000);
-  for (const object of [friends, enemies, raiders, guards, bracedGuards, reserves]) {
+  for (const object of [friends, enemies, raiders, guards, bracedGuards, guardReveal, reserves]) {
     object.frustumCulled = false; object.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     object.geometry.setAttribute("runMotion", new THREE.InstancedBufferAttribute(new Float32Array(object.instanceMatrix.count * 4), 4).setUsage(THREE.DynamicDrawUsage));
     stage.add(object);
@@ -599,7 +612,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const recoil = !enemy && currentGame ? bossSlamRecoil(currentGame, unit) : 0;
       const recoilHop = recoil > 0 ? Math.sin((1 - recoil) * Math.PI) : 0;
       const runner = enemy && unit.kind === "runner", guard = enemy && unit.kind === "guard";
-      const size = unit.big ? (enemy ? 1.9 : 2.1) : guard ? unit.braced ? 1.7 : 1.18 : enemy ? unit.sideEntry ? 1.18 : 0.99 : 1.2 * crowdScale;
+      const size = unit.big ? (enemy ? 1.9 : 2.1) : guard ? unit.braced ? 2.1 : 1.18 : enemy ? unit.sideEntry ? 1.18 : 0.99 : 1.2 * crowdScale;
       const unitWorldZ = wz(unit.y), z = unitWorldZ - (enemy ? entry : 0), unitCurve = curve(z);
       let state = motion.get(unit);
       if (!state) {
@@ -686,7 +699,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   }
   impactContext.closePath(); impactContext.fill(); impactContext.stroke();
   const impactTexture = texture(new THREE.CanvasTexture(impactCanvas)); impactTexture.colorSpace = THREE.SRGBColorSpace;
-  type BossView = { art: ReturnType<typeof createWarden>; label: Label; bar: THREE.Group; fill: THREE.Mesh; impact: THREE.Sprite; hitX: number; hp: number; deadAt: number; damageAt: number; deathX: number; deathZ: number; deathTravel: number };
+  type BossView = { art: ReturnType<typeof createWarden>; label: Label; caption: string; bar: THREE.Group; fill: THREE.Mesh; charge: THREE.Group; chargeFill: THREE.Mesh; impact: THREE.Sprite; hitX: number; hp: number; deadAt: number; damageAt: number; deathX: number; deathZ: number; deathTravel: number };
   const bosses: BossView[] = [];
   function ensureBosses(count: number) {
     while (bosses.length < count) {
@@ -695,9 +708,12 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const bar = new THREE.Group(); stage.add(bar);
       box(bar, dark, 0, 0, 0, 5.4, 0.65, 0.18);
       const fill = box(bar, standard(0xff294e, { emissive: 0xff1734, emissiveIntensity: 0.3 }), 0, 0, 0.11, 5.15, 0.46, 0.1);
+      const charge = new THREE.Group(); stage.add(charge);
+      box(charge, dark, 0, 0, 0, 4.4, 0.28, 0.18);
+      const chargeFill = box(charge, basic(0xffcc49), 0, 0, 0.11, 4.15, 0.17, 0.1);
       const impact = new THREE.Sprite(mat(new THREE.SpriteMaterial({ map: impactTexture, transparent: true, opacity: 0, depthWrite: false, depthTest: false })));
       impact.renderOrder = 4; impact.visible = false; stage.add(impact);
-      bosses.push({ art, label, bar, fill, impact, hitX: 0, hp: -1, deadAt: -99, damageAt: -99, deathX: 0, deathZ: 0, deathTravel: 0 });
+      bosses.push({ art, label, caption: "500", bar, fill, charge, chargeFill, impact, hitX: 0, hp: -1, deadAt: -99, damageAt: -99, deathX: 0, deathZ: 0, deathTravel: 0 });
     }
   }
   const particleList: Particle[] = [];
@@ -806,7 +822,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       if (portrait && unit !== selectedGuard) continue;
       // The shield cue can sit above the crowd's leading edge. Keep its
       // complete label below the HUD, including the first incoming guard.
-      frameLabel(wx(unit.x), 5.6, wz(unit.y), 4.5, 1.7);
+      frameLabel(wx(unit.x), 6.45, wz(unit.y), 4.5, 1.7);
     }
     const active = currentGame?.bases[currentGame.assault?.encounter ?? 0];
     const assault = currentGame?.assault;
@@ -844,7 +860,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         const half = Math.max(4.6, active.w * SX / 2);
         framePoint(wx(active.x) - half, 1.5, combatZ);
         framePoint(wx(active.x) + half, 1.5, combatZ);
-        frameLabel(wx(active.x), 6.05, combatZ, 3.5, 1.15);
+        frameLabel(wx(active.x), 6.05, combatZ, currentGame && bossBrace(currentGame) ? 5.3 : 3.5, 1.15);
       } else {
         // A real flank reaching the front still needs room. Keep its physical
         // extent visible without treating the entire road as a target.
@@ -919,7 +935,10 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     travel = (assault?.travel ?? 0) * SZ; stage.position.z = -travel;
     if (travel !== previousTravel) { bendGeometry(stageBends, -travel); previousTravel = travel; }
     const entry = (assault?.advance ?? 0) * 25;
-    const warning = assault?.bossWarning ?? 0, pulse = assault?.bossPulse ?? 0;
+    const brace = bossBrace(game);
+    const winding = brace?.phase === "winding";
+    const stagger = brace?.phase === "staggered" ? 1 - brace.progress : 0;
+    const warning = winding ? 0.35 + brace.progress * 0.65 : assault?.bossWarning ?? 0, pulse = assault?.bossPulse ?? 0;
     const activeBoss = game.bases[encounter];
     const counterattack = assault?.phase === "counterattack";
     const danger = !game.level.assault?.practice && game.red.length > 0 ? Math.max(0, Math.min(1, ((assault?.frontline ?? 0) - 490) / (DEFENSE_Y - 490))) : 0;
@@ -954,12 +973,14 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const rushing = !!assault && assault.phase === "battle" && surgeActive(game.level, game.t) && game.status === "playing";
     rushMaterial.opacity = rushing ? 0.35 + Math.sin(game.t * 14) * 0.2 : 0;
     rushEdges.forEach((edge, i) => { edge.position.x = (i ? 1 : -1) * 9.05 + curve(-8); });
-    if (rushing && !wasRushing) tag("ENEMY RUSH", wx(activeBoss.x) + curve(wz(activeBoss.y)), wz(activeBoss.y) + 4, "#ffb49a");
+    if (rushing && !wasRushing && !winding) tag("ENEMY RUSH", wx(activeBoss.x) + curve(wz(activeBoss.y)), wz(activeBoss.y) + 4, "#ffb49a");
     wasRushing = rushing;
     warningRing.visible = warning > 0 && game.status === "playing";
     if (activeBoss) {
       const z = wz(activeBoss.y + 33), x = wx(activeBoss.x) + curve(z);
-      warningRing.position.set(x, 0.045, z); warningRing.scale.set(3.3 + warning * 0.7, 1, 2.3 + warning * 0.5);
+      const warningZ = winding ? wz(activeBoss.y + activeBoss.h / 2 + 42) : z;
+      warningRing.position.set(wx(activeBoss.x) + curve(warningZ), 0.045, warningZ);
+      warningRing.scale.set(winding ? (activeBoss.w / 2 + 30) * SX : 3.3 + warning * 0.7, 1, winding ? 68 * SZ : 2.3 + warning * 0.5);
       warningMaterial.opacity = 0.2 + warning * 0.55;
       if (pulse > previousPulse + 0.1) {
         ring(x, z, 0xffc658, 6.5); ring(x, z + 0.4, 0xfff1c5, 4.3);
@@ -1193,10 +1214,15 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       if (!pickup) return;
       const reward = tier >= 5 ? "★" : "+1";
       if (view.value !== reward) { view.label.write(reward, tier >= 5 ? "#fff2a2" : "#ffffff"); view.value = reward; }
-      view.group.position.set(wx(pickup.x) + curve(wz(pickup.y)), 0.03, wz(pickup.y)); view.group.scale.set(pickup.w * SX, 1.04, 1);
-      view.label.sprite.scale.x = 5.4 / view.group.scale.x;
+      // The optional upgrade trail is a small roadside reward. Its repeated
+      // signs must not outweigh the multiplier choices or the active enemy.
+      const nearest = !assault?.pickups.some((other) => other.y > pickup.y);
+      const labelWidth = nearest ? 3.5 : 2.8;
+      view.group.position.set(wx(pickup.x) + curve(wz(pickup.y)), 0.03, wz(pickup.y)); view.group.scale.set(pickup.w * SX, 0.82, 1);
+      view.label.sprite.scale.set(labelWidth / view.group.scale.x, nearest ? 1.65 : 1.35, 1);
       view.label.sprite.position.set(0, 1.98, 0.13);
-      view.material.emissiveIntensity = 0.4 + Math.sin(game.t * 4 + i) * 0.12;
+      view.material.opacity = nearest ? 0.27 : 0.16;
+      view.material.emissiveIntensity = (nearest ? 0.4 : 0.18) + Math.sin(game.t * 4 + i) * 0.08;
     });
 
     // A defeated runner briefly tumbles out of the contact point. This carries
@@ -1222,6 +1248,16 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     drawUnits(bracedUnits, bracedGuards, true, entry, bracedColorKeys, bracedMatrixRange, bracedMotionRange, bracedColorRange);
     shieldHalo.count = Math.min(bracedUnits.length, shieldHalo.instanceMatrix.count);
     const shieldAim = championShieldAim(game);
+    const selectedGuardIndex = shieldAim ? bracedUnits.indexOf(shieldAim.target) : -1;
+    guardReveal.count = selectedGuardIndex >= 0 && game.status === "playing" ? 1 : 0;
+    if (guardReveal.count) {
+      bracedGuards.getMatrixAt(selectedGuardIndex, dummy.matrix);
+      guardReveal.setMatrixAt(0, dummy.matrix); guardReveal.instanceMatrix.needsUpdate = true;
+      const source = bracedGuards.geometry.getAttribute("runMotion") as THREE.InstancedBufferAttribute;
+      const revealMotion = guardReveal.geometry.getAttribute("runMotion") as THREE.InstancedBufferAttribute;
+      revealMotion.setXYZW(0, source.getX(selectedGuardIndex), source.getY(selectedGuardIndex), source.getZ(selectedGuardIndex), source.getW(selectedGuardIndex));
+      revealMotion.needsUpdate = true;
+    }
     shieldMarkers.count = game.status === "playing" && shieldAim && !sideDanger ? 1 : 0;
     shieldPressure.count = 0;
     for (let index = 0; index < shieldHalo.count; index++) {
@@ -1229,7 +1265,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       dummy.position.set(wx(unit.x) + curve(z), 0.06, z); dummy.rotation.set(0, 0, 0);
       dummy.scale.setScalar(unit === shieldAim?.target ? 1.2 + Math.sin(game.t * 5) * 0.05 : 0.65); dummy.updateMatrix(); shieldHalo.setMatrixAt(index, dummy.matrix);
       if (unit === shieldAim?.target) {
-        dummy.position.set(wx(unit.x) + curve(z), 3.75 + Math.sin(game.t * 4) * 0.1, z);
+        dummy.position.set(wx(unit.x) + curve(z), 4.65 + Math.sin(game.t * 4) * 0.1, z);
         dummy.quaternion.copy(camera.quaternion); dummy.scale.setScalar(1.1);
         dummy.updateMatrix(); shieldMarkers.setMatrixAt(0, dummy.matrix);
       }
@@ -1245,13 +1281,26 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     if (shieldMarkers.count > 0) shieldMarkers.instanceMatrix.needsUpdate = true;
     if (shieldPressure.count > 0) shieldPressure.instanceMatrix.needsUpdate = true;
     shieldLabel.sprite.visible = bracedUnits.length > 0 && game.status === "playing" && !sideDanger;
-    championSight.visible = !!shieldAim && game.status === "playing" && !sideDanger;
+    const bossAim = championBossAim(game);
+    const abilityAim = shieldAim ?? bossAim;
+    championSight.visible = !!abilityAim && game.status === "playing" && !sideDanger;
+    bossAimRing.visible = !!bossAim && game.status === "playing";
+    if (bossAim) {
+      const aimZ = wz(bossAim.target.y + bossAim.target.h / 2 + 12);
+      bossAimRing.position.set(wx(bossAim.target.x) + curve(aimZ), 0.075, aimZ);
+      bossAimMaterial.color.setHex(bossAim.direction === "aligned" ? 0x8cffe2 : 0xffdc64);
+    }
     if (shieldAim && shieldLabel.sprite.visible) {
       const frontGuard = shieldAim.target, z = wz(frontGuard.y) - entry;
       const aligned = shieldAim.direction === "aligned";
       const caption = shieldBracePressure(game, frontGuard) > 0.08 ? "CRACKING" : aligned ? "ALIGNED" : "SHIELD";
       if (caption !== shieldCaption) { shieldLabel.write(caption, aligned ? "#b8fff1" : "#ffe5a0"); shieldCaption = caption; }
-      shieldLabel.sprite.position.set(wx(frontGuard.x) + curve(z), 5.6, z);
+      shieldLabel.sprite.position.set(wx(frontGuard.x) + curve(z), 6.45, z);
+    }
+    if (abilityAim && championSight.visible) {
+      const aligned = abilityAim.direction === "aligned";
+      const targetY = "h" in abilityAim.target ? abilityAim.target.y + abilityAim.target.h / 2 + 12 : abilityAim.target.y;
+      const z = wz(targetY) - entry;
       championSightMaterial.color.setHex(aligned ? 0x8cffe2 : 0xffdc64);
       championSightMaterial.opacity = game.charge >= CHARGE_MAX ? 0.8 : 0.4;
       const endZ = Math.min(-3.3, z), startZ = wz(CANNON_Y - 26);
@@ -1308,7 +1357,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     ensureBosses(game.bases.length);
     bosses.forEach((view, i) => {
       const base = game.bases[i];
-      if (!base) { view.art.group.visible = view.label.sprite.visible = view.bar.visible = false; return; }
+      if (!base) { view.art.group.visible = view.label.sprite.visible = view.bar.visible = view.charge.visible = false; return; }
       const active = i === encounter;
       const approaching = active ? assault?.advance ?? 0 : 0;
       // The next guardian is a visible destination. During travel, preserve
@@ -1323,8 +1372,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       if (view.hp >= 0 && base.hp < view.hp && base.hp > 0 && game.t > view.damageAt + 0.3) {
         view.hitX = (random() - 0.5) * 2.2;
         view.impact.material.rotation = (random() - 0.5) * 0.65;
-        burst(x + view.hitX, 1.1, z + 3.2, 0xfff7cf, 16, 1.6);
-        burst(x, 1.8, z + 2.8, 0xffd25b, 7, 1.3); view.damageAt = game.t; shake = Math.max(shake, 0.55);
+        burst(x + view.hitX, 0.5, z + 3.2, 0xfff7cf, 7, 0.85);
+        burst(x, 0.7, z + 2.8, 0xffd25b, 3, 0.65); view.damageAt = game.t; shake = Math.max(shake, 0.2);
       }
       if (base.hp <= 0 && view.hp > 0) {
         view.deadAt = frameTime;
@@ -1333,7 +1382,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         ring(x, z, 0xffd34c, 8); ring(x, z + 0.5, 0xfff7cb, 5);
         tag("BOSS DOWN", x, z, "#ffe570"); shake = 1.7;
       }
-      if (view.hp !== base.hp) { view.label.write(game.level.assault?.practice ? "PRACTICE" : `${Math.max(0, Math.ceil(base.hp))}`); view.hp = base.hp; }
+      const caption = game.level.assault?.practice ? "PRACTICE" : active && winding ? `SLAM ${Math.ceil(brace.seconds)}s` : active && stagger > 0 ? "STAGGERED" : `${Math.max(0, Math.ceil(base.hp))}`;
+      if (view.caption !== caption) { view.label.write(caption, active && winding ? "#ffe19b" : active && stagger > 0 ? "#a9ffe4" : "#ffffff"); view.caption = caption; }
+      view.hp = base.hp;
       const death = base.hp <= 0 ? Math.min(1, (frameTime - view.deadAt) / 0.85) : 0;
       // During the counterattack, the remaining guards are the whole objective.
       // Reveal the next guardian when travel starts so it cannot read as a
@@ -1341,18 +1392,22 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const previewing = i === encounter + 1 && !counterattack;
       view.art.group.visible = ((active || previewing) && base.hp > 0) || death < 1 && base.hp <= 0;
       view.label.sprite.visible = view.bar.visible = active && base.hp > 0;
-      const hit = base.hp > 0 ? Math.max(base.hitFlash * 0.18, 1 - (game.t - view.damageAt) / 0.22, 0) : 0;
+      view.charge.visible = active && base.hp > 0 && winding;
+      const hit = base.hp > 0 ? Math.max(1 - (game.t - view.damageAt) / 0.13, 0) : 0;
       const impact = Math.max(0, 1 - (game.t - view.damageAt) / 0.17);
       view.impact.visible = active && base.hp > 0 && impact > 0;
       view.impact.material.opacity = impact * 0.9;
       view.impact.position.set(x + view.hitX, 2.2, z + 3.1);
       view.impact.scale.setScalar(3.2 + (1 - impact) * 1.6);
-      view.art.group.position.set(x, -death * 2, z - hit * 1.05);
+      view.art.group.position.set(x, -death * 2, z);
       view.art.group.scale.setScalar((active ? 1.2 - approaching * 0.18 : 1.02) * (1 - death * 0.65));
       view.art.group.rotation.z = death * -1.3;
-      if (view.art.group.visible) view.art.animate(game.t + i * 2.3, hit, active ? warning : 0, active ? pulse : 0);
-      view.label.sprite.position.set(x, 6.05, z); view.label.sprite.scale.set(3.5, 1.15, 1);
+      if (view.art.group.visible) view.art.animate(game.t + i * 2.3, hit, active ? warning : 0, active ? pulse : 0, active ? stagger : 0);
+      view.label.sprite.position.set(x, 6.05, z); view.label.sprite.scale.set(active && (winding || stagger > 0) ? 5.3 : 3.5, 1.15, 1);
       view.bar.position.set(x, 5.6, z); view.bar.scale.set(0.86, 0.65, 1);
+      view.charge.position.set(x, 5.15, z);
+      const chargeFraction = winding ? brace.progress : 0;
+      view.chargeFill.scale.x = 4.15 * chargeFraction; view.chargeFill.position.x = -2.075 * (1 - chargeFraction);
       const fraction = Math.max(0, base.hp / base.maxHp); view.fill.scale.x = 5.15 * fraction; view.fill.position.x = -2.575 * (1 - fraction);
     });
 
@@ -1373,7 +1428,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       burst(x, 0.5, z, [0xf4fbff, 0xe9edee, 0xff426a][pop.color] ?? 0xffffff, pop.text ? 9 : 4, pop.text ? 0.65 : 0.9);
       // Direction is already carried by the HUD warning and the lane arrows.
       // A second floating wave label covers the shield guard at its spawn.
-      if (pop.text && !pop.text.startsWith("×") && !["KO", "DOWN", "DOWN!", "COUNTERATTACK", "LEFT WAVE", "RIGHT WAVE", "CENTER WAVE"].includes(pop.text)) tag(pop.text, x, z, "#fff3b4");
+      if (pop.text && !pop.text.startsWith("×") && !["KO", "DOWN", "DOWN!", "COUNTERATTACK", "LEFT WAVE", "RIGHT WAVE", "CENTER WAVE", "GIANT WINDING UP", "BRACE IMPACT", "STAGGERED"].includes(pop.text)) tag(pop.text, x, z, "#fff3b4");
     }
     if (game.status === "won" && previousStatus !== "won") {
       winAt = frameTime; shake = 0.75;
