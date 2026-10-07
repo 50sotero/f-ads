@@ -436,6 +436,15 @@ export function championShieldAim(game: Game): { target: Unit; direction: "left"
 const championTargets = new WeakMap<Unit, Unit>();
 const counterCommitments = new WeakMap<Unit, { owner: AssaultState; encounter: number }>();
 const shieldBraceFatigue = new WeakMap<Unit, { owner: Game; seconds: number }>();
+type CounterattackRunnerBreakawayState = {
+  owner: AssaultState;
+  encounter: number;
+  role: CounterattackWaveRole;
+  startX: number;
+  targetX: number;
+  roadSpeedScale: number;
+};
+const counterattackRunnerBreakaways = new WeakMap<Unit, CounterattackRunnerBreakawayState>();
 type BossSlamRecoilState = {
   owner: Game;
   assault: AssaultState;
@@ -871,7 +880,19 @@ function spawnCounterattackWave(g: Game, waveIndex: number) {
       enemy.braced = true;
     }
     if (kind === "runner" && !g.level.assault?.practice && assault.encounter > 0 && g.level.assault?.slamEvery !== undefined) {
-      enemy.breakawayTargetX = counterattackBreakawayTarget(center, lane, x, i);
+      const breakawayTargetX = counterattackBreakawayTarget(center, lane, x, i);
+      enemy.breakawayTargetX = breakawayTargetX;
+      // Keep the authored wave role outside Unit. The existing target remains
+      // visible to renderers and focused movement fixtures, while this state
+      // lets only a true flank rush earn a later road-speed ramp.
+      counterattackRunnerBreakaways.set(enemy, {
+        owner: assault,
+        encounter: assault.encounter,
+        role,
+        startX: x,
+        targetX: breakawayTargetX,
+        roadSpeedScale: 1,
+      });
     }
     g.red.push(enemy);
     spawned++;
@@ -1529,6 +1550,8 @@ const ASSAULT_COUNTER_STEER_ACCEL = 240;
 const ASSAULT_COUNTER_REVERSE_SPEED = 42;
 const ASSAULT_BREAKAWAY_SPEED = 96;
 const ASSAULT_BREAKAWAY_ACCEL = 260;
+const ASSAULT_BREAKAWAY_ROAD_SPEED_MAX = 1.42;
+const ASSAULT_BREAKAWAY_ROAD_ACCEL = 2.8;
 const ASSAULT_RED_REAR_PRESSURE_START = 50;
 const ASSAULT_RED_REAR_PRESSURE_END = 200;
 const ASSAULT_RED_REAR_CORRIDOR_HALF = 124;
@@ -1691,6 +1714,34 @@ function applyAssaultRunnerBreakaway(u: Unit, dt: number) {
   const desired = Math.max(-ASSAULT_BREAKAWAY_SPEED, Math.min(ASSAULT_BREAKAWAY_SPEED, offset * 2.4));
   const maxDelta = ASSAULT_BREAKAWAY_ACCEL * dt;
   u.vx += Math.max(-maxDelta, Math.min(maxDelta, desired - u.vx));
+}
+
+/**
+ * Gives only a late, authored flank rush a readable interception deadline.
+ *
+ * The lateral breakaway still has to reach its committed target through the
+ * normal wall-aware mover. Once it is genuinely outward, its road speed eases
+ * up over a bounded ramp. Centered and mixed waves retain their existing
+ * runner timing even when they happen to use a sidestep target for visual
+ * spacing.
+ */
+function assaultRunnerRoadSpeedScale(u: Unit, assault: AssaultState, dt: number) {
+  const state = counterattackRunnerBreakaways.get(u);
+  if (
+    !state
+    || state.owner !== assault
+    || state.encounter !== assault.encounter
+    || state.role !== "flank"
+  ) return 1;
+  const initialDistance = Math.abs(state.targetX - state.startX);
+  const remainingDistance = Math.abs(state.targetX - u.x);
+  const progress = initialDistance > 1
+    ? Math.max(0, Math.min(1, 1 - remainingDistance / initialDistance))
+    : 1;
+  const desired = 1 + (ASSAULT_BREAKAWAY_ROAD_SPEED_MAX - 1) * progress;
+  const maxDelta = ASSAULT_BREAKAWAY_ROAD_ACCEL * Math.max(0, dt);
+  state.roadSpeedScale += Math.max(-maxDelta, Math.min(maxDelta, desired - state.roadSpeedScale));
+  return state.roadSpeedScale;
 }
 
 /**
@@ -2269,9 +2320,13 @@ function updateAssaultRed(g: Game, dt: number) {
         + (ASSAULT_RED_REAR_CORRIDOR_HALF - ASSAULT_CORRIDOR_HALF) * rearProgress;
       applyAssaultCorridorPressure(u, active.x, dt, rearCorridorHalf);
     }
-    if (assault.phase === "counterattack" && u.kind === "runner") applyAssaultRunnerBreakaway(u, dt);
+    let runnerRoadSpeedScale = 1;
+    if (assault.phase === "counterattack" && u.kind === "runner") {
+      applyAssaultRunnerBreakaway(u, dt);
+      runnerRoadSpeedScale = assaultRunnerRoadSpeedScale(u, assault, dt);
+    }
     const roleSpeed = u.kind === "runner" ? 1.3 : u.kind === "guard" ? 0.84 : 1;
-    move(g, u, config.speed * surgeSpeed * ASSAULT_RED_SPEED_SCALE * (u.big ? 0.74 : 1) * roleSpeed * (u.pace ?? 1) * assaultMotion.forward[redIndex] * dt, dt);
+    move(g, u, config.speed * surgeSpeed * ASSAULT_RED_SPEED_SCALE * (u.big ? 0.74 : 1) * roleSpeed * runnerRoadSpeedScale * (u.pace ?? 1) * assaultMotion.forward[redIndex] * dt, dt);
     if (!u.big && hitsSpinner(g, u)) {
       u.dead = true;
       pop(g, u.x, u.y, 1);

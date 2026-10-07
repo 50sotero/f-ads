@@ -97,3 +97,66 @@ test("a centered follow-up wave fans both ways while legacy and practice units s
   const mirroredRunners = mirrored.red.filter((unit) => unit.kind === "runner");
   assert.ok(mirroredRunners.every((unit) => (unit.breakawayTargetX ?? 180) < unit.x), "the mirrored first wave uses the left flank");
 });
+
+test("only an authored flank rush ramps its road speed after the sidestep", () => {
+  const flank = setupCounterattack();
+  step(flank, 1 / 60);
+  const runner = flank.red
+    .filter((unit) => unit.kind === "runner")
+    .sort((a, b) => Math.abs((b.breakawayTargetX ?? b.x) - b.x) - Math.abs((a.breakawayTargetX ?? a.x) - a.x))[0];
+  const early = [];
+  const late = [];
+  let reachedFlank = false;
+  for (let frame = 0; frame < 240 && !runner.dead; frame++) {
+    const beforeY = runner.y;
+    step(flank, 1 / 60);
+    if (!reachedFlank && Math.abs((runner.breakawayTargetX ?? runner.x) - runner.x) <= 12) reachedFlank = true;
+    (reachedFlank ? late : early).push(runner.y - beforeY);
+  }
+  assert.ok(reachedFlank, "the runner never reached its committed outward flank");
+  assert.ok(early.length >= 20 && late.length >= 20, "the fixture did not expose both speed phases");
+  const earlyAverage = early.reduce((sum, value) => sum + value, 0) / early.length;
+  const lateAverage = late.slice(0, 20).reduce((sum, value) => sum + value, 0) / 20;
+  assert.ok(lateAverage > earlyAverage * 1.15, `flank road speed did not ramp: ${earlyAverage} -> ${lateAverage}`);
+  assert.ok(lateAverage < earlyAverage * 1.65, `flank road speed ramp was unbounded: ${earlyAverage} -> ${lateAverage}`);
+
+  const centered = setupCounterattack();
+  step(centered, 1 / 60);
+  centered.red = [];
+  centered.assault.wave = 1;
+  centered.assault.waveSpawned = 0;
+  centered.assault.waveTimer = 0;
+  step(centered, 1 / 60);
+  const centerRunner = centered.red.find((unit) => unit.kind === "runner");
+  const centerEarly = [];
+  const centerLate = [];
+  let centerReached = false;
+  for (let frame = 0; frame < 240 && !centerRunner.dead; frame++) {
+    const beforeY = centerRunner.y;
+    step(centered, 1 / 60);
+    if (!centerReached && Math.abs((centerRunner.breakawayTargetX ?? centerRunner.x) - centerRunner.x) <= 12) centerReached = true;
+    (centerReached ? centerLate : centerEarly).push(centerRunner.y - beforeY);
+  }
+  assert.ok(centerReached, "the centered fixture never reached its spacing target");
+  const centerEarlyAverage = centerEarly.reduce((sum, value) => sum + value, 0) / centerEarly.length;
+  const centerLateAverage = centerLate.slice(0, 20).reduce((sum, value) => sum + value, 0) / 20;
+  assert.ok(centerLateAverage <= centerEarlyAverage * 1.1, `mixed center wave inherited flank speed: ${centerEarlyAverage} -> ${centerLateAverage}`);
+});
+
+test("flank road speed still uses the normal wall collision path", () => {
+  const g = setupCounterattack();
+  g.walls = [{ x: 300, y: 215, w: 35, h: 100 }];
+  step(g, 1 / 60);
+  const runner = g.red
+    .filter((unit) => unit.kind === "runner")
+    .sort((a, b) => Math.abs((b.breakawayTargetX ?? b.x) - b.x) - Math.abs((a.breakawayTargetX ?? a.x) - a.x))[0];
+  const wall = g.walls[0];
+  for (let frame = 0; frame < 240 && !runner.dead; frame++) {
+    step(g, 1 / 60);
+    const overlapsWall = runner.x > wall.x - runner.r
+      && runner.x < wall.x + wall.w + runner.r
+      && runner.y > wall.y - runner.r
+      && runner.y < wall.y + wall.h + runner.r;
+    assert.equal(overlapsWall, false, `runner crossed the wall at x=${runner.x}, y=${runner.y}`);
+  }
+});
