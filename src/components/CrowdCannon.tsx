@@ -9,6 +9,7 @@ import Link from "next/link";
 import { applyStartingLoadout, CHARGE_MAX, launchChampion, newGame, stars, step, W, weaponForLevel, type Game } from "@/game/engine";
 import { levels } from "@/game/levels";
 import { createRenderer } from "@/game/render";
+import { championShieldAim } from "@/game/targeting";
 import { advanceTutorial, newTutorialProgress, tutorialLessons, tutorialLevel, type TutorialProgress } from "@/game/tutorial";
 import { buyUpgrade, completeRoute, emptyCampaignSave, normalizeCampaignSave, startingLoadout, UPGRADE_DEFS, type CampaignSave, type UpgradeId } from "@/game/progression";
 
@@ -40,6 +41,7 @@ type AssaultHud = {
   waveWarning: number;
   remaining: number;
   shields: number;
+  shieldAim: "left" | "right" | "aligned" | null;
   integrity: number;
   maxIntegrity: number;
   breachFlash: number;
@@ -70,6 +72,7 @@ const defaultAssault = (): AssaultHud => ({
   waveWarning: 0,
   remaining: 0,
   shields: 0,
+  shieldAim: null,
   integrity: 3,
   maxIntegrity: 3,
   breachFlash: 0,
@@ -97,6 +100,7 @@ function assaultHud(game: Game): AssaultHud {
     waveWarning: assault?.waveWarning ?? 0,
     remaining: assault?.remaining ?? 0,
     shields: game.red.reduce((count, unit) => count + (unit.braced && !unit.dead ? 1 : 0), 0),
+    shieldAim: championShieldAim(game)?.direction ?? null,
     integrity: assault?.integrity ?? 3,
     maxIntegrity: assault?.maxIntegrity ?? 3,
     breachFlash: assault?.breachFlash ?? 0,
@@ -416,6 +420,7 @@ export function CrowdCannon() {
           && previous.assault.waveWarning === nextAssault.waveWarning
           && previous.assault.remaining === nextAssault.remaining
           && previous.assault.shields === nextAssault.shields
+          && previous.assault.shieldAim === nextAssault.shieldAim
           && previous.assault.integrity === nextAssault.integrity
           && previous.assault.breachFlash === nextAssault.breachFlash
           ? previous : { crowd: game.blue.length, time: game.t, charge: game.charge, assault: nextAssault });
@@ -581,6 +586,7 @@ export function CrowdCannon() {
   const lineBroken = assault.integrity === 0;
   const roadCleared = !lineBroken && assault.phase === "counterattack" && assault.wave === assault.waves && assault.remaining === 0;
   const battleEnded = lineBroken || roadCleared;
+  const shieldInstruction = assault.shieldAim === "left" ? "← Drag left" : assault.shieldAim === "right" ? "Drag right →" : "Aligned";
   const loadout = startingLoadout(save);
   const weapon = weaponForLevel(assault.weaponLevel);
   const tutorialLesson = tutorialStep !== null && tutorialStep < tutorialLessons.length ? tutorialLessons[tutorialStep] : null;
@@ -656,7 +662,7 @@ export function CrowdCannon() {
           {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-warning={assault.waveWarning > 0} data-breached={lineBroken} data-cleared={roadCleared} data-shield={!battleEnded && assault.shields > 0} data-compact={!battleEnded && assault.shields === 0 && (assault.phase === "counterattack" || assault.phase === "battle" && hud.time > 4)}>
             <span className={styles.objectiveIcon} aria-hidden="true">{roadCleared ? "★" : lineBroken || assault.phase === "counterattack" ? "!" : assault.phase === "advance" ? "»" : "⚑"}</span>
             <div><strong>{lineBroken ? "LINE BREACHED" : roadCleared ? "ROAD CLEAR" : assault.shields > 0 ? "SHIELD GUARD" : assault.phase === "counterattack" ? assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "← LEFT" : assault.waveLane > 0 ? "RIGHT →" : "CENTER"} WAVE INCOMING` : `${assault.remaining} DEFENDERS LEFT` : assault.phase === "advance" ? remixedGates ? "LANES SWITCHED" : "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
-              <span>{lineBroken ? "Your cannon defense is gone." : roadCleared ? "All defenders cleared." : assault.shields > 0 ? hud.charge >= CHARGE_MAX ? "Normal shots blocked. Aim, then launch ★." : "Keep firing to charge ★. Normal shots blocked."
+              <span>{lineBroken ? "Your cannon defense is gone." : roadCleared ? "All defenders cleared." : assault.shields > 0 ? hud.charge >= CHARGE_MAX ? assault.shieldAim === "aligned" ? "Aligned! Tap ★ to break the shield." : `${shieldInstruction} · line up the gold sight, then tap ★.` : `${shieldInstruction} · fire to charge ★. Normal shots blocked.`
                 : assault.phase === "counterattack"
                 ? `${assault.remaining} enemies left · ${assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "LEFT" : assault.waveLane > 0 ? "RIGHT" : "CENTER"} WAVE INCOMING` : `wave ${assault.wave} / ${assault.waves}`}`
                 : assault.phase === "advance" ? remixedGates ? "Find the new gate chain. Keep your upgrades!" : "Keep your upgrades. Push forward!" : "Then survive the counterattack"}</span></div>
@@ -694,7 +700,7 @@ export function CrowdCannon() {
               launch();
             }
           }} disabled={battleEnded || hud.charge < CHARGE_MAX} aria-label={battleEnded ? "Champion unavailable" : hud.charge >= CHARGE_MAX ? "Launch champion" : `Champion charge ${Math.floor(hud.charge)} of ${CHARGE_MAX}`}>
-            {!battleEnded && hud.charge >= CHARGE_MAX && <span className={styles.championCallout} role="status"><strong>{assault.shields > 0 ? "BREAK THE SHIELD" : "CHAMPION READY"}</strong><small>{assault.shields > 0 ? "Aim, then tap ★ or Space" : assault.frontline > 505 ? "Save the line!" : "Tap ★ or press Space"}</small></span>}
+            {!battleEnded && !contextualHint && hud.charge >= CHARGE_MAX && <span className={styles.championCallout} role="status"><strong>{assault.shields > 0 ? assault.shieldAim === "aligned" ? "ALIGNED · LAUNCH!" : "BREAK THE SHIELD" : "CHAMPION READY"}</strong><small>{assault.shields > 0 ? assault.shieldAim === "aligned" ? "Tap ★ or press Space" : `${shieldInstruction} to aim your champion` : assault.frontline > 505 ? "Save the line!" : "Tap ★ or press Space"}</small></span>}
             <span className={styles.championRing} style={{ background: `conic-gradient(from -90deg, #ffe37b ${Math.min(100, (hud.charge / CHARGE_MAX) * 100)}%, rgba(255,255,255,.2) 0)` }} />
             <span className={styles.championCore} aria-hidden="true">★</span>
             <span className={styles.championLabel}>{battleEnded ? "ENDED" : hud.charge >= CHARGE_MAX ? "GO!" : "CHARGE"}</span>

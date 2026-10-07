@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { CANNON_Y, DEFENSE_Y, MAX_UNITS, W, cannonBarrelPositions, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
+import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, cannonBarrelPositions, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
 import { createGuardGeometry, createHordeGeometry, createMobGeometry, createSiegeCannon, createWarden } from "./assaultArt";
+import { championShieldAim } from "./targeting";
 
 // The simulation uses a moving local battlefield. The long road and bridges
 // stay in world space while the camera follows each new encounter's arena.
@@ -476,6 +477,23 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   stage.add(shieldLabel.sprite); shieldLabel.sprite.visible = false; shieldLabel.sprite.renderOrder = 7;
   const shieldHalo = new THREE.InstancedMesh(geo(new THREE.RingGeometry(0.72, 1, 24).rotateX(-Math.PI / 2)), basic(0xffd66c, { transparent: true, opacity: 0.8, depthTest: false, depthWrite: false }), 16);
   shieldHalo.instanceMatrix.setUsage(THREE.DynamicDrawUsage); shieldHalo.frustumCulled = false; shieldHalo.renderOrder = 2; stage.add(shieldHalo);
+  // A marker for every shield keeps separated late threats readable at phone
+  // scale. The center sight shows the champion's real launch lane; it never
+  // bends toward a guard that the player has not lined up with.
+  const markerCanvas = document.createElement("canvas"); markerCanvas.width = 64; markerCanvas.height = 96;
+  const markerContext = markerCanvas.getContext("2d")!;
+  markerContext.beginPath(); markerContext.moveTo(21, 9); markerContext.lineTo(43, 9);
+  markerContext.lineTo(43, 44); markerContext.lineTo(56, 44); markerContext.lineTo(32, 84);
+  markerContext.lineTo(8, 44); markerContext.lineTo(21, 44); markerContext.closePath();
+  markerContext.lineJoin = "round"; markerContext.lineWidth = 10; markerContext.strokeStyle = "#42301d";
+  markerContext.stroke(); markerContext.fillStyle = "#ffe58a"; markerContext.fill();
+  const markerTexture = texture(new THREE.CanvasTexture(markerCanvas)); markerTexture.colorSpace = THREE.SRGBColorSpace;
+  const shieldMarkers = new THREE.InstancedMesh(geo(new THREE.PlaneGeometry(1.45, 2.15)), basic(0xffffff, { map: markerTexture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }), 16);
+  shieldMarkers.instanceMatrix.setUsage(THREE.DynamicDrawUsage); shieldMarkers.frustumCulled = false; shieldMarkers.renderOrder = 6; stage.add(shieldMarkers);
+  const championSightMaterial = basic(0xffdc64, { transparent: true, opacity: 0.8, depthTest: false, depthWrite: false });
+  const championSight = new THREE.InstancedMesh(cube, championSightMaterial, 20);
+  championSight.instanceMatrix.setUsage(THREE.DynamicDrawUsage); championSight.frustumCulled = false; championSight.renderOrder = 4; stage.add(championSight);
+  let shieldCaption = "SHIELD";
   type UploadRange = { start: number; count: number };
   const queueUpdate = (attribute: THREE.BufferAttribute, range: UploadRange, start: number, count: number) => {
     if (count <= 0) return;
@@ -778,7 +796,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const warning = assault?.bossWarning ?? 0, pulse = assault?.bossPulse ?? 0;
     const activeBoss = game.bases[encounter];
     const counterattack = assault?.phase === "counterattack";
-    const danger = game.red.length > 0 ? Math.max(0, Math.min(1, ((assault?.frontline ?? 0) - 490) / (DEFENSE_Y - 490))) : 0;
+    const danger = !game.level.assault?.practice && game.red.length > 0 ? Math.max(0, Math.min(1, ((assault?.frontline ?? 0) - 490) / (DEFENSE_Y - 490))) : 0;
     if (game.status === "lost" && previousStatus !== "lost") {
       lostAt = frameTime; shake = 1.5;
       burst(wx(game.cannonX) + curve(0), 0.8, 0, 0xff8862, 50, 2.1);
@@ -1029,18 +1047,41 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     drawUnits(guardUnits, guards, true, entry, guardColorKeys, guardMatrixRange, guardMotionRange, guardColorRange);
     drawUnits(bracedUnits, bracedGuards, true, entry, bracedColorKeys, bracedMatrixRange, bracedMotionRange, bracedColorRange);
     shieldHalo.count = Math.min(bracedUnits.length, shieldHalo.instanceMatrix.count);
+    const shieldAim = championShieldAim(game);
+    shieldMarkers.count = game.status === "playing" ? shieldHalo.count : 0;
     for (let index = 0; index < shieldHalo.count; index++) {
       const unit = bracedUnits[index], z = wz(unit.y) - entry;
       dummy.position.set(wx(unit.x) + curve(z), 0.06, z); dummy.rotation.set(0, 0, 0);
-      dummy.scale.setScalar(0.85 + Math.sin(game.t * 5) * 0.05); dummy.updateMatrix(); shieldHalo.setMatrixAt(index, dummy.matrix);
+      dummy.scale.setScalar((unit === shieldAim?.target ? 1.2 : 1) + Math.sin(game.t * 5) * 0.05); dummy.updateMatrix(); shieldHalo.setMatrixAt(index, dummy.matrix);
+      dummy.position.set(wx(unit.x) + curve(z), 3.75 + Math.sin(game.t * 4 + index) * 0.1, z);
+      dummy.quaternion.copy(camera.quaternion); dummy.scale.setScalar(unit === shieldAim?.target ? 1.1 : 0.85);
+      dummy.updateMatrix(); shieldMarkers.setMatrixAt(index, dummy.matrix);
     }
     if (shieldHalo.count > 0) shieldHalo.instanceMatrix.needsUpdate = true;
+    if (shieldMarkers.count > 0) shieldMarkers.instanceMatrix.needsUpdate = true;
     shieldLabel.sprite.visible = bracedUnits.length > 0 && game.status === "playing";
-    if (shieldLabel.sprite.visible) {
-      let frontGuard = bracedUnits[0];
-      for (const unit of bracedUnits) if (unit.y > frontGuard.y) frontGuard = unit;
-      const z = wz(frontGuard.y) - entry;
-      shieldLabel.sprite.position.set(wx(frontGuard.x) + curve(z), 3.15 + Math.sin(game.t * 3) * 0.08, z);
+    championSight.visible = !!shieldAim && game.status === "playing";
+    if (shieldAim && shieldLabel.sprite.visible) {
+      const frontGuard = shieldAim.target, z = wz(frontGuard.y) - entry;
+      const aligned = shieldAim.direction === "aligned";
+      const caption = aligned ? "ALIGNED" : "SHIELD";
+      if (caption !== shieldCaption) { shieldLabel.write(caption, aligned ? "#b8fff1" : "#ffe5a0"); shieldCaption = caption; }
+      shieldLabel.sprite.position.set(wx(frontGuard.x) + curve(z), 5.6, z);
+      championSightMaterial.color.setHex(aligned ? 0x8cffe2 : 0xffdc64);
+      championSightMaterial.opacity = game.charge >= CHARGE_MAX ? 0.8 : 0.4;
+      const endZ = Math.min(-3.3, z), startZ = wz(CANNON_Y - 26);
+      for (let dot = 0; dot < 18; dot++) {
+        const along = startZ + (endZ - startZ) * dot / 17;
+        dummy.position.set(wx(game.cannonX) + curve(along), 0.065, along); dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(0.24, 0.025, Math.max(0.08, Math.abs(endZ - startZ) / 32));
+        dummy.updateMatrix(); championSight.setMatrixAt(dot, dummy.matrix);
+      }
+      for (let arm = 0; arm < 2; arm++) {
+        dummy.position.set(wx(game.cannonX) + curve(endZ), 0.07, endZ); dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(arm ? 0.18 : 1.3, 0.025, arm ? 1.3 : 0.18);
+        dummy.updateMatrix(); championSight.setMatrixAt(18 + arm, dummy.matrix);
+      }
+      championSight.instanceMatrix.needsUpdate = true;
     }
     hasRenderedUnits = true;
     shadows.count = shadowCount; queueUpdate(shadows.instanceMatrix, shadowMatrixRange, 0, shadowCount * 16);

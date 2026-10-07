@@ -147,22 +147,24 @@ test("a missed champion leaves the guard intact and earns one bounded retry refi
 });
 
 test("only champion contact breaks and completes the staged shield lesson", () => {
-  const { progress, game, target } = reachShieldLesson();
-  assert.equal(target.x, TUTORIAL_SHIELD_GUARD_X);
-  assert.equal(target.y, TUTORIAL_SHIELD_GUARD_Y);
-  game.cannonX = TUTORIAL_SHIELD_GUARD_X;
-  game.targetX = TUTORIAL_SHIELD_GUARD_X;
-  assert.equal(launchChampion(game), true);
+  for (const aimOffset of [-14, 0, 14]) {
+    const { progress, game, target } = reachShieldLesson();
+    assert.equal(target.x, TUTORIAL_SHIELD_GUARD_X);
+    assert.equal(target.y, TUTORIAL_SHIELD_GUARD_Y);
+    game.cannonX = TUTORIAL_SHIELD_GUARD_X + aimOffset;
+    game.targetX = TUTORIAL_SHIELD_GUARD_X + aimOffset;
+    assert.equal(launchChampion(game), true);
 
-  for (let frame = 0; frame < 600 && progress.step === 4; frame++) {
-    step(game, 1 / 60);
-    advanceTutorial(progress, game);
+    for (let frame = 0; frame < 600 && progress.step === 4; frame++) {
+      step(game, 1 / 60);
+      advanceTutorial(progress, game);
+    }
+
+    assert.equal(target.braced, false, "the champion must make contact with the shield");
+    assert.equal(target.dead, true, "the champion must defeat the guard after breaking its brace");
+    assert.equal(progress.step, 5);
+    assert.ok(Number.isFinite(progress.completedAt));
   }
-
-  assert.equal(target.braced, false, "the champion must make contact with the shield");
-  assert.equal(target.dead, true, "the champion must defeat the guard after breaking its brace");
-  assert.equal(progress.step, 5);
-  assert.ok(Number.isFinite(progress.completedAt));
 });
 
 test("a fully upgraded battery can still complete the pickup lesson", () => {
@@ -185,7 +187,7 @@ test("a fully upgraded battery can still complete the pickup lesson", () => {
 
 test("tutorial is a three gate assault practice route", () => {
   assert.equal(tutorialLessons.length, 5);
-  assert.match(tutorialLessons[4].text, /fill.*star.*aim.*shield guard.*press Space.*champions.*shields.*defense line/i);
+  assert.match(tutorialLessons[4].text, /gold sight.*shield guard.*turns green.*press Space.*champion.*shield/i);
   assert.deepEqual(tutorialLevel.assault, { horde: 0, reserve: 0, speed: 0, theme: "fork", practice: true });
   assert.deepEqual(
     tutorialLevel.gates.map(({ x, y, w, n }) => ({ x, y, w, n })),

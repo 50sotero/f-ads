@@ -9,10 +9,12 @@ const TUTORIAL_SHIELD_RETRY_DELAY = 1.25;
 /**
  * The final drill uses a right-side lane far enough from the central gate
  * chain that the player must deliberately aim before launching the champion.
- * Keep these coordinates shared with the renderer/HUD marker work.
+ * The regular shield markers and aiming sight follow this actual unit.
  */
-export const TUTORIAL_SHIELD_GUARD_X = 270;
-export const TUTORIAL_SHIELD_GUARD_Y = 360;
+export const TUTORIAL_SHIELD_GUARD_X = 290;
+// Stay before the final boss approach, where practice runners start flanking
+// toward the giant. Here a straight champion shot matches the aiming sight.
+export const TUTORIAL_SHIELD_GUARD_Y = 440;
 
 // Practice is separate from the twelve scored levels, so replaying a lesson
 // never awards stars, unlocks a level, or changes a saved campaign result.
@@ -33,7 +35,7 @@ export const tutorialLessons = [
   { title: "Chain purple multipliers", text: "Line up your cannon with the purple ×2, ×3, then ×4 gates. Each runner can use every gate once.", action: "Add 8 runners with the multiplier chain", icon: "×4" },
   { title: "Collect a blue +1", text: "Move into a blue +1 gate to add another cannon to your squad. The left lane is ready when you are.", action: "Collect one blue +1 pickup", icon: "+1" },
   { title: "Upgrade your weapon", text: "Aim at the weapon lock on the right and keep firing. Break it to turn every cannon into a three-shot Repeater.", action: "Shoot the lock until its counter reaches zero", icon: "↑" },
-  { title: "Break a shield guard", text: "Fill the star, aim at the right-lane shield guard, then press Space or tap it. Champions break shields only on contact; protect the cyan defense line.", action: "Aim at the shield guard, then tap the champion button or press Space", icon: "★" },
+  { title: "Break a shield guard", text: "Aim the gold sight at the shield guard on the right. When it turns green, tap ★ or press Space. Only a champion breaks the shield.", action: "Line up the sight, then launch your champion", icon: "★" },
 ] as const;
 
 export type TutorialProgress = {
