@@ -111,6 +111,10 @@ export type Unit = {
   braced?: boolean;
   /** Stable outer-flank target for a late counterattack runner. */
   breakawayTargetX?: number;
+  /** Encounter whose final approach this survivor has already crossed. */
+  counterStage?: number;
+  /** Aligned shield selected at launch; correction remains local and physical. */
+  championTarget?: Unit;
   /** Starting row for the smooth road-to-road advance. */
   advanceFromY?: number;
 };
@@ -419,11 +423,26 @@ export function newGame(level: Level, seed = 1): Game {
   return game;
 }
 
+/** Champions leave the middle of the battery, even with several cannons. */
+export function championShieldAim(game: Game): { target: Unit; direction: "left" | "right" | "aligned" } | null {
+  let target: Unit | null = null;
+  for (const unit of game.red) {
+    if (!unit.dead && unit.braced && (!target || unit.y > target.y)) target = unit;
+  }
+  if (!target) return null;
+  const offset = target.x - game.cannonX;
+  const direction = Math.abs(offset) <= 14 ? "aligned" : offset < 0 ? "left" : "right";
+  return { target, direction };
+}
+
 export function launchChampion(g: Game) {
   if (g.status !== "playing" || g.charge < CHARGE_MAX) return false;
   g.charge = 0;
   g.stats.champions++;
-  g.blue.push({ x: g.cannonX, y: CANNON_Y - 26, vx: 0, hp: 14, r: 11, big: true, used: 0, dead: false });
+  const aim = championShieldAim(g);
+  const champion: Unit = { x: g.cannonX, y: CANNON_Y - 26, vx: 0, hp: 14, r: 11, big: true, used: 0, dead: false };
+  if (aim?.direction === "aligned") champion.championTarget = aim.target;
+  g.blue.push(champion);
   return true;
 }
 
@@ -1328,7 +1347,7 @@ const ASSAULT_COUNTER_TARGET_LATERAL = 90;
 const ASSAULT_COUNTER_TARGET_DEPTH = 120;
 const ASSAULT_COUNTER_TARGET_ALIGN = 36;
 const ASSAULT_COUNTER_FORWARD_RELEASE_DEPTH = 96;
-const ASSAULT_COUNTER_REVERSE_DEPTH = 48;
+const ASSAULT_COUNTER_REVERSE_DEPTH = ASSAULT_COUNTER_TARGET_DEPTH;
 const ASSAULT_COUNTER_TARGET_MAX_CELL_SAMPLES = 8;
 const ASSAULT_COUNTER_TARGET_MAX_CANDIDATES = 32;
 const ASSAULT_COUNTER_STAGING_GAP = 24;
@@ -1766,7 +1785,10 @@ function updateAssaultBlue(g: Game, dt: number) {
     // previous target-following code made every in-flight unit swing toward the
     // latest pointer position and made the controls feel like remote steering.
     const lane = Math.max(-4, Math.min(4, u.lane ?? 0));
-    const crossedFirstGate = assault.phase === "battle" && g.gates.some((_, gateIndex) => (u.used & (1 << gateIndex)) !== 0);
+    const championTarget = u.championTarget && !u.championTarget.dead && u.championTarget.braced ? u.championTarget : null;
+    const guidedChampion = championTarget && Math.abs(championTarget.x - u.x) <= ASSAULT_COUNTER_TARGET_LATERAL
+      && Math.abs(championTarget.y - u.y) <= ASSAULT_COUNTER_TARGET_DEPTH;
+    const crossedFirstGate = !championTarget && assault.phase === "battle" && g.gates.some((_, gateIndex) => (u.used & (1 << gateIndex)) !== 0);
     // Before the first actual gate, keep the launch decision readable. Once a
     // runner has crossed a panel, guide it only toward the next panel that is
     // visibly ahead. Panels sharing one y coordinate are a genuine branch;
@@ -1828,7 +1850,7 @@ function updateAssaultBlue(g: Game, dt: number) {
     // Begin the flank turn as soon as the runner clears the last gate line.
     // Waiting until the boss's current y made side launches pass its entire
     // footprint before their lateral velocity had time to reach the flank.
-    if (passedFinalGate) {
+    if (passedFinalGate && !championTarget) {
       // Keep a runner's own lane while it is already over the fortress. Only
       // steer a missed shot back to the nearest edge of the boss footprint;
       // pulling every survivor toward the centre creates a single broad row
@@ -1851,9 +1873,17 @@ function updateAssaultBlue(g: Game, dt: number) {
     // surviving runners a bounded lateral reaction to a live red unit. The
     // depth cap includes reds just behind a runner, so a flank can engage as
     // its wave arrives without steering toward a distant army.
+    // Only a deliberately aligned champion can correct toward its selected
+    // moving guard before the final approach. Fresh ordinary shots keep their
+    // launch lane, and shield damage still requires the normal contact test.
+    if (guidedChampion) applyAssaultCounterattackGuidance(u, championTarget, dt);
     const passedCounterattackLine = assault.phase === "counterattack"
-      && (u.y <= counterApproachY || (allGatesMask !== 0 && (u.used & allGatesMask) === allGatesMask));
+      && (u.counterStage === assault.encounter || u.y <= counterApproachY || (allGatesMask !== 0 && (u.used & allGatesMask) === allGatesMask));
     if (passedCounterattackLine) {
+      // Crossing the final approach commits this survivor to the current
+      // fight. Turning back across that line must not turn it into a fresh
+      // forward-only shot again; that feedback pinned whole rows to the gate.
+      u.counterStage = assault.encounter;
       // A red outside the global expanded bounding box cannot be a local
       // target. This exact rejection avoids the 99-cell query for staged
       // survivors that are still far from the incoming wave.
@@ -1862,8 +1892,8 @@ function updateAssaultBlue(g: Game, dt: number) {
         && u.x <= assaultCounterTargetMaxX + ASSAULT_COUNTER_TARGET_LATERAL
         && u.y >= assaultCounterTargetMinY - ASSAULT_COUNTER_TARGET_DEPTH
         && u.y <= assaultCounterTargetMaxY + ASSAULT_COUNTER_TARGET_DEPTH;
-      const target = hasNearbyRed ? nearestAssaultCounterattackTarget(u) : null;
-      if (target) applyAssaultCounterattackGuidance(u, target, dt);
+      const target = guidedChampion ? championTarget : hasNearbyRed ? nearestAssaultCounterattackTarget(u) : null;
+      if (target && !guidedChampion) applyAssaultCounterattackGuidance(u, target, dt);
 
       const targetDepth = target ? target.y - u.y : 0;
 
@@ -1889,6 +1919,12 @@ function updateAssaultBlue(g: Game, dt: number) {
         if (u.y <= stagingY) dy = 0;
         else dy = Math.max(dy, -(u.y - stagingY) * Math.min(1, dt * 5));
       }
+    }
+
+    if (guidedChampion) {
+      // Ease into contact while correcting sideways, rather than running past
+      // a drifting guard and waiting for the distant gate line to turn back.
+      dy = Math.max(-ASSAULT_CHAMP_SPEED, Math.min(ASSAULT_CHAMP_SPEED, (championTarget.y - u.y) * 4)) * dt;
     }
 
     // Stop at the living boss's front edge before moving. This preserves a

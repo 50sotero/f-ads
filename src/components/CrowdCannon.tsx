@@ -6,10 +6,9 @@ import "@fontsource/fredoka/700.css";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 
-import { applyStartingLoadout, CHARGE_MAX, launchChampion, newGame, stars, step, W, weaponForLevel, type Game } from "@/game/engine";
+import { applyStartingLoadout, championShieldAim, CHARGE_MAX, launchChampion, newGame, stars, step, W, weaponForLevel, type Game } from "@/game/engine";
 import { levels } from "@/game/levels";
 import { createRenderer } from "@/game/render";
-import { championShieldAim } from "@/game/targeting";
 import { advanceTutorial, newTutorialProgress, tutorialLessons, tutorialLevel, type TutorialProgress } from "@/game/tutorial";
 import { buyUpgrade, completeRoute, emptyCampaignSave, normalizeCampaignSave, startingLoadout, UPGRADE_DEFS, type CampaignSave, type UpgradeId } from "@/game/progression";
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { CHARGE_MAX, MAX_UNITS, launchChampion, newGame, step } from "../src/game/engine.ts";
+import { CHARGE_MAX, MAX_UNITS, championShieldAim, launchChampion, newGame, step } from "../src/game/engine.ts";
 
 const makeLevel = ({ practice = false, horde = 0, waves = 1 } = {}) => ({
   name: "guard brace",
@@ -107,4 +107,47 @@ test("a full crowd can still launch a charged champion for the brace", () => {
   assert.equal(launchChampion(g), true);
   assert.equal(g.charge, 0);
   assert.equal(g.blue.length, MAX_UNITS + 1, "champion launch must remain available at the crowd cap");
+});
+
+test("an aligned champion follows a drifting nearby shield through actual contact", () => {
+  for (const vx of [80, 120, 180]) {
+    const g = setupCounterattack();
+    g.assault.waveTimer = 999;
+    g.assault.weaponTarget = null;
+    g.assault.cannonTarget = null;
+    g.assault.weaponTargetsEnabled = false;
+    g.bases[1].hp = 0;
+    const guard = { x: 75, y: 520, vx, hp: 5, r: 6.2, big: false, used: 0, dead: false, kind: "guard", braced: true };
+    g.red = [guard];
+    g.cannonX = g.targetX = 75;
+    g.charge = CHARGE_MAX;
+    assert.equal(championShieldAim(g).direction, "aligned");
+    launchChampion(g);
+    const champion = g.blue[0];
+    assert.equal(guard.braced, true, "launch damaged the shield remotely");
+    let previousX = champion.x;
+    for (let frame = 0; frame < 180 && guard.braced && !guard.dead; frame++) {
+      step(g, 1 / 60);
+      assert.ok(Math.abs(champion.x - previousX) <= 100 / 60 + 0.001, "champion correction teleported laterally");
+      previousX = champion.x;
+    }
+    assert.equal(guard.braced, false, `aligned launch missed guard with lateral velocity ${vx}`);
+    assert.equal(champion.hp, 9, "shield break skipped the physical combat cost");
+  }
+});
+
+test("an unaligned champion does not acquire a shield or follow later cannon steering", () => {
+  const g = setupCounterattack();
+  g.assault.waveTimer = 999;
+  const guard = { x: 75, y: 520, vx: 0, hp: 5, r: 6.2, big: false, used: 0, dead: false, kind: "guard", braced: true };
+  g.red = [guard];
+  g.cannonX = g.targetX = 240;
+  g.charge = CHARGE_MAX;
+  launchChampion(g);
+  const champion = g.blue[0];
+  g.targetX = 75;
+  for (let frame = 0; frame < 20; frame++) step(g, 1 / 60);
+  assert.equal(champion.championTarget, undefined);
+  assert.equal(champion.x, 240);
+  assert.equal(guard.braced, true);
 });

@@ -1,8 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, cannonBarrelPositions, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
+import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, cannonBarrelPositions, championShieldAim, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
 import { createGuardGeometry, createHordeGeometry, createMobGeometry, createSiegeCannon, createWarden } from "./assaultArt";
-import { championShieldAim } from "./targeting";
 
 // The simulation uses a moving local battlefield. The long road and bridges
 // stay in world space while the camera follows each new encounter's arena.
@@ -478,9 +477,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   stage.add(shieldLabel.sprite); shieldLabel.sprite.visible = false; shieldLabel.sprite.renderOrder = 10;
   const shieldHalo = new THREE.InstancedMesh(geo(new THREE.RingGeometry(0.72, 1, 24).rotateX(-Math.PI / 2)), basic(0xffd66c, { transparent: true, opacity: 0.8, depthTest: false, depthWrite: false }), 16);
   shieldHalo.instanceMatrix.setUsage(THREE.DynamicDrawUsage); shieldHalo.frustumCulled = false; shieldHalo.renderOrder = 7; stage.add(shieldHalo);
-  // A marker for every shield keeps separated late threats readable at phone
-  // scale. The center sight shows the champion's real launch lane; it never
-  // bends toward a guard that the player has not lined up with.
+  // Small halos keep every shield visible; one arrow identifies the selected
+  // threat. The center sight shows the champion's real launch lane.
   const markerCanvas = document.createElement("canvas"); markerCanvas.width = 64; markerCanvas.height = 96;
   const markerContext = markerCanvas.getContext("2d")!;
   markerContext.beginPath(); markerContext.moveTo(21, 9); markerContext.lineTo(43, 9);
@@ -1088,14 +1086,16 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     drawUnits(bracedUnits, bracedGuards, true, entry, bracedColorKeys, bracedMatrixRange, bracedMotionRange, bracedColorRange);
     shieldHalo.count = Math.min(bracedUnits.length, shieldHalo.instanceMatrix.count);
     const shieldAim = championShieldAim(game);
-    shieldMarkers.count = game.status === "playing" ? shieldHalo.count : 0;
+    shieldMarkers.count = game.status === "playing" && shieldAim ? 1 : 0;
     for (let index = 0; index < shieldHalo.count; index++) {
       const unit = bracedUnits[index], z = wz(unit.y) - entry;
       dummy.position.set(wx(unit.x) + curve(z), 0.06, z); dummy.rotation.set(0, 0, 0);
-      dummy.scale.setScalar((unit === shieldAim?.target ? 1.2 : 1) + Math.sin(game.t * 5) * 0.05); dummy.updateMatrix(); shieldHalo.setMatrixAt(index, dummy.matrix);
-      dummy.position.set(wx(unit.x) + curve(z), 3.75 + Math.sin(game.t * 4 + index) * 0.1, z);
-      dummy.quaternion.copy(camera.quaternion); dummy.scale.setScalar(unit === shieldAim?.target ? 1.1 : 0.85);
-      dummy.updateMatrix(); shieldMarkers.setMatrixAt(index, dummy.matrix);
+      dummy.scale.setScalar(unit === shieldAim?.target ? 1.2 + Math.sin(game.t * 5) * 0.05 : 0.65); dummy.updateMatrix(); shieldHalo.setMatrixAt(index, dummy.matrix);
+      if (unit === shieldAim?.target) {
+        dummy.position.set(wx(unit.x) + curve(z), 3.75 + Math.sin(game.t * 4) * 0.1, z);
+        dummy.quaternion.copy(camera.quaternion); dummy.scale.setScalar(1.1);
+        dummy.updateMatrix(); shieldMarkers.setMatrixAt(0, dummy.matrix);
+      }
     }
     if (shieldHalo.count > 0) shieldHalo.instanceMatrix.needsUpdate = true;
     if (shieldMarkers.count > 0) shieldMarkers.instanceMatrix.needsUpdate = true;

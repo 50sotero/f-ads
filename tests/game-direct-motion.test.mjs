@@ -200,6 +200,30 @@ test("counterattack survivors physically turn back to an adjacent attacker", () 
   assert.ok(survivor.dead || game.red.length === 0, "the nearby attacker was never engaged");
 });
 
+test("a survivor keeps engaging when it turns back across the final approach", () => {
+  // A branched route does not set every gate bit. Before the latch, a turn
+  // across y=408 repeatedly switched this survivor back to forward travel.
+  const survivor = counterattackUnit(180, 407, { used: 1 });
+  const guard = counterattackUnit(180, 441, { used: 0, kind: "guard", braced: true, hp: 2 });
+  const game = counterattackGame({ blue: [survivor], red: [guard] });
+  let previousY = survivor.y;
+  for (let frame = 0; frame < 60 && !survivor.dead; frame++) {
+    step(game, 1 / 60);
+    assert.ok(survivor.y >= previousY, "crossing the approach line reversed the survivor away from its target");
+    assert.ok(survivor.y - previousY <= 0.701, "engagement exceeded the bounded turn-back speed");
+    previousY = survivor.y;
+  }
+  assert.ok(survivor.dead || survivor.y > 430, `survivor remained pinned to the approach at ${survivor.y}`);
+});
+
+test("staged survivors can reach a visible attacker behind the old short reverse window", () => {
+  const survivor = counterattackUnit(180, 365);
+  const guard = counterattackUnit(180, 442, { used: 0, kind: "guard", braced: true, hp: 2 });
+  const game = counterattackGame({ blue: [survivor], red: [guard] });
+  for (let frame = 0; frame < 120 && !survivor.dead; frame++) step(game, 1 / 60);
+  assert.ok(survivor.dead || survivor.y > 430, `the nearby visible guard left the survivor parked at ${survivor.y}`);
+});
+
 test("an advanced defeated boss stages incoming troops after its gates are overrun", () => {
   const survivor = counterattackUnit(180, 550, { used: 0 });
   const game = counterattackGame({ blue: [survivor] });
@@ -217,6 +241,16 @@ test("fresh counterattack shots keep their committed launch lane before the fina
 
   assert.equal(survivor.x, 180, "a fresh shot was steered before reaching the final gate");
   assert.ok(survivor.y > 510, "fixture runner crossed the first gate during the launch-lane check");
+});
+
+test("a previous encounter's engagement does not steer a survivor on the next route", () => {
+  const survivor = counterattackUnit(180, 555, { used: 0, counterStage: 0 });
+  const game = counterattackGame({ blue: [survivor], red: [counterattackUnit(100, 555, { used: 0 })] });
+  game.bases.push({ ...game.bases[0] });
+  game.assault.encounter = 1;
+  for (let frame = 0; frame < 20; frame++) step(game, 1 / 60);
+  assert.equal(survivor.x, 180, "engagement leaked across encounters before the new approach");
+  assert.ok(survivor.y > 510);
 });
 
 test("counterattack survivors stage near the defeated boss when the road is empty", () => {
