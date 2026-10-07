@@ -54,6 +54,13 @@ export type BossBraceSnapshot = Readonly<{
   progress: number;
   seconds: number;
 }>;
+/** Read-only snapshot of the short physical breakthrough after an ignored brace. */
+export type BossBreakthroughSnapshot = Readonly<{
+  phase: "breaking";
+  progress: number;
+  seconds: number;
+  advance: number;
+}>;
 export type AssaultCounterattackDef = {
   /** Number of finite reinforcement waves after each giant falls. */
   waves: number;
@@ -491,9 +498,17 @@ type BossBraceRedDrive = {
   encounter: number;
   seconds: number;
 };
+type BossBreakthroughState = {
+  owner: Game;
+  assault: AssaultState;
+  encounter: number;
+  elapsed: number;
+  advance: number;
+};
 const bossBraceStates = new WeakMap<Game, BossBraceRuntime>();
 const bossBraceChampionDrives = new WeakMap<Unit, BossBraceChampionDrive>();
 const bossBraceRedDrives = new WeakMap<Unit, BossBraceRedDrive>();
+const bossBreakthroughStates = new WeakMap<Game, BossBreakthroughState>();
 const SHIELD_BRACE_FATIGUE_SECONDS = 1.25;
 const ASSAULT_BOSS_SLAM_DURATION = 0.35;
 const ASSAULT_BOSS_SLAM_DECAY = 8;
@@ -509,8 +524,10 @@ const ASSAULT_BOSS_CONTACT_BATCH = 12;
 const ASSAULT_BOSS_BRACE_CONTACT_LIMIT = 4;
 const ASSAULT_BOSS_BRACE_CHAMPION_FORWARD_FLOOR = 0.9;
 const ASSAULT_BOSS_BRACE_CHAMPION_SPEED_MULTIPLIER = 1.35;
-const ASSAULT_BOSS_BRACE_RED_SPEED = 1.7;
-const ASSAULT_BOSS_BRACE_RED_DURATION = 0.75;
+const ASSAULT_BOSS_BREAKTHROUGH_DURATION = 2.25;
+const ASSAULT_BOSS_BREAKTHROUGH_SPEED = 36;
+const ASSAULT_BOSS_BREAKTHROUGH_BLUE_DEPTH = 150;
+const ASSAULT_BOSS_BREAKTHROUGH_RED_SPEED = 1.25;
 const ASSAULT_BOSS_BRACE_RED_LATERAL = 120;
 const ASSAULT_BOSS_BRACE_RED_DEPTH = 180;
 
@@ -685,6 +702,56 @@ export function bossBrace(game: Game): BossBraceSnapshot | null {
   };
 }
 
+function activeBossBreakthrough(game: Game) {
+  const state = bossBreakthroughStates.get(game);
+  const assault = game.assault;
+  const active = assault ? game.bases[assault.encounter] : null;
+  if (
+    !state
+    || !assault
+    || !active
+    || game.status !== "playing"
+    || assault.phase !== "battle"
+    || state.owner !== game
+    || state.assault !== assault
+    || state.encounter !== assault.encounter
+    || active.hp <= 0
+    || state.elapsed >= ASSAULT_BOSS_BREAKTHROUGH_DURATION - 1e-9
+  ) return null;
+  return state;
+}
+
+function beginBossBreakthrough(game: Game, active: Base) {
+  const assault = game.assault!;
+  const previous = bossBreakthroughStates.get(game);
+  if (
+    previous
+    && previous.owner === game
+    && previous.assault === assault
+    && previous.encounter === assault.encounter
+  ) return;
+  bossBreakthroughStates.set(game, {
+    owner: game,
+    assault,
+    encounter: assault.encounter,
+    elapsed: 0,
+    advance: 0,
+  });
+  pop(game, active.x, active.y - active.h / 2 - 40, 1, "BREAKTHROUGH");
+}
+
+/** Returns the active giant's bounded physical breakthrough after an ignored brace. */
+export function bossBreakthrough(game: Game): BossBreakthroughSnapshot | null {
+  const state = activeBossBreakthrough(game);
+  if (!state) return null;
+  return {
+    phase: "breaking",
+    progress: Math.max(0, Math.min(1, state.elapsed / ASSAULT_BOSS_BREAKTHROUGH_DURATION)),
+    seconds: Math.max(0, ASSAULT_BOSS_BREAKTHROUGH_DURATION - state.elapsed),
+    advance: Math.max(0, state.advance),
+  };
+}
+
 /**
  * Returns the active giant's launch lane during its winding cue. The direction
  * is measured from the cannon to the giant so the player can deliberately
@@ -801,7 +868,7 @@ function applyBossBraceRedDrive(game: Game, active: Base) {
       owner: game,
       assault,
       encounter: assault.encounter,
-      seconds: ASSAULT_BOSS_BRACE_RED_DURATION,
+      seconds: ASSAULT_BOSS_BREAKTHROUGH_DURATION,
     });
   }
 }
@@ -815,14 +882,14 @@ function bossBraceRedSpeed(game: Game, unit: Unit, dt: number) {
     || !assault
     || state.assault !== assault
     || state.encounter !== assault.encounter
-    || assault.phase !== "battle"
+    || (assault.phase !== "battle" && assault.phase !== "counterattack")
     || game.status !== "playing"
     || unit.dead
   ) {
     if (state) bossBraceRedDrives.delete(unit);
     return 1;
   }
-  const speed = state.seconds > 0 ? ASSAULT_BOSS_BRACE_RED_SPEED : 1;
+  const speed = state.seconds > 0 ? ASSAULT_BOSS_BREAKTHROUGH_RED_SPEED : 1;
   state.seconds = Math.max(0, state.seconds - Math.max(0, dt));
   if (state.seconds <= 0) bossBraceRedDrives.delete(unit);
   return speed;
@@ -850,6 +917,7 @@ function updateBossBrace(game: Game, dt: number) {
     pop(game, active.x, active.y - active.h / 2 - 10, 1, "BRACE IMPACT");
     applyAssaultBossSlamImpact(game, active);
     applyBossBraceRedDrive(game, active);
+    beginBossBreakthrough(game, active);
     return;
   }
   if (state.phase === "staggered") {
@@ -2206,12 +2274,46 @@ function applyAssaultCorridorPressure(u: Unit, centerX: number, dt: number, corr
   u.vx += towardCenter * Math.min(10000, penetration * 180) * dt;
 }
 
+/** Pushes only the blue units occupying the giant's advancing collision lane. */
+function applyAssaultBossBreakthroughPush(g: Game, active: Base, previousFront: number, nextFront: number) {
+  if (nextFront <= previousFront) return;
+  const upperDepth = previousFront - ASSAULT_BOSS_BREAKTHROUGH_BLUE_DEPTH;
+  const lowerDepth = nextFront + ASSAULT_BOSS_BREAKTHROUGH_BLUE_DEPTH;
+  for (const unit of g.blue) {
+    if (
+      unit.dead
+      || Math.abs(unit.x - active.x) > active.w / 2 + unit.r
+      || unit.y < upperDepth
+      || unit.y > lowerDepth
+    ) continue;
+    const destination = Math.min(CANNON_Y - unit.r - 2, nextFront + unit.r);
+    if (destination <= unit.y + 1e-9) continue;
+    // Use the normal wall-aware mover for the shove. A wall can redirect a
+    // unit laterally, but no position is rewritten around authored geometry.
+    move(g, unit, destination - unit.y, 0);
+  }
+}
+
 function updateAssaultBossPressure(g: Game, dt: number) {
   const assault = g.assault!;
   if (g.level.assault?.practice || assault.phase !== "battle") return;
   const active = g.bases[assault.encounter];
   if (!active || active.hp <= 0) return;
   assault.bossTime += dt;
+  const breakthrough = activeBossBreakthrough(g);
+  if (breakthrough) {
+    const available = Math.max(0, ASSAULT_BOSS_BREAKTHROUGH_DURATION - breakthrough.elapsed);
+    const slice = Math.min(Math.max(0, dt), available);
+    const previousY = active.y;
+    const limit = assault.bossOriginY + ASSAULT_BOSS_PRESSURE_TRAVEL;
+    active.y = Math.min(limit, active.y + ASSAULT_BOSS_BREAKTHROUGH_SPEED * slice);
+    const displacement = active.y - previousY;
+    breakthrough.elapsed += Math.max(0, dt);
+    breakthrough.advance += displacement;
+    applyAssaultBossBreakthroughPush(g, active, previousY + active.h / 2, active.y + active.h / 2);
+    if (breakthrough.elapsed >= ASSAULT_BOSS_BREAKTHROUGH_DURATION - 1e-9) bossBreakthroughStates.delete(g);
+    return;
+  }
   if (assault.bossTime <= ASSAULT_BOSS_PRESSURE_DELAY) return;
   // A live front holds the giant in place. Advancing through engaged runners
   // leaves them stranded behind their target and makes the battle slide.
@@ -3071,6 +3173,10 @@ function finishAssaultEncounter(g: Game) {
   if (assault.phase !== "battle") return;
   const active = g.bases[assault.encounter];
   if (active.hp > 0) return;
+  const breakthrough = bossBreakthroughStates.get(g);
+  if (breakthrough && breakthrough.assault === assault && breakthrough.encounter === assault.encounter) {
+    bossBreakthroughStates.delete(g);
+  }
   const brace = bossBraceStates.get(g);
   if (brace && brace.assault === assault && brace.encounter === assault.encounter) {
     brace.phase = null;

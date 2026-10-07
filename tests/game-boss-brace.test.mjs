@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   bossBrace,
   bossBraceChampionIncoming,
+  bossBreakthrough,
   championBossAim,
   launchChampion,
   newGame,
@@ -16,12 +17,21 @@ const makeLevel = (options = {}) => {
   const horde = options.horde ?? 24;
   const slamEvery = Object.hasOwn(options, "slamEvery") ? options.slamEvery : 9;
   const baseX = options.baseX ?? 180;
+  const counterattack = options.counterattack;
   return {
     name: "boss brace fixture",
     par: 30,
     bases: [{ x: baseX, y: 300, hp: 100, every: 9999, group: 0 }],
     gates: [{ x: baseX, y: 0, w: 1, kind: "x", n: 2 }],
-    assault: { horde, reserve: 0, speed: 16, theme: "fork", practice, slamEvery },
+    assault: {
+      horde,
+      reserve: 0,
+      speed: 16,
+      theme: "fork",
+      practice,
+      slamEvery,
+      ...(counterattack ? { counterattack } : {}),
+    },
   };
 };
 
@@ -178,6 +188,72 @@ test("unopposed expiry produces a nonlethal impact cue", () => {
   assert.equal(game.status, "playing");
   assert.equal(game.assault.bossPulse, 1);
   assert.equal(bossBrace(game)?.phase, "impact");
+});
+
+test("an ignored brace starts a bounded physical breakthrough that pushes the blue front", () => {
+  const game = armBrace();
+  const runner = {
+    x: 180,
+    y: 320,
+    vx: 0,
+    hp: 1,
+    r: 4.2,
+    big: false,
+    used: 0,
+    dead: false,
+    pace: 0,
+  };
+  // Hold ordinary contact resolution so this runner remains available to be
+  // moved by the actual advancing boss body during the probe.
+  game.assault.bossTimer = Infinity;
+  game.blue.push(runner);
+  advanceUntil(game, () => bossBrace(game)?.phase === "impact");
+
+  const impactBaseY = game.bases[0].y;
+  const impactRunnerY = runner.y;
+  assert.deepEqual(bossBreakthrough(game), {
+    phase: "breaking",
+    progress: 0,
+    seconds: 2.25,
+    advance: 0,
+  });
+
+  for (let frame = 0; frame < 120; frame++) step(game, FRAME);
+  const active = bossBreakthrough(game);
+  assert.ok(active);
+  assert.ok(active.advance >= 60 && active.advance <= 80, `boss advanced ${active.advance}px in the equal-clock window`);
+  assert.ok(game.bases[0].y - impactBaseY >= 60, "the live giant moved through the held front");
+  assert.ok(runner.y - impactRunnerY >= 55, "the blue front was physically displaced with the giant");
+  assert.equal(runner.dead, false);
+
+  advanceUntil(game, () => bossBreakthrough(game) === null, 60);
+  assert.equal(bossBreakthrough(game), null, "the breakthrough did not leave a stale phase");
+});
+
+test("breakthrough momentum carries marked nearby reds into the same encounter counterattack", () => {
+  const game = armBrace({ counterattack: { waves: 1, runners: 0, guards: 0, brutes: 0, interval: 1.4 } });
+  const red = {
+    x: 180,
+    y: 350,
+    vx: 0,
+    hp: 1,
+    r: 4.2,
+    big: false,
+    used: 0,
+    dead: false,
+    kind: "runner",
+  };
+  game.red.push(red);
+  game.assault.bossTimer = Infinity;
+  advanceUntil(game, () => bossBrace(game)?.phase === "impact");
+  game.bases[0].hp = 0;
+  step(game, FRAME);
+
+  assert.equal(game.assault.phase, "counterattack");
+  assert.ok(game.red.includes(red), "the same red survived the boss transition");
+  const before = red.y;
+  step(game, 0.5);
+  assert.ok(red.y - before > 9, `surviving red momentum was only ${red.y - before}px`);
 });
 
 test("practice and horde-free early assaults do not arm a boss brace", () => {
