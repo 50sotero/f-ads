@@ -653,7 +653,7 @@ export function CrowdCannon() {
           {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-warning={assault.waveWarning > 0} data-shield={assault.shields > 0} data-compact={assault.shields === 0 && (assault.phase === "counterattack" || assault.phase === "battle" && hud.time > 4)}>
             <span className={styles.objectiveIcon} aria-hidden="true">{assault.phase === "counterattack" ? "!" : assault.phase === "advance" ? "»" : "⚑"}</span>
             <div><strong>{assault.shields > 0 ? "SHIELD GUARD" : assault.phase === "counterattack" ? assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "← LEFT" : assault.waveLane > 0 ? "RIGHT →" : "CENTER"} WAVE INCOMING` : `${assault.remaining} DEFENDERS LEFT` : assault.phase === "advance" ? remixedGates ? "LANES SWITCHED" : "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
-              <span>{assault.shields > 0 ? hud.charge >= CHARGE_MAX ? "Aim at the amber shield. Tap ★ to break it." : "Keep firing to charge ★. Champions break shields."
+              <span>{assault.shields > 0 ? hud.charge >= CHARGE_MAX ? "Normal shots blocked. Aim, then launch ★." : "Keep firing to charge ★. Normal shots blocked."
                 : assault.phase === "counterattack"
                 ? `${assault.remaining} enemies left · ${assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "LEFT" : assault.waveLane > 0 ? "RIGHT" : "CENTER"} WAVE INCOMING` : `wave ${assault.wave} / ${assault.waves}`}`
                 : assault.phase === "advance" ? remixedGates ? "Find the new gate chain. Keep your upgrades!" : "Keep your upgrades. Push forward!" : "Then survive the counterattack"}</span></div>

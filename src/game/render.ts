@@ -474,7 +474,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const regularUnits: Unit[] = [], guardUnits: Unit[] = [], bracedUnits: Unit[] = [];
   const shieldLabel = makeLabel("SHIELD", 4.3, 1.45, "#ffe5a0", 127, true);
   stage.add(shieldLabel.sprite); shieldLabel.sprite.visible = false;
-  const shieldHalo = new THREE.InstancedMesh(aimRingGeometry, basic(0xffd66c, { transparent: true, opacity: 0.7, depthTest: false, depthWrite: false }), 16);
+  const shieldHalo = new THREE.InstancedMesh(geo(new THREE.RingGeometry(0.72, 1, 24).rotateX(-Math.PI / 2)), basic(0xffd66c, { transparent: true, opacity: 0.8, depthTest: false, depthWrite: false }), 16);
   shieldHalo.instanceMatrix.setUsage(THREE.DynamicDrawUsage); shieldHalo.frustumCulled = false; shieldHalo.renderOrder = 2; stage.add(shieldHalo);
   type UploadRange = { start: number; count: number };
   const queueUpdate = (attribute: THREE.BufferAttribute, range: UploadRange, start: number, count: number) => {
