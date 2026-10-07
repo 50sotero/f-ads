@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, cannonBarrelPositions, championShieldAim, shieldBracePressure, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
+import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, bossSlamRecoil, cannonBarrelPositions, championShieldAim, shieldBracePressure, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
 import { createGuardGeometry, createHordeGeometry, createMobGeometry, createSiegeCannon, createWarden } from "./assaultArt";
 
 // The simulation uses a moving local battlefield. The long road and bridges
@@ -563,6 +563,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const front = currentGame?.assault?.frontline ?? boss?.y ?? 300;
     for (let i = 0; i < count; i++) {
       const unit = units[i];
+      const recoil = !enemy && currentGame ? bossSlamRecoil(currentGame, unit) : 0;
+      const recoilHop = recoil > 0 ? Math.sin((1 - recoil) * Math.PI) : 0;
       const runner = enemy && unit.kind === "runner", guard = enemy && unit.kind === "guard";
       const size = unit.big ? (enemy ? 1.9 : 2.1) : guard ? unit.braced ? 1.7 : 1.18 : enemy ? 0.99 : 1.2 * crowdScale;
       const unitWorldZ = wz(unit.y), z = unitWorldZ - (enemy ? entry : 0), unitCurve = curve(z);
@@ -588,7 +590,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         const dx = (unit.x - state.x) * SX + unitCurve - curve(stateWorldZ);
         const dz = unitWorldZ - stateWorldZ - (travel - state.travel);
         const speed = Math.sqrt(dx * dx + dz * dz) / elapsed;
-        if (speed > 0.8) {
+        if (speed > 0.8 && recoil === 0) {
           const target = Math.atan2(-dx, -dz);
           let delta = target - state.angle;
           delta -= Math.floor((delta + Math.PI) / (Math.PI * 2)) * Math.PI * 2;
@@ -600,12 +602,12 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         state.phase += elapsed * (9 + Math.min(14, speed) * 2) * Math.max(0.15, state.run);
       }
       state.x = unit.x; state.y = unit.y; state.travel = travel; state.time = time;
-      const fighting = shotFlight === 0 && state.run < 0.55 && (Math.abs(unit.y - front) < 32 || !!boss && Math.abs(unit.y - boss.y - boss.h / 2) < 25) ? (0.55 - state.run) / 0.55 : 0;
+      const fighting = recoil === 0 && shotFlight === 0 && state.run < 0.55 && (Math.abs(unit.y - front) < 32 || !!boss && Math.abs(unit.y - boss.y - boss.h / 2) < 25) ? (0.55 - state.run) / 0.55 : 0;
       const motionOffset = i * 4;
-      runMotionArray[motionOffset] = state.phase; runMotionArray[motionOffset + 1] = shotFlight > 0 ? 0.15 : state.run;
+      runMotionArray[motionOffset] = state.phase; runMotionArray[motionOffset + 1] = shotFlight > 0 || recoil > 0 ? 0.15 : state.run;
       runMotionArray[motionOffset + 2] = fighting; runMotionArray[motionOffset + 3] = state.glow;
       const landing = flight >= 1 ? Math.max(0, 1 - (time - state.launchedAt - 0.34) / 0.12) : 0;
-      const pitch = shotFlight > 0 ? -0.42 * Math.sin(flight * Math.PI) : (runner ? -0.26 : -0.14) * state.run;
+      const pitch = recoil > 0 ? recoilHop * 0.48 : shotFlight > 0 ? -0.42 * Math.sin(flight * Math.PI) : (runner ? -0.26 : -0.14) * state.run;
       const cy = Math.cos(state.angle), sy = Math.sin(state.angle), cp = Math.cos(pitch), sp = Math.sin(pitch);
       const popScale = 1 + Math.sin(state.glow * Math.PI) * 0.18;
       const footprint = unit.big ? 1 : crowdFootprint;
@@ -616,7 +618,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       matrices[offset] = cy * sx; matrices[offset + 1] = 0; matrices[offset + 2] = -sy * sx; matrices[offset + 3] = 0;
       matrices[offset + 4] = sy * sp * syScale; matrices[offset + 5] = cp * syScale; matrices[offset + 6] = cy * sp * syScale; matrices[offset + 7] = 0;
       matrices[offset + 8] = sy * cp * sx; matrices[offset + 9] = -sp * sx; matrices[offset + 10] = cy * cp * sx; matrices[offset + 11] = 0;
-      matrices[offset + 12] = x; matrices[offset + 13] = 0.025 + shotFlight; matrices[offset + 14] = z; matrices[offset + 15] = 1;
+      matrices[offset + 12] = x; matrices[offset + 13] = 0.025 + shotFlight + recoilHop * (unit.big ? 0.16 : 0.68); matrices[offset + 14] = z; matrices[offset + 15] = 1;
       const tintKey = enemy ? unit.big ? 1 : runner ? 2 : guard ? 3 : 4 : unit.big ? 5 : 6;
       if (colorKeys[i] !== tintKey) {
         const tint = enemy ? unit.big ? redBrute : runner ? redRunner : guard ? unitWhite : redSoldier : unit.big ? blueChampion : unitWhite;
@@ -1222,7 +1224,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       view.art.group.position.set(x, -death * 2, z - hit * 1.05);
       view.art.group.scale.setScalar((active ? 1.2 - approaching * 0.18 : 1.02) * (1 - death * 0.65));
       view.art.group.rotation.z = death * -1.3;
-      if (view.art.group.visible) view.art.animate(game.t + i * 2.3, hit, active ? Math.max(warning, pulse) : 0);
+      if (view.art.group.visible) view.art.animate(game.t + i * 2.3, hit, active ? warning : 0, active ? pulse : 0);
       view.label.sprite.position.set(x, 6.05, z); view.label.sprite.scale.set(3.5, 1.15, 1);
       view.bar.position.set(x, 5.6, z); view.bar.scale.set(0.86, 0.65, 1);
       const fraction = Math.max(0, base.hp / base.maxHp); view.fill.scale.x = 5.15 * fraction; view.fill.position.x = -2.575 * (1 - fraction);

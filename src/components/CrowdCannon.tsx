@@ -19,7 +19,7 @@ const DT = 1 / 60;
 
 type Save = CampaignSave;
 type Screen = "menu" | "armory" | "playing" | "paused" | "won" | "lost" | "trained";
-type SoundKind = "shot" | "pop" | "hit" | "champ" | "shield" | "upgrade" | "alert" | "win" | "lose";
+type SoundKind = "shot" | "pop" | "hit" | "champ" | "shield" | "slam" | "upgrade" | "alert" | "win" | "lose";
 type AssaultHud = {
   encounter: number;
   encounters: number;
@@ -140,7 +140,7 @@ function subscribe(listener: () => void) {
 /** Tiny synth blips keep the arcade feel without loading sound assets. */
 function useSound(muted: boolean, weaponLevel: number) {
   const contextRef = useRef<AudioContext | null>(null);
-  const lastRef = useRef<Record<SoundKind, number>>({ shot: 0, pop: 0, hit: 0, champ: 0, shield: 0, upgrade: 0, alert: 0, win: 0, lose: 0 });
+  const lastRef = useRef<Record<SoundKind, number>>({ shot: 0, pop: 0, hit: 0, champ: 0, shield: 0, slam: 0, upgrade: 0, alert: 0, win: 0, lose: 0 });
   useEffect(() => () => {
     void contextRef.current?.close();
     contextRef.current = null;
@@ -167,6 +167,7 @@ function useSound(muted: boolean, weaponLevel: number) {
           hit: [[140, 0.08, "square"]],
           champ: [[330, 0.12, "sawtooth"], [495, 0.15, "sawtooth"]],
           shield: [[130, 0.14, "triangle"], [1320, 0.08, "square"], [880, 0.2, "sine"]],
+          slam: [[140, 0.12, "triangle"], [72, 0.22, "sine"]],
           upgrade: [[440, 0.1, "triangle"], [660, 0.1, "triangle"], [880, 0.22, "triangle"]],
           alert: [[587, 0.13, "triangle"], [440, 0.13, "triangle"], [587, 0.2, "triangle"]],
           win: [[523, 0.14, "triangle"], [659, 0.14, "triangle"], [784, 0.3, "triangle"]],
@@ -190,7 +191,7 @@ function useSound(muted: boolean, weaponLevel: number) {
           oscillator.frequency.value = frequency;
           gain.gain.setValueAtTime(0.0001, time);
           gain.gain.exponentialRampToValueAtTime(kind === "shot" ? 0.035 : kind === "pop" ? 0.04 : 0.07, time + 0.004);
-          if (kind === "shot" || kind === "shield") oscillator.frequency.exponentialRampToValueAtTime(kind === "shield" ? frequency * 0.55 : 100, time + length);
+          if (kind === "shot" || kind === "shield" || kind === "slam") oscillator.frequency.exponentialRampToValueAtTime(kind === "shot" ? 100 : frequency * 0.55, time + length);
           gain.gain.exponentialRampToValueAtTime(0.0001, time + length);
           oscillator.connect(gain).connect(context.destination);
           oscillator.start(time);
@@ -336,7 +337,7 @@ export function CrowdCannon() {
     let shown: Game | null = null;
     let hudAt = 0;
     let needsDraw = true;
-    let seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0, weapon: 1, phase: "battle" };
+    let seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0, weapon: 1, phase: "battle", bossPulse: 0 };
     const heardShieldBreaks = new WeakSet<object>();
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
@@ -368,7 +369,7 @@ export function CrowdCannon() {
         needsDraw = true;
         accumulator = 0;
         endAt = 0;
-        seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0, weapon: 1, phase: "battle" };
+        seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0, weapon: 1, phase: "battle", bossPulse: 0 };
       }
 
       if (screenRef.current === "playing") {
@@ -391,11 +392,12 @@ export function CrowdCannon() {
         if (game.stats.champions > seen.champions) soundRef.current("champ");
         if ((game.assault?.weaponLevel ?? 1) > seen.weapon) soundRef.current("upgrade");
         if (game.assault?.phase === "counterattack" && seen.phase !== "counterattack") soundRef.current("alert");
+        if ((game.assault?.bossPulse ?? 0) > seen.bossPulse + 0.1) soundRef.current("slam");
         for (const pop of game.pops) {
           if (pop.text !== "SHIELD BREAK" || heardShieldBreaks.has(pop)) continue;
           heardShieldBreaks.add(pop); soundRef.current("shield");
         }
-        seen = { fired: game.stats.fired, multiplied: game.stats.multiplied, baseHits: game.stats.baseHits, champions: game.stats.champions, weapon: game.assault?.weaponLevel ?? 1, phase: game.assault?.phase ?? "battle" };
+        seen = { fired: game.stats.fired, multiplied: game.stats.multiplied, baseHits: game.stats.baseHits, champions: game.stats.champions, weapon: game.assault?.weaponLevel ?? 1, phase: game.assault?.phase ?? "battle", bossPulse: game.assault?.bossPulse ?? 0 };
         const training = tutorialRef.current;
         if (training) {
           if (advanceTutorial(training, game)) {
