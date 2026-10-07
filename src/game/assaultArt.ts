@@ -112,6 +112,19 @@ export function createGuardGeometry(braced = false): THREE.BufferGeometry {
   return crowdMesh(parts);
 }
 
+/** A pale angular helmet and dark sprint boots identify the close-range raider. */
+export function createRaiderGeometry(): THREE.BufferGeometry {
+  const parts = [createMobGeometry()];
+  parts.push(tint(form([[1.12, 0.29, 0.275], [1.3, 0.3, 0.26], [1.44, 0.14, 0.18], [1.49, 0.025, 0.06]], 6, 4, 3), 0xfff0d6, true));
+  parts.push(tint(placed(new THREE.BoxGeometry(0.43, 0.13, 0.09), 0, 1.19, -0.29), 0x263047, true));
+  parts.push(tint(placed(new THREE.BoxGeometry(0.1, 0.18, 0.45), 0, 1.44, 0), 0xd92347, true));
+  parts.push(tint(placed(new THREE.TorusGeometry(0.16, 0.065, 4, 8).rotateX(Math.PI / 2), 0, 0.89, 0), 0x263047, true));
+  for (const side of [-1, 1]) {
+    parts.push(stridePart(tint(placed(new THREE.SphereGeometry(0.14, 6, 4), side * 0.14, 0.105, -0.065, 1, 0.68, 1.55), 0x263047, true), side * 2));
+  }
+  return crowdMesh(parts);
+}
+
 /** The distant reserve retains the round head and two-legged silhouette. */
 export function createHordeGeometry(): THREE.BufferGeometry {
   const parts = [placed(new THREE.SphereGeometry(0.235, 5, 3), 0, 0.94, 0),

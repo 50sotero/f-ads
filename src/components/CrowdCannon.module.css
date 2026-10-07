@@ -322,12 +322,16 @@
 .battleObjective[data-wave-role="flank"][data-warning="true"] { border-color: #ffa571; }
 .incomingWave { position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); width: max-content; max-width: 100%; padding: 5px 10px; border: 1px solid #ffba83; border-radius: 99px; background: #853b28ee; color: #ffe3c0; font-size: 10px; letter-spacing: .04em; box-shadow: 0 2px 3px #301b2830; }
 .incomingWave[data-role="shield"] { border-color: #ffdf84; background: #55452fee; color: #ffe6a2; }
+.incomingWave[data-role="active-raid"] { border-color: #ffb5a1; background: #8b263dee; color: #fff1df; }
 .battleObjective[data-shield="true"] { left: 50%; right: auto; width: max-content; max-width: calc(100% - 24px); transform: translateX(-50%); padding: 7px 10px; border-color: #ffdf84; background: #52354bee; }
 .battleObjective[data-shield="true"] .objectiveIcon { display: none; }
 .battleObjective[data-shield="true"] strong { color: #ffe6a2; font-size: 11px; }
 .battleObjective[data-shield="true"] > div > span { font-size: 10px; }
 .battleObjective[data-cleanup="true"] { border-color: #95ffe0; background: #17695fed; }
 .battleObjective[data-cleanup="true"] strong { color: #b9fff1; }
+.battleObjective[data-side-raid="true"] { border-color: #ffbe74; background: linear-gradient(110deg, #9e3d31f5, #61324bef); }
+.battleObjective[data-side-raid="true"] strong { color: #ffefc0; }
+.battleObjective[data-side-raid="true"] .objectiveIcon { color: #ffe087; }
 .battleObjective[data-breached="true"] { background: #872d43ed; border-color: #ffad98; color: #fff0e4; }
 .battleObjective[data-cleared="true"] { background: #176b60ed; border-color: #adffe1; color: #e6fff5; }
 .objectiveIcon { display: grid; flex: 0 0 29px; height: 29px; place-items: center; border-radius: 9px; background: rgba(255,255,255,.15); color: #ffe680; font-size: 22px; }
