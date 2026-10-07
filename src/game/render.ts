@@ -11,7 +11,7 @@ const wx = (x: number) => (x - W / 2) * SX;
 const wz = (y: number) => (y - CANNON_Y) * SZ;
 const BLUE = 0x00a7ff, RED = 0xf00c2d;
 type Particle = { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; size: number; color: number };
-type Label = { sprite: THREE.Sprite; write: (text: string, fill?: string) => void };
+type Label = { sprite: THREE.Sprite; write: (text: string, fill?: string, plateFill?: string) => void };
 type GateView = { group: THREE.Group; panel: THREE.Mesh; material: THREE.MeshStandardMaterial; frame: THREE.MeshStandardMaterial; hazard: THREE.Group; label: Label; value: string; selected: boolean; nextBurst: number; brokenAt: number };
 
 export type CrowdRenderer = {
@@ -221,14 +221,14 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const map = texture(new THREE.CanvasTexture(source)); map.colorSpace = THREE.SRGBColorSpace;
     const material = mat(new THREE.SpriteMaterial({ map, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
     const sprite = new THREE.Sprite(material); sprite.scale.set(width, height, 1); sprite.renderOrder = 5;
-    const write = (value: string, color = fill) => {
+    const write = (value: string, color = fill, plateFill = "#27324be8") => {
       context.clearRect(0, 0, 512, 192); context.textAlign = "center"; context.textBaseline = "middle";
       context.font = `700 ${fontSize}px Fredoka, Arial, sans-serif`; context.lineJoin = "round";
       const textWidth = context.measureText(value).width;
       if (textWidth > 472) context.font = `700 ${Math.floor(fontSize * 472 / textWidth)}px Fredoka, Arial, sans-serif`;
       if (plate) {
         const plateWidth = Math.min(504, context.measureText(value).width + 38);
-        context.fillStyle = "#27324be8"; context.strokeStyle = "#ffffffb0"; context.lineWidth = 4;
+        context.fillStyle = plateFill; context.strokeStyle = "#ffffffb0"; context.lineWidth = 4;
         context.beginPath(); context.roundRect(256 - plateWidth / 2, 14, plateWidth, 170, 27); context.fill(); context.stroke();
       }
       context.strokeStyle = "#31263e"; context.lineWidth = 14; context.strokeText(value, 256, 104);
@@ -458,12 +458,12 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         diffuseColor.rgb = mix(diffuseColor.rgb, vColor.rgb, vFaceMask);
       `).replace("#include <opaque_fragment>", `
         float rim = pow(1.0 - max(0.0, dot(normal, normalize(vViewPosition))), 1.6);
-        outgoingLight += diffuseColor.rgb * rim * 0.28;
+        outgoingLight *= 1.0 - rim * 0.2;
         outgoingLight += vec3(0.18, 0.9, 1.5) * vGateGlow * (0.3 + rim * 1.8);
         #include <opaque_fragment>
       `);
     };
-    material.customProgramCacheKey = () => "arena-speed-stride-v10"; return material;
+    material.customProgramCacheKey = () => "arena-speed-stride-v11"; return material;
   }
   const mobGeometry = geo(createMobGeometry()), reserveGeometry = geo(createHordeGeometry());
   const friendMaterial = crowdMaterial(BLUE), enemyMaterial = crowdMaterial(0xffffff);
@@ -473,7 +473,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const bracedGuards = new THREE.InstancedMesh(geo(createGuardGeometry(true)), crowdMaterial(0xdb2851), 16);
   const regularUnits: Unit[] = [], guardUnits: Unit[] = [], bracedUnits: Unit[] = [];
   const shieldLabel = makeLabel("SHIELD", 4.3, 1.45, "#ffe5a0", 127, true);
-  stage.add(shieldLabel.sprite); shieldLabel.sprite.visible = false;
+  stage.add(shieldLabel.sprite); shieldLabel.sprite.visible = false; shieldLabel.sprite.renderOrder = 7;
   const shieldHalo = new THREE.InstancedMesh(geo(new THREE.RingGeometry(0.72, 1, 24).rotateX(-Math.PI / 2)), basic(0xffd66c, { transparent: true, opacity: 0.8, depthTest: false, depthWrite: false }), 16);
   shieldHalo.instanceMatrix.setUsage(THREE.DynamicDrawUsage); shieldHalo.frustumCulled = false; shieldHalo.renderOrder = 2; stage.add(shieldHalo);
   type UploadRange = { start: number; count: number };
@@ -530,6 +530,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     // At the crowd cap, slightly smaller ordinary runners keep the spaces
     // between heads readable. Champions and opponents retain their silhouette.
     const crowdScale = enemy ? 1 : 1 - Math.min(1, Math.max(0, (count - 600) / 300)) * 0.13;
+    // Match the densely packed head width to the simulation's lateral spacing.
+    // Preserve height and champion size so the mob still reads as people.
+    const crowdFootprint = enemy ? 1 : 1 - Math.min(1, Math.max(0, (count - 450) / 450)) * 0.19;
     const runMotion = object.geometry.getAttribute("runMotion") as THREE.InstancedBufferAttribute;
     const runMotionArray = runMotion.array;
     const matrices = object.instanceMatrix.array, shadowMatrices = shadows.instanceMatrix.array;
@@ -586,7 +589,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const pitch = shotFlight > 0 ? -0.42 * Math.sin(flight * Math.PI) : (runner ? -0.26 : -0.14) * state.run;
       const cy = Math.cos(state.angle), sy = Math.sin(state.angle), cp = Math.cos(pitch), sp = Math.sin(pitch);
       const popScale = 1 + Math.sin(state.glow * Math.PI) * 0.18;
-      const sx = size * (1 + landing * 0.1) * popScale * (runner ? 0.83 : 1), syScale = size * (1 - landing * 0.16) * popScale * (runner ? 1.08 : 1);
+      const footprint = unit.big ? 1 : crowdFootprint;
+      const sx = size * footprint * (1 + landing * 0.1) * popScale * (runner ? 0.83 : 1), syScale = size * (1 - landing * 0.16) * popScale * (runner ? 1.08 : 1);
       const x = wx(unit.x) + unitCurve, offset = i * 16;
       // Compose yaw × forward lean directly into the instance buffer. Avoid
       // thousands of Object3D Euler/quaternion callbacks per crowded frame.
@@ -606,7 +610,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const shadowOffset = shadowCount++ * 16;
       // Contact shadows remain axis aligned; all other entries retain the
       // identity values initialized by InstancedMesh.
-      shadowMatrices[shadowOffset] = size * 1.5; shadowMatrices[shadowOffset + 10] = size * 1.1;
+      shadowMatrices[shadowOffset] = size * footprint * 1.5; shadowMatrices[shadowOffset + 10] = size * footprint * 1.1;
+      // The sun offset follows body height, which the footprint keeps intact.
       shadowMatrices[shadowOffset + 12] = x + 0.34 * size; shadowMatrices[shadowOffset + 13] = 0.025; shadowMatrices[shadowOffset + 14] = z + 0.19 * size;
     }
     queueUpdate(object.instanceMatrix, matrixRange, 0, count * 16);
@@ -956,7 +961,11 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const value = game.gates[i]; view.group.visible = !!value; if (!value) return;
       const text = value.kind === "trap" ? "!" : `×${value.n ?? 2}`;
       const selected = value.kind !== "trap" && selectedGates.has(i) && game.status === "playing" && assault?.phase !== "advance";
-      if (view.value !== text || view.selected !== selected) { view.label.write(text, selected ? "#baf8ff" : "#ffffff"); view.value = text; view.selected = selected; }
+      if (view.value !== text || view.selected !== selected) {
+        view.label.write(text, "#ffffff", selected ? "#047d9f" : "#27324be8");
+        view.label.sprite.renderOrder = selected ? 6 : 5;
+        view.value = text; view.selected = selected;
+      }
       const z = wz(value.y);
       const entrance = assault?.phase === "advance" ? Math.min(1, assault.advance * 1.6) : 0;
       view.group.position.set(wx(value.cx) + curve(z), 0.025 - entrance * 2.8, z);
@@ -1075,11 +1084,14 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const base = game.bases[i];
       if (!base) { view.art.group.visible = view.label.sprite.visible = view.bar.visible = false; return; }
       const active = i === encounter;
-      let z = active ? wz(base.y) - entry : -86 - Math.max(0, i - encounter - 1) * 24 - entry;
+      const approaching = active ? assault?.advance ?? 0 : 0;
+      // The next guardian is a visible destination. During travel, preserve
+      // that same starting position instead of popping it into the foreground.
+      let z = active ? THREE.MathUtils.lerp(wz(base.y), -52, approaching) : -52 - Math.max(0, i - encounter - 1) * 24 - entry;
       let x = wx(base.x) + curve(z);
-      const waitingSide = i % 2 ? 9 : -8;
+      const waitingSide = i % 2 ? 3 : -3;
       if (!active && base.hp > 0) x += waitingSide + Math.sin(game.t * 0.35 + i) * 0.6;
-      else if (active && (assault?.advance ?? 0) > 0) x += waitingSide * (assault?.advance ?? 0);
+      else if (approaching > 0) x += (waitingSide + Math.sin(game.t * 0.35 + i) * 0.6) * approaching;
       if (base.hp <= 0 && view.hp > 0) { view.deathX = view.art.group.position.x; view.deathZ = view.art.group.position.z; view.deathTravel = travel; }
       if (base.hp <= 0) { x = view.deathX; z = view.deathZ + travel - view.deathTravel; }
       if (view.hp >= 0 && base.hp < view.hp && base.hp > 0 && game.t > view.damageAt + 0.3) {
@@ -1097,7 +1109,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       }
       if (view.hp !== base.hp) { view.label.write(game.level.assault?.practice ? "PRACTICE" : `${Math.max(0, Math.ceil(base.hp))}`); view.hp = base.hp; }
       const death = base.hp <= 0 ? Math.min(1, (frameTime - view.deadAt) / 0.85) : 0;
-      view.art.group.visible = (active && base.hp > 0) || death < 1 && base.hp <= 0;
+      view.art.group.visible = ((active || i === encounter + 1) && base.hp > 0) || death < 1 && base.hp <= 0;
       view.label.sprite.visible = view.bar.visible = active && base.hp > 0;
       const hit = base.hp > 0 ? Math.max(base.hitFlash * 0.18, 1 - (game.t - view.damageAt) / 0.22, 0) : 0;
       const impact = Math.max(0, 1 - (game.t - view.damageAt) / 0.17);
@@ -1106,7 +1118,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       view.impact.position.set(x + view.hitX, 2.2, z + 3.1);
       view.impact.scale.setScalar(3.2 + (1 - impact) * 1.6);
       view.art.group.position.set(x, -death * 2, z - hit * 1.05);
-      view.art.group.scale.setScalar((active ? 1.2 : 1.02) * (1 - death * 0.65));
+      view.art.group.scale.setScalar((active ? 1.2 - approaching * 0.18 : 1.02) * (1 - death * 0.65));
       view.art.group.rotation.z = death * -1.3;
       if (view.art.group.visible) view.art.animate(game.t + i * 2.3, hit, active ? Math.max(warning, pulse) : 0);
       view.label.sprite.position.set(x, 6.05, z); view.label.sprite.scale.set(3.5, 1.15, 1);
@@ -1119,7 +1131,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const z = wz(pop.y), x = wx(pop.x) + curve(z);
       if (pop.text?.includes("UPGRADE")) continue;
       burst(x, 0.5, z, [0xf4fbff, 0xe9edee, 0xff426a][pop.color] ?? 0xffffff, pop.text ? 9 : 4, pop.text ? 0.65 : 0.9);
-      if (pop.text && !pop.text.startsWith("×") && !["KO", "DOWN", "DOWN!", "COUNTERATTACK"].includes(pop.text)) tag(pop.text, x, z, "#fff3b4");
+      // Direction is already carried by the HUD warning and the lane arrows.
+      // A second floating wave label covers the shield guard at its spawn.
+      if (pop.text && !pop.text.startsWith("×") && !["KO", "DOWN", "DOWN!", "COUNTERATTACK", "LEFT WAVE", "RIGHT WAVE", "CENTER WAVE"].includes(pop.text)) tag(pop.text, x, z, "#fff3b4");
     }
     if (game.status === "won" && previousStatus !== "won") {
       winAt = frameTime; shake = 0.75;

@@ -569,7 +569,7 @@
   .championLabel { font-size: 10px; }
   .championCallout { font-size: 13px; }
   .championCallout small { font-size: 11px; }
-  .controlHint { display: flex; left: 210px; right: 140px; bottom: 15px; justify-content: center; gap: 24px; font-size: 11px; }
+  .controlHint { display: grid; grid-template-columns: repeat(2, auto); left: 28px; right: auto; bottom: 88px; gap: 7px 16px; padding: 10px 12px; border: 1px solid #ffffff55; border-radius: 12px; background: #173b51bf; color: #f1ffff; font-size: 12px; text-shadow: none; }
   .tip { left: 50%; right: auto; width: max-content; max-width: 480px; transform: translateX(-50%); }
 }
 
