@@ -578,6 +578,9 @@ export function CrowdCannon() {
   const totalStars = save.stars.reduce((total, value) => total + (value ?? 0), 0);
   const level = levels[levelIndex];
   const assault = hud.assault;
+  const lineBroken = assault.integrity === 0;
+  const roadCleared = !lineBroken && assault.phase === "counterattack" && assault.wave === assault.waves && assault.remaining === 0;
+  const battleEnded = lineBroken || roadCleared;
   const loadout = startingLoadout(save);
   const weapon = weaponForLevel(assault.weaponLevel);
   const tutorialLesson = tutorialStep !== null && tutorialStep < tutorialLessons.length ? tutorialLessons[tutorialStep] : null;
@@ -650,14 +653,14 @@ export function CrowdCannon() {
               <span className={styles.encounterDots} aria-hidden="true">{Array.from({ length: assault.encounters }, (_, index) => <i key={index} data-done={index < assault.encounter} data-current={index === assault.encounter} />)}</span>
             </div>
           </div>
-          {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-warning={assault.waveWarning > 0} data-shield={assault.shields > 0} data-compact={assault.shields === 0 && (assault.phase === "counterattack" || assault.phase === "battle" && hud.time > 4)}>
-            <span className={styles.objectiveIcon} aria-hidden="true">{assault.phase === "counterattack" ? "!" : assault.phase === "advance" ? "»" : "⚑"}</span>
-            <div><strong>{assault.shields > 0 ? "SHIELD GUARD" : assault.phase === "counterattack" ? assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "← LEFT" : assault.waveLane > 0 ? "RIGHT →" : "CENTER"} WAVE INCOMING` : `${assault.remaining} DEFENDERS LEFT` : assault.phase === "advance" ? remixedGates ? "LANES SWITCHED" : "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
-              <span>{assault.shields > 0 ? hud.charge >= CHARGE_MAX ? "Normal shots blocked. Aim, then launch ★." : "Keep firing to charge ★. Normal shots blocked."
+          {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-warning={assault.waveWarning > 0} data-breached={lineBroken} data-cleared={roadCleared} data-shield={!battleEnded && assault.shields > 0} data-compact={!battleEnded && assault.shields === 0 && (assault.phase === "counterattack" || assault.phase === "battle" && hud.time > 4)}>
+            <span className={styles.objectiveIcon} aria-hidden="true">{roadCleared ? "★" : lineBroken || assault.phase === "counterattack" ? "!" : assault.phase === "advance" ? "»" : "⚑"}</span>
+            <div><strong>{lineBroken ? "LINE BREACHED" : roadCleared ? "ROAD CLEAR" : assault.shields > 0 ? "SHIELD GUARD" : assault.phase === "counterattack" ? assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "← LEFT" : assault.waveLane > 0 ? "RIGHT →" : "CENTER"} WAVE INCOMING` : `${assault.remaining} DEFENDERS LEFT` : assault.phase === "advance" ? remixedGates ? "LANES SWITCHED" : "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
+              <span>{lineBroken ? "Your cannon defense is gone." : roadCleared ? "All defenders cleared." : assault.shields > 0 ? hud.charge >= CHARGE_MAX ? "Normal shots blocked. Aim, then launch ★." : "Keep firing to charge ★. Normal shots blocked."
                 : assault.phase === "counterattack"
                 ? `${assault.remaining} enemies left · ${assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "LEFT" : assault.waveLane > 0 ? "RIGHT" : "CENTER"} WAVE INCOMING` : `wave ${assault.wave} / ${assault.waves}`}`
                 : assault.phase === "advance" ? remixedGates ? "Find the new gate chain. Keep your upgrades!" : "Keep your upgrades. Push forward!" : "Then survive the counterattack"}</span></div>
-            {assault.phase === "counterattack" && <span className={styles.wavePips} aria-label={`${assault.wave} of ${assault.waves} waves deployed`}>{Array.from({ length: assault.waves }, (_, i) => <i key={i} data-done={i < assault.wave} />)}</span>}
+            {!battleEnded && assault.phase === "counterattack" && <span className={styles.wavePips} aria-label={`${assault.wave} of ${assault.waves} waves deployed`}>{Array.from({ length: assault.waves }, (_, i) => <i key={i} data-done={i < assault.wave} />)}</span>}
           </div>}
           {tutorialLesson ? (
             <div className={styles.tutorialCoach} data-testid="tutorial-coach" role="status" aria-live="polite">
@@ -683,18 +686,18 @@ export function CrowdCannon() {
             <div className={styles.assaultStat} data-testid="cannon-tier"><strong>{assault.tier}</strong><span>CANNONS</span></div>
             {assault.reserve > 0 && <div className={styles.assaultStat}><strong>{assault.reserve}</strong><span>RESERVE</span></div>}
           </div>
-          <button type="button" className={`${styles.championButton} ${hud.charge >= CHARGE_MAX ? styles.championReady : ""}`} data-testid="champion-button" onClick={launch} onPointerDown={(event) => {
+          <button type="button" className={`${styles.championButton} ${!battleEnded && hud.charge >= CHARGE_MAX ? styles.championReady : ""}`} data-testid="champion-button" onClick={launch} onPointerDown={(event) => {
             // A second thumb does not produce a compatibility click while the
             // steering thumb is held. Launch without releasing that drag.
             if (event.pointerType === "touch" && !event.isPrimary) {
               event.preventDefault();
               launch();
             }
-          }} disabled={hud.charge < CHARGE_MAX} aria-label={hud.charge >= CHARGE_MAX ? "Launch champion" : `Champion charge ${Math.floor(hud.charge)} of ${CHARGE_MAX}`}>
-            {hud.charge >= CHARGE_MAX && <span className={styles.championCallout} role="status"><strong>{assault.shields > 0 ? "BREAK THE SHIELD" : "CHAMPION READY"}</strong><small>{assault.shields > 0 ? "Aim, then tap ★ or Space" : assault.frontline > 505 ? "Save the line!" : "Tap ★ or press Space"}</small></span>}
+          }} disabled={battleEnded || hud.charge < CHARGE_MAX} aria-label={battleEnded ? "Champion unavailable" : hud.charge >= CHARGE_MAX ? "Launch champion" : `Champion charge ${Math.floor(hud.charge)} of ${CHARGE_MAX}`}>
+            {!battleEnded && hud.charge >= CHARGE_MAX && <span className={styles.championCallout} role="status"><strong>{assault.shields > 0 ? "BREAK THE SHIELD" : "CHAMPION READY"}</strong><small>{assault.shields > 0 ? "Aim, then tap ★ or Space" : assault.frontline > 505 ? "Save the line!" : "Tap ★ or press Space"}</small></span>}
             <span className={styles.championRing} style={{ background: `conic-gradient(from -90deg, #ffe37b ${Math.min(100, (hud.charge / CHARGE_MAX) * 100)}%, rgba(255,255,255,.2) 0)` }} />
             <span className={styles.championCore} aria-hidden="true">★</span>
-            <span className={styles.championLabel}>{hud.charge >= CHARGE_MAX ? "GO!" : "CHARGE"}</span>
+            <span className={styles.championLabel}>{battleEnded ? "ENDED" : hud.charge >= CHARGE_MAX ? "GO!" : "CHARGE"}</span>
           </button>
           <div className={styles.controlHint} aria-hidden="true"><span>HOLD + DRAG</span><span>W · FIRE</span><span>A D · STEER</span><span>SPACE · CHAMPION</span></div>
         </>
