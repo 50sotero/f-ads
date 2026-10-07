@@ -10,6 +10,8 @@ export const GATE_H = 16;
 export const MAX_UNITS = 900;
 export const FIRE_RATE = 11;
 export const CHARGE_MAX = 30;
+/** Campaign champion charge earned per second while the cannon is held. */
+export const CAMPAIGN_CHARGE_RATE = 7;
 
 export type GateDef = {
   x: number;
@@ -1185,8 +1187,11 @@ function updateAssaultPickups(g: Game, dt: number) {
         pop(g, g.cannonX, CANNON_Y - 30, 0, "UPGRADE");
         pop(g, g.cannonX, CANNON_Y - 42, 0, `+${assault.tier - before}`);
       } else {
-        g.charge = Math.min(CHARGE_MAX, g.charge + 10);
-        pop(g, g.cannonX, CANNON_Y - 30, 0, "+CHARGE");
+        // At tier five a campaign pickup is a clear five-point refill. Keep
+        // practice's ten-point reward generous while the player learns.
+        const refill = config.practice ? 10 : 5;
+        g.charge = Math.min(CHARGE_MAX, g.charge + refill);
+        pop(g, g.cannonX, CANNON_Y - 30, 0, `+${refill} CHARGE`);
       }
       continue;
     }
@@ -1212,6 +1217,12 @@ function updateAssaultCannon(g: Game, dt: number) {
   g.cannonX += Math.max(-maxMove, Math.min(maxMove, g.targetX - g.cannonX));
   g.cooldown -= dt;
   if (!g.firing) assault.burstRemaining = 0;
+  // Campaign charge is time based so picking up a barrel or weapon never
+  // silently makes the champion harder to refill. It also continues while a
+  // full crowd is queued at MAX_UNITS.
+  if (g.firing && !g.level.assault?.practice) {
+    g.charge = Math.min(CHARGE_MAX, g.charge + dt * CAMPAIGN_CHARGE_RATE);
+  }
   if (!g.firing || g.cooldown > 0) {
     if (!g.firing) g.cooldown = Math.max(g.cooldown, 0);
     return;
@@ -1230,7 +1241,7 @@ function updateAssaultCannon(g: Game, dt: number) {
     g.blue.push({ x, y, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false, pace });
     g.stats.fired++;
     assault.barrelShots[k]++;
-    g.charge = Math.min(CHARGE_MAX, g.charge + 1);
+    if (g.level.assault?.practice) g.charge = Math.min(CHARGE_MAX, g.charge + 1);
   }
 }
 
