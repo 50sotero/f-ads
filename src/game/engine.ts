@@ -1719,9 +1719,9 @@ function applyAssaultRunnerBreakaway(u: Unit, dt: number) {
 /**
  * Gives only a late, authored flank rush a readable interception deadline.
  *
- * The lateral breakaway still has to reach its committed target through the
- * normal wall-aware mover. Once it is genuinely outward, its road speed eases
- * up over a bounded ramp. Centered and mixed waves retain their existing
+ * As the lateral breakaway makes progress toward its committed target through
+ * the normal wall-aware mover, its road speed eases up over a bounded ramp.
+ * Centered and mixed waves retain their existing
  * runner timing even when they happen to use a sidestep target for visual
  * spacing.
  */

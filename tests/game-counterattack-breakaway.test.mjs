@@ -98,7 +98,7 @@ test("a centered follow-up wave fans both ways while legacy and practice units s
   assert.ok(mirroredRunners.every((unit) => (unit.breakawayTargetX ?? 180) < unit.x), "the mirrored first wave uses the left flank");
 });
 
-test("only an authored flank rush ramps its road speed after the sidestep", () => {
+test("only an authored flank rush gains road speed as it moves outward", () => {
   const flank = setupCounterattack();
   step(flank, 1 / 60);
   const runner = flank.red
@@ -118,7 +118,7 @@ test("only an authored flank rush ramps its road speed after the sidestep", () =
   const earlyAverage = early.reduce((sum, value) => sum + value, 0) / early.length;
   const lateAverage = late.slice(0, 20).reduce((sum, value) => sum + value, 0) / 20;
   assert.ok(lateAverage > earlyAverage * 1.15, `flank road speed did not ramp: ${earlyAverage} -> ${lateAverage}`);
-  assert.ok(lateAverage < earlyAverage * 1.65, `flank road speed ramp was unbounded: ${earlyAverage} -> ${lateAverage}`);
+  assert.ok(lateAverage < earlyAverage * 1.65, `flank displacement exceeded the fixture envelope: ${earlyAverage} -> ${lateAverage}`);
 
   const centered = setupCounterattack();
   step(centered, 1 / 60);
