@@ -109,6 +109,8 @@ export type Unit = {
   kind?: AssaultWaveKind;
   /** A late-wave guard's visible brace; ordinary runners cannot damage it. */
   braced?: boolean;
+  /** Creation-only marker for one of the two authored roadside flank slots. */
+  sideEntry?: -1 | 1;
   /** Stable outer-flank target for a late counterattack runner. */
   breakawayTargetX?: number;
   /** Starting row for the smooth road-to-road advance. */
@@ -441,6 +443,7 @@ type CounterattackRunnerBreakawayState = {
   encounter: number;
   role: CounterattackWaveRole;
   startX: number;
+  startY: number;
   targetX: number;
   roadSpeedScale: number;
 };
@@ -610,7 +613,15 @@ function assaultEnemyHp(g: Game, big = false, kind?: AssaultWaveKind) {
   return big ? Math.max(2, Math.round(baseHp * 4)) : baseHp;
 }
 
-function makeAssaultEnemy(g: Game, x: number, y: number, big = false, lane = 0, kind?: AssaultWaveKind): Unit {
+function makeAssaultEnemy(
+  g: Game,
+  x: number,
+  y: number,
+  big = false,
+  lane = 0,
+  kind?: AssaultWaveKind,
+  sideEntry?: -1 | 1,
+): Unit {
   const variation = stableMotionVariation(x, y, big ? 17 : kind === "guard" ? 29 : 0);
   const enemy: Unit = {
     x,
@@ -623,6 +634,7 @@ function makeAssaultEnemy(g: Game, x: number, y: number, big = false, lane = 0, 
     dead: false,
     lane,
     pace: 0.94 + variation * 0.12,
+    sideEntry,
   };
   if (kind) enemy.kind = kind;
   return enemy;
@@ -815,17 +827,104 @@ function counterattackWaveSize(g: Game, waveIndex: number) {
   return plan.runners + plan.guards + plan.brutes;
 }
 
+const ASSAULT_SIDE_ENTRY_OFFSET_X = 126;
+const ASSAULT_SIDE_ENTRY_Y = 470;
+// Keep the two creation slots outside the motion neighbour's forward/lateral
+// envelope so they can leave the hatch together without pinning each other.
+const ASSAULT_SIDE_ENTRY_SPREAD = 12;
+const ASSAULT_SIDE_ENTRY_TARGET_SPREAD = 30;
+
+export type CounterattackSideEntry = {
+  /** Centre of the roadside hatch used by the first flank slots. */
+  x: number;
+  /** Shared hatch depth in the simulation's logical field coordinates. */
+  y: number;
+  /** Side slots still waiting to deploy for the current wave. */
+  count: number;
+  lane: -1 | 1;
+};
+
+/**
+ * Resolves the authored roadside hatch for the current counterattack wave.
+ * Spawn code uses this same plan before constructing a runner, so the
+ * renderer's warning marker cannot drift away from the actual entry point.
+ */
+function counterattackSideEntryPlan(game: Game, waveIndex: number): CounterattackSideEntry | null {
+  const assault = game.assault;
+  const config = game.level.assault;
+  const counterattack = config?.counterattack;
+  const index = Math.floor(waveIndex);
+  if (
+    !assault
+    || assault.phase !== "counterattack"
+    || !config
+    || config.practice
+    || !counterattack
+    || assault.encounter <= 0
+    || index < 0
+    || index !== assault.wave
+  ) return null;
+  const role = counterattackWaveRole(game, index);
+  if (role !== "flank") return null;
+  const plan = counterattackWavePlan(counterattack, index, role);
+  const count = Math.min(2, plan.runners);
+  const lane = counterattackLane(counterattack, index, assault.encounter);
+  const active = game.bases[assault.encounter];
+  if (count <= 0 || lane === 0 || !active) return null;
+  const x = Math.max(12, Math.min(W - 12, active.x + lane * ASSAULT_SIDE_ENTRY_OFFSET_X));
+  // A custom assault may place a logical wall over the authored hatch. Fall
+  // back to the ordinary formation instead of creating a unit inside it.
+  for (let slot = 0; slot < count; slot++) {
+    const slotX = counterattackSideEntrySlotX({ x, y: ASSAULT_SIDE_ENTRY_Y, count, lane }, slot);
+    if (blocked(game, slotX, ASSAULT_SIDE_ENTRY_Y, 4.4)) return null;
+  }
+  return {
+    x,
+    y: ASSAULT_SIDE_ENTRY_Y,
+    count,
+    lane,
+  };
+}
+
+/**
+ * Returns the pending roadside portion of an authored flank wave. Once both
+ * side slots have spawned, the rest of a cap-delayed wave keeps its ordinary
+ * warning without re-announcing the already visible roadside entry.
+ */
+export function counterattackSideEntry(game: Game, waveIndex = game.assault?.wave ?? 0): CounterattackSideEntry | null {
+  const entry = counterattackSideEntryPlan(game, waveIndex);
+  const assault = game.assault;
+  if (!entry || !assault) return null;
+  const pending = Math.max(0, entry.count - Math.min(entry.count, Math.max(0, assault.waveSpawned)));
+  return pending > 0 ? { ...entry, count: pending } : null;
+}
+
+function counterattackSideEntrySlotX(entry: CounterattackSideEntry, slot: number) {
+  // Slot zero starts on the inside edge and slot one on the outside edge for
+  // either lane, so both committed targets continue outward from the road.
+  const spread = (slot % 2 === 0 ? -entry.lane : entry.lane) * ASSAULT_SIDE_ENTRY_SPREAD;
+  return Math.max(10, Math.min(W - 10, entry.x + spread));
+}
+
 /**
  * Gives a late counterattack runner a readable, local sidestep. The target is
  * derived at spawn time from its authored wave lane and x position so a later
  * wave cannot silently retarget runners from an earlier one.
  */
-function counterattackBreakawayTarget(centerX: number, lane: -1 | 0 | 1, x: number, spawnIndex: number) {
+function counterattackBreakawayTarget(
+  centerX: number,
+  lane: -1 | 0 | 1,
+  x: number,
+  spawnIndex: number,
+  sideSlot?: number,
+) {
   const direction = lane === 0
     ? (x < centerX - 2 ? -1 : x > centerX + 2 ? 1 : spawnIndex % 2 === 0 ? -1 : 1)
     : lane;
   const offset = Math.min(88, Math.max(70, Math.abs(x - centerX) + 36));
-  return Math.max(18, Math.min(W - 18, centerX + direction * offset));
+  const target = centerX + direction * offset;
+  const roadsideTarget = sideSlot === 0 ? target - lane * ASSAULT_SIDE_ENTRY_TARGET_SPREAD : target;
+  return Math.max(18, Math.min(W - 18, roadsideTarget));
 }
 
 function refreshAssaultRemaining(g: Game) {
@@ -863,14 +962,30 @@ function spawnCounterattackWave(g: Game, waveIndex: number) {
   for (let i = 0; i < plan.guards; i++) roles.push("guard");
   for (let i = 0; i < plan.brutes; i++) roles.push("brute");
   const start = Math.max(0, Math.min(roles.length, assault.waveSpawned));
+  const sideEntry = counterattackSideEntryPlan(g, waveIndex);
   let spawned = 0;
   for (let i = start; i < roles.length && g.red.length < ASSAULT_RED_CAP; i++) {
     const kind = roles[i];
     const row = Math.floor(i / columns);
     const column = i % columns;
-    const x = Math.max(10, Math.min(W - 10, center - 29 + column * spacing + (g.rand() - 0.5) * 2.5));
-    const y = spawnY - row * 8.5 - g.rand() * 2.4;
-    const enemy = makeAssaultEnemy(g, x, y, kind === "brute", lane * 2 + column - Math.floor(columns / 2), kind);
+    // Consume the authored jitter even for a roadside slot so partial-cap
+    // retries preserve the same RNG stream as the ordinary formation.
+    const xJitter = g.rand();
+    const yJitter = g.rand();
+    const roadside = sideEntry && kind === "runner" && i < sideEntry.count ? sideEntry : null;
+    const x = roadside
+      ? counterattackSideEntrySlotX(roadside, i)
+      : Math.max(10, Math.min(W - 10, center - 29 + column * spacing + (xJitter - 0.5) * 2.5));
+    const y = roadside ? roadside.y : spawnY - row * 8.5 - yJitter * 2.4;
+    const enemy = makeAssaultEnemy(
+      g,
+      x,
+      y,
+      kind === "brute",
+      lane * 2 + column - Math.floor(columns / 2),
+      kind,
+      roadside?.lane,
+    );
     if (kind === "guard"
       && i === plan.runners
       && !g.level.assault?.practice
@@ -880,7 +995,7 @@ function spawnCounterattackWave(g: Game, waveIndex: number) {
       enemy.braced = true;
     }
     if (kind === "runner" && !g.level.assault?.practice && assault.encounter > 0 && g.level.assault?.slamEvery !== undefined) {
-      const breakawayTargetX = counterattackBreakawayTarget(center, lane, x, i);
+      const breakawayTargetX = counterattackBreakawayTarget(center, lane, x, i, roadside ? i : undefined);
       enemy.breakawayTargetX = breakawayTargetX;
       // Keep the authored wave role outside Unit. The existing target remains
       // visible to renderers and focused movement fixtures, while this state
@@ -890,6 +1005,7 @@ function spawnCounterattackWave(g: Game, waveIndex: number) {
         encounter: assault.encounter,
         role,
         startX: x,
+        startY: y,
         targetX: breakawayTargetX,
         roadSpeedScale: 1,
       });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { counterattackWaveRole, newGame, step, W } from "../src/game/engine.ts";
+import { MAX_UNITS, counterattackSideEntry, counterattackWaveRole, newGame, step, W } from "../src/game/engine.ts";
 
 const makeLevel = ({ practice = false, horde = 0, slamEvery = 8, waves = 2, runners = 4 } = {}) => ({
   name: "runner breakaway",
@@ -65,6 +65,111 @@ test("late counterattack runners commit to a bounded flank target", () => {
   );
 });
 
+test("the authored flank opens one deterministic roadside entry for two runner slots", () => {
+  const g = setupCounterattack({ waves: 2, runners: 4 });
+  assert.deepEqual(counterattackSideEntry(g), { x: 306, y: 470, count: 2, lane: 1 });
+
+  step(g, 1 / 60);
+  const runners = g.red.filter((unit) => unit.kind === "runner");
+  const roadside = runners.filter((unit) => unit.sideEntry === 1);
+  assert.equal(roadside.length, 2);
+  assert.ok(roadside.every((unit) => Math.abs(unit.y - 470) < 1), "roadside slots drifted before their first simulation frame");
+  assert.ok(Math.abs(roadside[0].x - roadside[1].x) >= 8.8, "roadside slots overlap at creation");
+  assert.ok(runners.slice(2).every((unit) => unit.y < 260), "far runner slots were moved to the roadside");
+  assert.equal(counterattackSideEntry(g), null, "the next wave owns the next warning after deployment");
+
+  const early = setupCounterattack({ encounter: 0, waves: 2, runners: 4 });
+  const practice = setupCounterattack({ practice: true, waves: 2, runners: 4 });
+  const centered = setupCounterattack({ waves: 2, runners: 4 });
+  centered.assault.wave = 1;
+  centered.assault.waveTimer = 0;
+  assert.equal(counterattackSideEntry(early), null);
+  assert.equal(counterattackSideEntry(practice), null);
+  assert.equal(counterattackSideEntry(centered), null, "centered waves do not advertise a roadside entry");
+
+  const runnerless = setupCounterattack({ waves: 2, runners: 0 });
+  assert.equal(counterattackSideEntry(runnerless), null, "runnerless waves do not advertise an empty entry");
+
+  const blockedEntry = setupCounterattack({ encounter: 2, waves: 2, runners: 4 });
+  blockedEntry.walls = [{ x: 25, y: 450, w: 70, h: 45 }];
+  assert.equal(counterattackSideEntry(blockedEntry), null, "a wall-covered hatch falls back to the ordinary formation");
+  step(blockedEntry, 1 / 60);
+  assert.equal(blockedEntry.red.filter((unit) => unit.sideEntry !== undefined).length, 0);
+});
+
+test("partial red capacity deploys roadside slots once and then keeps the pending warning quiet", () => {
+  const g = setupCounterattack({ waves: 2, runners: 4 });
+  g.red = Array.from({ length: 650 }, (_, index) => ({
+    x: 20 + (index % 20) * 15,
+    y: 250 - Math.floor(index / 20) * 2,
+    vx: 0,
+    hp: 1,
+    r: 4.4,
+    big: false,
+    used: 0,
+    dead: false,
+  }));
+  assert.equal(counterattackSideEntry(g)?.count, 2);
+
+  step(g, 1 / 60);
+  assert.equal(g.assault.waveSpawned, 0);
+  assert.equal(g.assault.waveWarning, 1);
+  assert.equal(counterattackSideEntry(g)?.count, 2);
+
+  // Make room for exactly one slot, then repeat the same cap retry. The
+  // first slot remains live, so the second retry must start at slot index one.
+  g.red.splice(0, 1);
+  g.assault.waveTimer = 0;
+  step(g, 1 / 60);
+  assert.equal(g.assault.waveSpawned, 1);
+  assert.equal(counterattackSideEntry(g)?.count, 1);
+
+  g.red.splice(0, 1);
+  g.assault.waveTimer = 0;
+  step(g, 1 / 60);
+  assert.equal(g.assault.waveSpawned, 2);
+  assert.equal(g.assault.wave, 0, "the remaining far slots must keep this wave pending");
+  assert.equal(g.assault.waveWarning, 1);
+  assert.equal(counterattackSideEntry(g), null, "the hatch is not re-announced after both slots deploy");
+  assert.equal(g.red.filter((unit) => unit.sideEntry === 1).length, 2);
+});
+
+test("a saturated blue front can intercept the roadside entry and resume fresh shots", () => {
+  const g = setupCounterattack({ waves: 2, runners: 4 });
+  g.blue = Array.from({ length: MAX_UNITS }, (_, index) => ({
+    // Keep the staged crowd outside the right hatch lane. Counterattack
+    // guidance and later fresh shots must still reach the marked runners.
+    x: 120 + (index % 15) * 8,
+    y: 540 - Math.floor(index / 15) * 0.3,
+    vx: 0,
+    hp: 1,
+    r: 4.2,
+    big: false,
+    used: 0,
+    dead: false,
+    pace: 1,
+  }));
+  g.targetX = 306;
+  g.firing = true;
+  const roadside = [];
+  let maxBlue = g.blue.length;
+  for (let frame = 0; frame < 300 && g.status === "playing"; frame++) {
+    step(g, 1 / 60);
+    maxBlue = Math.max(maxBlue, g.blue.length);
+    for (const unit of g.red) {
+      if (unit.sideEntry !== undefined && !roadside.includes(unit)) roadside.push(unit);
+    }
+  }
+  assert.equal(g.status, "won");
+  assert.equal(roadside.length, 2);
+  assert.ok(roadside.every((unit) => unit.dead), "the saturated front never intercepted both marked runners");
+  assert.ok(g.stats.fired > 0, "the cannon never resumed fresh shots after the cap opened");
+  assert.ok(g.stats.kills >= roadside.length);
+  assert.ok(maxBlue <= MAX_UNITS, "the blue crowd exceeded its authored cap");
+  assert.equal(g.assault.breaches, 0);
+  assert.equal(g.assault.integrity, 3);
+});
+
 test("a centered follow-up wave fans both ways while legacy and practice units stay untouched", () => {
   const g = setupCounterattack();
   assert.equal(counterattackWaveRole(g, 0), "flank");
@@ -99,7 +204,7 @@ test("a centered follow-up wave fans both ways while legacy and practice units s
 });
 
 test("only an authored flank rush gains road speed as it moves outward", () => {
-  const flank = setupCounterattack();
+  const flank = setupCounterattack({ runners: 1 });
   step(flank, 1 / 60);
   const runner = flank.red
     .filter((unit) => unit.kind === "runner")
@@ -120,7 +225,7 @@ test("only an authored flank rush gains road speed as it moves outward", () => {
   assert.ok(lateAverage > earlyAverage * 1.15, `flank road speed did not ramp: ${earlyAverage} -> ${lateAverage}`);
   assert.ok(lateAverage < earlyAverage * 1.65, `flank displacement exceeded the fixture envelope: ${earlyAverage} -> ${lateAverage}`);
 
-  const centered = setupCounterattack();
+  const centered = setupCounterattack({ runners: 1 });
   step(centered, 1 / 60);
   centered.red = [];
   centered.assault.wave = 1;
