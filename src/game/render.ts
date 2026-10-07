@@ -12,7 +12,7 @@ const wz = (y: number) => (y - CANNON_Y) * SZ;
 const BLUE = 0x00a7ff, RED = 0xf00c2d;
 type Particle = { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; size: number; color: number };
 type Label = { sprite: THREE.Sprite; write: (text: string, fill?: string) => void };
-type GateView = { group: THREE.Group; panel: THREE.Mesh; material: THREE.MeshStandardMaterial; frame: THREE.MeshStandardMaterial; hazard: THREE.Group; label: Label; value: string; nextBurst: number; brokenAt: number };
+type GateView = { group: THREE.Group; panel: THREE.Mesh; material: THREE.MeshStandardMaterial; frame: THREE.MeshStandardMaterial; hazard: THREE.Group; label: Label; value: string; selected: boolean; nextBurst: number; brokenAt: number };
 
 export type CrowdRenderer = {
   render: (game: Game, dt: number) => void;
@@ -256,7 +256,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     bake(hazard);
     if (!castShadow) group.traverse((object) => { object.castShadow = false; });
     bake(group);
-    return { group, panel, material, frame: frameMaterial, hazard, label, value: text, nextBurst: 0, brokenAt: -1 };
+    return { group, panel, material, frame: frameMaterial, hazard, label, value: text, selected: false, nextBurst: 0, brokenAt: -1 };
   }
   const gates: GateView[] = [];
   const pickups = Array.from({ length: 10 }, () => gate(0x019bff, "+1"));
@@ -360,8 +360,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     ringColorArray[i * 3 + 2] = 1;
   }
   let ringColorDirty = true;
-  const trajectoryMaterial = basic(0xc7f6ff, { transparent: true, opacity: 0.25, depthWrite: false });
-  const trajectory = new THREE.InstancedMesh(cube, trajectoryMaterial, 30); trajectory.frustumCulled = false; stage.add(trajectory);
+  const trajectoryMaterial = basic(0x8eefff, { transparent: true, opacity: 0.25, depthWrite: false });
+  const trajectory = new THREE.InstancedMesh(cube, trajectoryMaterial, 50); trajectory.frustumCulled = false; stage.add(trajectory);
+  const selectedGates = new Set<number>();
   const warningMaterial = basic(0xff543b, { transparent: true, opacity: 0, depthWrite: false });
   const warningRing = mesh(stage, aimRingGeometry, warningMaterial, 0, 0.045, -18, 4, 1, 2.5); warningRing.castShadow = false;
   const flankMaterial = basic(0xff713d, { transparent: true, opacity: 0, depthWrite: false });
@@ -469,7 +470,12 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const friends = new THREE.InstancedMesh(geo(mobGeometry.clone()), friendMaterial, MAX_UNITS + 32);
   const enemies = new THREE.InstancedMesh(geo(mobGeometry.clone()), enemyMaterial, 1600);
   const guards = new THREE.InstancedMesh(geo(createGuardGeometry()), crowdMaterial(0xe72a55), 1600);
-  const regularUnits: Unit[] = [], guardUnits: Unit[] = [];
+  const bracedGuards = new THREE.InstancedMesh(geo(createGuardGeometry(true)), crowdMaterial(0xdb2851), 16);
+  const regularUnits: Unit[] = [], guardUnits: Unit[] = [], bracedUnits: Unit[] = [];
+  const shieldLabel = makeLabel("SHIELD", 4.3, 1.45, "#ffe5a0", 127, true);
+  stage.add(shieldLabel.sprite); shieldLabel.sprite.visible = false;
+  const shieldHalo = new THREE.InstancedMesh(aimRingGeometry, basic(0xffd66c, { transparent: true, opacity: 0.7, depthTest: false, depthWrite: false }), 16);
+  shieldHalo.instanceMatrix.setUsage(THREE.DynamicDrawUsage); shieldHalo.frustumCulled = false; shieldHalo.renderOrder = 2; stage.add(shieldHalo);
   type UploadRange = { start: number; count: number };
   const queueUpdate = (attribute: THREE.BufferAttribute, range: UploadRange, start: number, count: number) => {
     if (count <= 0) return;
@@ -485,7 +491,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   // Twelve thousand silhouettes already cover the visible reserve field;
   // deeper rows sit above the viewport and would only add vertex work.
   const reserves = new THREE.InstancedMesh(reserveGeometry, crowdMaterial(RED), 12000);
-  for (const object of [friends, enemies, guards, reserves]) {
+  for (const object of [friends, enemies, guards, bracedGuards, reserves]) {
     object.frustumCulled = false; object.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     object.geometry.setAttribute("runMotion", new THREE.InstancedBufferAttribute(new Float32Array(object.instanceMatrix.count * 4), 4).setUsage(THREE.DynamicDrawUsage));
     stage.add(object);
@@ -493,11 +499,13 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const friendColorKeys = new Int8Array(friends.instanceMatrix.count).fill(-1);
   const enemyColorKeys = new Int8Array(enemies.instanceMatrix.count).fill(-1);
   const guardColorKeys = new Int8Array(guards.instanceMatrix.count).fill(-1);
-  for (const object of [friends, enemies, guards]) {
+  const bracedColorKeys = new Int8Array(bracedGuards.instanceMatrix.count).fill(-1);
+  for (const object of [friends, enemies, guards, bracedGuards]) {
     object.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(object.instanceMatrix.count * 3), 3).setUsage(THREE.DynamicDrawUsage);
   }
   const friendMatrixRange: UploadRange = { start: 0, count: 0 }, enemyMatrixRange: UploadRange = { start: 0, count: 0 }, guardMatrixRange: UploadRange = { start: 0, count: 0 };
   const friendMotionRange: UploadRange = { start: 0, count: 0 }, enemyMotionRange: UploadRange = { start: 0, count: 0 }, guardMotionRange: UploadRange = { start: 0, count: 0 };
+  const bracedMatrixRange: UploadRange = { start: 0, count: 0 }, bracedMotionRange: UploadRange = { start: 0, count: 0 }, bracedColorRange: UploadRange = { start: 0, count: 0 };
   const friendColorRange: UploadRange = { start: 0, count: 0 }, enemyColorRange: UploadRange = { start: 0, count: 0 }, guardColorRange: UploadRange = { start: 0, count: 0 };
   const shadowSource = document.createElement("canvas"); shadowSource.width = shadowSource.height = 32;
   const shadowContext = shadowSource.getContext("2d")!;
@@ -534,7 +542,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     for (let i = 0; i < count; i++) {
       const unit = units[i];
       const runner = enemy && unit.kind === "runner", guard = enemy && unit.kind === "guard";
-      const size = unit.big ? (enemy ? 1.9 : 2.1) : guard ? 1.18 : enemy ? 0.99 : 1.2 * crowdScale;
+      const size = unit.big ? (enemy ? 1.9 : 2.1) : guard ? unit.braced ? 1.7 : 1.18 : enemy ? 0.99 : 1.2 * crowdScale;
       const unitWorldZ = wz(unit.y), z = unitWorldZ - (enemy ? entry : 0), unitCurve = curve(z);
       let state = motion.get(unit);
       if (!state) {
@@ -915,12 +923,30 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     batteryShadow.scale.x = 0.9 + tier * 0.6;
     aimRing.scale.set(0.75 + tier * 0.6, 1, 1);
     aimRingMaterial.opacity = game.firing ? 0.3 : 0.5;
-    trajectory.count = tier * 6; trajectoryMaterial.opacity = game.firing ? 0.13 : 0.36;
+    selectedGates.clear();
+    let firstGateY = -Infinity;
+    for (const gate of game.gates) if (!gate.overrun) firstGateY = Math.max(firstGateY, gate.y);
+    trajectory.count = tier * 10; trajectoryMaterial.opacity = game.firing ? 0.5 : 0.2;
+    trajectory.visible = game.status === "playing" && assault?.phase !== "advance";
     for (let barrel = 0; barrel < tier; barrel++) {
-      for (let dot = 0; dot < 6; dot++) {
-        const z = -3.8 - dot * 1.04;
-        dummy.position.set(wx(game.cannonX + barrelOffsets[barrel]) + curve(z), 0.026, z);
-        dummy.rotation.set(0, 0, 0); dummy.scale.set(0.065, 0.015, 0.3); dummy.updateMatrix(); trajectory.setMatrixAt(barrel * 6 + dot, dummy.matrix);
+      const launchX = game.cannonX + barrelOffsets[barrel];
+      let endY = Number.isFinite(firstGateY) ? firstGateY + 3 : CANNON_Y - 120;
+      let hitsLock = false;
+      for (const lock of [assault?.cannonTarget, assault?.weaponTarget]) {
+        if (lock && Math.abs(launchX - lock.x) <= lock.w / 2 + 4.2 && lock.y + lock.h / 2 >= endY) {
+          endY = lock.y + lock.h / 2 + 4.2; hitsLock = true;
+        }
+      }
+      if (!hitsLock) game.gates.forEach((gate, index) => {
+        if (!gate.overrun && gate.y === firstGateY && Math.abs(launchX - gate.cx) <= gate.w / 2 - 4.2) selectedGates.add(index);
+      });
+      // Show the committed launch lane up to its first decision. Do not bend
+      // this preview toward a gate that the player has not lined up with.
+      const endZ = Math.min(-4.1, wz(endY));
+      for (let dot = 0; dot < 10; dot++) {
+        const z = -3.6 + (endZ + 3.6) * ((dot + (game.firing ? game.t * 3 % 1 : 0)) / 10);
+        dummy.position.set(wx(launchX) + curve(z), 0.035, z);
+        dummy.rotation.set(0, 0, 0); dummy.scale.set(0.22, 0.015, Math.abs(endZ + 3.6) / 16); dummy.updateMatrix(); trajectory.setMatrixAt(barrel * 10 + dot, dummy.matrix);
       }
     }
     trajectory.instanceMatrix.needsUpdate = true;
@@ -929,7 +955,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     gates.forEach((view, i) => {
       const value = game.gates[i]; view.group.visible = !!value; if (!value) return;
       const text = value.kind === "trap" ? "!" : `×${value.n ?? 2}`;
-      if (view.value !== text) { view.label.write(text); view.value = text; }
+      const selected = value.kind !== "trap" && selectedGates.has(i) && game.status === "playing" && assault?.phase !== "advance";
+      if (view.value !== text || view.selected !== selected) { view.label.write(text, selected ? "#baf8ff" : "#ffffff"); view.value = text; view.selected = selected; }
       const z = wz(value.y);
       const entrance = assault?.phase === "advance" ? Math.min(1, assault.advance * 1.6) : 0;
       view.group.position.set(wx(value.cx) + curve(z), 0.025 - entrance * 2.8, z);
@@ -949,7 +976,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       view.label.sprite.scale.x = 5.4 / view.group.scale.x;
       view.material.color.setHex(value.kind === "trap" ? 0xff274f : 0xa521ee);
       view.material.emissive.setHex(value.kind === "trap" ? 0xff274f : 0xa521ee);
-      view.frame.color.setHex(value.kind === "trap" ? 0xff3956 : 0x9236e8);
+      view.frame.color.setHex(value.kind === "trap" ? 0xff3956 : selected ? 0x80e7ff : 0x9236e8);
+      view.frame.emissive.setHex(selected ? 0x258cac : 0x000000);
+      view.frame.emissiveIntensity = selected ? 0.28 : 0;
       const dangerous = value.kind !== "trap" || trapActive(value, game.t);
       view.material.opacity = dangerous ? 0.48 : 0.1;
       view.hazard.visible = value.kind === "trap" && dangerous;
@@ -983,12 +1012,27 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     }
     previousUnits.length = 0;
     previousUnits.push(...game.blue, ...game.red);
-    regularUnits.length = guardUnits.length = 0;
-    for (const unit of game.red) (unit.kind === "guard" ? guardUnits : regularUnits).push(unit);
+    regularUnits.length = guardUnits.length = bracedUnits.length = 0;
+    for (const unit of game.red) (unit.braced ? bracedUnits : unit.kind === "guard" ? guardUnits : regularUnits).push(unit);
     shadowCount = 0;
     drawUnits(game.blue, friends, false, 0, friendColorKeys, friendMatrixRange, friendMotionRange, friendColorRange);
     drawUnits(regularUnits, enemies, true, entry, enemyColorKeys, enemyMatrixRange, enemyMotionRange, enemyColorRange);
     drawUnits(guardUnits, guards, true, entry, guardColorKeys, guardMatrixRange, guardMotionRange, guardColorRange);
+    drawUnits(bracedUnits, bracedGuards, true, entry, bracedColorKeys, bracedMatrixRange, bracedMotionRange, bracedColorRange);
+    shieldHalo.count = Math.min(bracedUnits.length, shieldHalo.instanceMatrix.count);
+    for (let index = 0; index < shieldHalo.count; index++) {
+      const unit = bracedUnits[index], z = wz(unit.y) - entry;
+      dummy.position.set(wx(unit.x) + curve(z), 0.06, z); dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(0.85 + Math.sin(game.t * 5) * 0.05); dummy.updateMatrix(); shieldHalo.setMatrixAt(index, dummy.matrix);
+    }
+    if (shieldHalo.count > 0) shieldHalo.instanceMatrix.needsUpdate = true;
+    shieldLabel.sprite.visible = bracedUnits.length > 0 && game.status === "playing";
+    if (shieldLabel.sprite.visible) {
+      let frontGuard = bracedUnits[0];
+      for (const unit of bracedUnits) if (unit.y > frontGuard.y) frontGuard = unit;
+      const z = wz(frontGuard.y) - entry;
+      shieldLabel.sprite.position.set(wx(frontGuard.x) + curve(z), 3.15 + Math.sin(game.t * 3) * 0.08, z);
+    }
     hasRenderedUnits = true;
     shadows.count = shadowCount; queueUpdate(shadows.instanceMatrix, shadowMatrixRange, 0, shadowCount * 16);
     // Uncommitted reserves break formation with staggered, individual motion.

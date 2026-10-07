@@ -95,11 +95,20 @@ export function createMobGeometry(): THREE.BufferGeometry {
 }
 
 /** Armored defenders share the same animated body, with a steel cap and shield. */
-export function createGuardGeometry(): THREE.BufferGeometry {
+export function createGuardGeometry(braced = false): THREE.BufferGeometry {
   const parts = [createMobGeometry()];
   parts.push(tint(placed(new THREE.SphereGeometry(0.29, 10, 4, 0, Math.PI * 2, 0, Math.PI * 0.57), 0, 1.095, -0.035, 1, 1, 0.98), 0x354768, true));
-  parts.push(tint(placed(new THREE.SphereGeometry(0.34, 8, 6), 0, 0.6, -0.3, 1, 1.13, 0.25), 0x344562, true));
-  parts.push(tint(placed(new THREE.BoxGeometry(0.075, 0.45, 0.035), 0, 0.62, -0.384), 0xffcb5a, true));
+  parts.push(tint(placed(new THREE.SphereGeometry(0.34, 8, 6), 0, 0.6, -0.3, braced ? 1.35 : 1, braced ? 1.55 : 1.13, 0.25), braced ? 0xffc13e : 0x344562, true));
+  if (braced) {
+    // A tall amber shield with a dark inset remains distinct from ordinary
+    // steel guards even when the crowd covers the lower half of the body.
+    parts.push(tint(placed(new THREE.SphereGeometry(0.3, 8, 6), 0, 0.6, -0.37, 1.3, 1.55, 0.12), 0x513546, true));
+    parts.push(tint(placed(new THREE.BoxGeometry(0.09, 0.58, 0.035), 0, 0.63, -0.417), 0xffedac, true));
+    parts.push(tint(placed(new THREE.BoxGeometry(0.34, 0.09, 0.035), 0, 0.7, -0.42), 0xffedac, true));
+    parts.push(tint(placed(new THREE.CapsuleGeometry(0.07, 0.22, 2, 5), 0, 1.43, -0.035), 0xffc13e, true));
+  } else {
+    parts.push(tint(placed(new THREE.BoxGeometry(0.075, 0.45, 0.035), 0, 0.62, -0.384), 0xffcb5a, true));
+  }
   return crowdMesh(parts);
 }
 

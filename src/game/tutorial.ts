@@ -24,7 +24,7 @@ export const tutorialLessons = [
   { title: "Chain purple multipliers", text: "Line up your cannon with the purple ×2, ×3, then ×4 gates. Each runner can use every gate once.", action: "Add 8 runners with the multiplier chain", icon: "×4" },
   { title: "Collect a blue +1", text: "Move into a blue +1 gate to add another cannon to your squad. The left lane is ready when you are.", action: "Collect one blue +1 pickup", icon: "+1" },
   { title: "Upgrade your weapon", text: "Aim at the weapon lock on the right and keep firing. Break it to turn every cannon into a three-shot Repeater.", action: "Shoot the lock until its counter reaches zero", icon: "↑" },
-  { title: "Launch a champion", text: "Fill the champion star, then tap it or press Space to launch. Three hits at the defense line can turn a counterattack around.", action: "Tap the champion button or press Space", icon: "★" },
+  { title: "Launch a champion", text: "Fill the star, then tap it or press Space. Champions break amber shields in later battles. Protect the cyan defense line.", action: "Tap the champion button or press Space", icon: "★" },
 ] as const;
 
 export type TutorialProgress = {

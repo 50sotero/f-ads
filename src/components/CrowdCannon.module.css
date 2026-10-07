@@ -317,6 +317,10 @@
 .battleObjective[data-compact="true"] .wavePips i { height: 10px; width: 5px; }
 .battleObjective[data-phase="counterattack"][data-compact="true"] { background: #592046dd; border-color: #ff987d88; }
 .battleObjective[data-phase="counterattack"][data-warning="true"] { color: #fff4b5; border-color: #ffd887; }
+.battleObjective[data-shield="true"] { left: 50%; right: auto; width: max-content; max-width: calc(100% - 24px); transform: translateX(-50%); padding: 7px 10px; border-color: #ffdf84; background: #52354bee; }
+.battleObjective[data-shield="true"] .objectiveIcon { display: none; }
+.battleObjective[data-shield="true"] strong { color: #ffe6a2; font-size: 11px; }
+.battleObjective[data-shield="true"] > div > span { font-size: 10px; }
 .objectiveIcon { display: grid; flex: 0 0 29px; height: 29px; place-items: center; border-radius: 9px; background: rgba(255,255,255,.15); color: #ffe680; font-size: 22px; }
 .battleObjective > div { display: grid; gap: 2px; }
 .battleObjective strong { font-size: 12px; letter-spacing: .055em; line-height: 1.1; }

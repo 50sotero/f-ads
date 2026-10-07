@@ -108,7 +108,7 @@ test("a fully upgraded battery can still complete the pickup lesson", () => {
 
 test("tutorial is a three gate assault practice route", () => {
   assert.equal(tutorialLessons.length, 5);
-  assert.match(tutorialLessons[4].text, /fill.*star.*press Space.*three hits.*defense line.*counterattack/i);
+  assert.match(tutorialLessons[4].text, /fill.*star.*press Space.*champions.*shields.*defense line/i);
   assert.deepEqual(tutorialLevel.assault, { horde: 0, reserve: 0, speed: 0, theme: "fork", practice: true });
   assert.deepEqual(
     tutorialLevel.gates.map(({ x, y, w, n }) => ({ x, y, w, n })),
