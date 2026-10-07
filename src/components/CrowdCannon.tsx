@@ -643,9 +643,9 @@ export function CrowdCannon() {
               <span className={styles.encounterDots} aria-hidden="true">{Array.from({ length: assault.encounters }, (_, index) => <i key={index} data-done={index < assault.encounter} data-current={index === assault.encounter} />)}</span>
             </div>
           </div>
-          {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-compact={assault.phase === "battle" && hud.time > 4}>
+          {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-warning={assault.waveWarning > 0} data-compact={assault.phase === "counterattack" || assault.phase === "battle" && hud.time > 4}>
             <span className={styles.objectiveIcon} aria-hidden="true">{assault.phase === "counterattack" ? "!" : assault.phase === "advance" ? "»" : "⚑"}</span>
-            <div><strong>{assault.phase === "counterattack" ? "COUNTERATTACK" : assault.phase === "advance" ? "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
+            <div><strong>{assault.phase === "counterattack" ? assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "← LEFT" : assault.waveLane > 0 ? "RIGHT →" : "CENTER"} WAVE INCOMING` : `${assault.remaining} DEFENDERS LEFT` : assault.phase === "advance" ? "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
               <span>{assault.phase === "counterattack"
                 ? `${assault.remaining} enemies left · ${assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "LEFT" : assault.waveLane > 0 ? "RIGHT" : "CENTER"} WAVE INCOMING` : `wave ${assault.wave} / ${assault.waves}`}`
                 : assault.phase === "advance" ? "Keep your upgrades. Push forward!" : "Then survive the counterattack"}</span></div>
@@ -658,9 +658,10 @@ export function CrowdCannon() {
               <div className={styles.lessonProgress}><span>{tutorialLesson.action}</span><div aria-hidden="true">{tutorialLessons.map((_, i) => <i key={i} data-done={i < tutorialStep!} data-current={i === tutorialStep} />)}</div></div>
             </div>
           ) : contextualHint && <div className={styles.tip} data-testid="contextual-hint" role="status">{contextualHint}</div>}
-          {assault.weaponFlash > 0 ? <div key={assault.weaponLevel} className={`${styles.upgradeFlash} ${styles.weaponUnlocked}`} data-testid="weapon-upgrade" role="status" aria-live="polite"><span>WEAPON UPGRADED · LV {assault.weaponLevel}</span><strong>{weapon.name}</strong><small>{weapon.description}</small></div>
-            : assault.upgradeFlash > 0 && <div className={styles.upgradeFlash} data-testid="upgrade-flash" role="status" aria-live="polite">+1 CANNON <span>· {assault.tier} CANNONS</span></div>}
-          {!tutorialLesson && <div className={styles.weaponCard} data-testid="weapon-status" data-weapon={assault.weaponLevel}>
+          {tutorialLesson && (assault.weaponFlash > 0 ? <div key={assault.weaponLevel} className={`${styles.upgradeFlash} ${styles.weaponUnlocked}`} data-testid="weapon-upgrade" role="status" aria-live="polite"><span>WEAPON UPGRADED · LV {assault.weaponLevel}</span><strong>{weapon.name}</strong><small>{weapon.description}</small></div>
+            : assault.upgradeFlash > 0 && <div className={styles.upgradeFlash} data-testid="upgrade-flash" role="status" aria-live="polite">+1 CANNON <span>· {assault.tier} CANNONS</span></div>)}
+          {!tutorialLesson && <div className={styles.weaponCard} data-testid="weapon-status" data-weapon={assault.weaponLevel} data-upgraded={assault.weaponFlash > 0 || assault.upgradeFlash > 0}>
+            {assault.weaponFlash > 0 ? <span className={styles.weaponUpgradeTag} data-testid="weapon-upgrade" role="status" aria-live="polite">↑ WEAPON UPGRADED</span> : assault.upgradeFlash > 0 && <span className={styles.weaponUpgradeTag} data-testid="upgrade-flash" role="status" aria-live="polite">+1 CANNON · {assault.tier} TOTAL</span>}
             <span className={styles.weaponIcon} aria-hidden="true">{assault.weaponLevel === 3 ? "✺" : assault.weaponLevel === 2 ? "≋" : "↑"}</span>
             <div><span>WEAPON · LV {assault.weaponLevel}</span><strong>{weapon.name}</strong><small>{weapon.description}</small></div>
             {assault.weaponMaxHits > 0 && <div className={styles.weaponProgress} aria-label={`${assault.weaponHits} hits to weapon upgrade`}><i style={{ width: `${100 * (1 - assault.weaponHits / assault.weaponMaxHits)}%` }} /></div>}
@@ -675,17 +676,19 @@ export function CrowdCannon() {
             {assault.reserve > 0 && <div className={styles.assaultStat}><strong>{assault.reserve}</strong><span>RESERVE</span></div>}
           </div>
           <button type="button" className={`${styles.championButton} ${hud.charge >= CHARGE_MAX ? styles.championReady : ""}`} data-testid="champion-button" onClick={launch} disabled={hud.charge < CHARGE_MAX} aria-label={hud.charge >= CHARGE_MAX ? "Launch champion" : `Champion charge ${Math.floor(hud.charge)} of ${CHARGE_MAX}`}>
+            {hud.charge >= CHARGE_MAX && <span className={styles.championCallout} role="status"><strong>CHAMPION READY</strong><small>{assault.frontline > 505 ? "Save the line!" : "Tap ★ or press Space"}</small></span>}
             <span className={styles.championRing} style={{ background: `conic-gradient(from -90deg, #ffe37b ${Math.min(100, (hud.charge / CHARGE_MAX) * 100)}%, rgba(255,255,255,.2) 0)` }} />
             <span className={styles.championCore} aria-hidden="true">★</span>
             <span className={styles.championLabel}>{hud.charge >= CHARGE_MAX ? "GO!" : "CHARGE"}</span>
           </button>
-          <div className={styles.controlHint} aria-hidden="true"><span>HOLD + DRAG TO STEER</span><span>SPACE · CHAMPION</span></div>
+          <div className={styles.controlHint} aria-hidden="true"><span>HOLD + DRAG</span><span>W · FIRE</span><span>A D · STEER</span><span>SPACE · CHAMPION</span></div>
         </>
       )}
 
       {screen === "menu" && (
         <div className={`${styles.screenOverlay} ${styles.menuOverlay}`} data-testid="crowd-cannon-menu">
           <div className={styles.menuPanel}>
+            <div className={styles.menuHero}>
             <div className={styles.menuTopline}>
               <Link href="/" className={styles.homeLink} data-testid="home-link" aria-label="Back to F.ADS home">← Home</Link>
               <span className={styles.menuMeta}>HORDE ASSAULT · {levels.length} ROUTES</span>
@@ -696,14 +699,17 @@ export function CrowdCannon() {
             <button type="button" className={`${styles.actionButton} ${styles.primaryAction} ${styles.playButton}`} data-testid="start-game" onClick={() => save.tutorialDone ? start(firstUnbeaten) : beginTutorial()}><span>{!save.tutorialDone ? "Learn to play" : totalStars ? "Continue run" : "Start run"}</span><span aria-hidden="true">→</span></button>
             <button type="button" className={styles.armoryEntry} data-testid="open-armory" onClick={() => { setArmoryNotice(""); setScreen("armory"); }}><UpgradeIcon kind="weapon" /><div><strong>THE ARMORY</strong><span>{loadout.tier} {loadout.tier === 1 ? "cannon" : "cannons"} · {weaponForLevel(loadout.weaponLevel).name} · upgrades stay with you</span></div><span aria-hidden="true">›</span></button>
             <div className={styles.trainingRow}><span>{save.tutorialDone ? "Hold + drag to steer. Tap the star to launch." : "Five quick drills. Then the full assault."}</span>{save.tutorialDone && <button type="button" onClick={beginTutorial}>Replay tutorial</button>}</div>
+            </div>
+            <div className={styles.menuRoutes}>
             <div className={styles.levelHeader}><span>CHOOSE A ROUTE</span><span>{levels.length} ROUTES</span></div>
             <div className={styles.levelGrid}>
               {levels.map((item, index) => {
                 const open = unlocked(index);
-                return <button key={item.name} type="button" disabled={!open} data-level={index + 1} data-testid={`level-button-${index + 1}`} onClick={() => save.tutorialDone ? start(index) : beginTutorial()} title={item.name} aria-label={open ? `Level ${index + 1}: ${item.name}` : `Level ${index + 1} locked`} className={`${styles.levelButton} ${open ? styles.levelOpen : styles.levelLocked}`}><strong>{open ? index + 1 : "·"}</strong>{open ? <Stars n={save.stars[index] ?? 0} /> : <span className={styles.lock} aria-hidden="true">◆</span>}<small>{item.name}</small></button>;
+                return <button key={item.name} type="button" disabled={!open} data-level={index + 1} data-testid={`level-button-${index + 1}`} onClick={() => save.tutorialDone ? start(index) : beginTutorial()} title={item.name} aria-label={open ? `Level ${index + 1}: ${item.name}` : `Level ${index + 1} locked`} className={`${styles.levelButton} ${open ? styles.levelOpen : styles.levelLocked}`}><strong>{index + 1}</strong>{open ? <Stars n={save.stars[index] ?? 0} /> : <span className={styles.lock} aria-hidden="true" />}<small>{item.name}</small></button>;
               })}
             </div>
             <button type="button" className={styles.soundButton} onClick={toggleMute}><span className={styles.soundDot} data-muted={save.muted} />Sound {save.muted ? "off" : "on"}</button>
+            </div>
           </div>
         </div>
       )}

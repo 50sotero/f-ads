@@ -1,27 +1,31 @@
 .gameShell {
-  position: relative;
+  position: fixed;
+  z-index: 50;
+  inset: 0;
   isolation: isolate;
-  width: min(100%, 480px);
-  height: min(820px, calc(100dvh - 148px));
-  min-height: 580px;
-  margin: 0 auto;
+  width: 100dvw;
+  height: 100dvh;
+  min-height: 0;
+  margin: 0;
   overflow: hidden;
-  border: 3px solid rgba(255, 255, 255, 0.72);
-  border-radius: 28px;
+  border: 0;
+  border-radius: 0;
   background: #7de4e8;
-  box-shadow: 0 30px 80px rgba(21, 50, 76, 0.24), 0 7px 0 rgba(14, 39, 61, 0.16), inset 0 0 0 1px rgba(14, 39, 61, 0.18);
   color: #092b46;
   font-family: "Fredoka", ui-rounded, "Arial Rounded MT Bold", sans-serif;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
 
+:global(html):has(.gameShell), :global(body):has(.gameShell) { overflow: hidden; overscroll-behavior: none; }
+:global(body):has(.gameShell) > :global(header), :global(body):has(.gameShell) > :global(footer) { display: none; }
+
 .gameShell::before {
   position: absolute;
   z-index: 1;
   inset: 0;
   pointer-events: none;
-  border-radius: 25px;
+  border-radius: 0;
   box-shadow: inset 0 0 50px rgba(4, 44, 73, 0.07);
   content: "";
 }
@@ -310,6 +314,9 @@
 .battleObjective[data-compact="true"] { left: 50%; right: auto; transform: translateX(-50%); width: max-content; padding: 6px 11px; border-radius: 99px; background: rgba(23,47,72,.56); }
 .battleObjective[data-compact="true"] .objectiveIcon, .battleObjective[data-compact="true"] > div > span { display: none; }
 .battleObjective[data-compact="true"] strong { font-size: 10px; }
+.battleObjective[data-compact="true"] .wavePips i { height: 10px; width: 5px; }
+.battleObjective[data-phase="counterattack"][data-compact="true"] { background: #592046dd; border-color: #ff987d88; }
+.battleObjective[data-phase="counterattack"][data-warning="true"] { color: #fff4b5; border-color: #ffd887; }
 .objectiveIcon { display: grid; flex: 0 0 29px; height: 29px; place-items: center; border-radius: 9px; background: rgba(255,255,255,.15); color: #ffe680; font-size: 22px; }
 .battleObjective > div { display: grid; gap: 2px; }
 .battleObjective strong { font-size: 12px; letter-spacing: .055em; line-height: 1.1; }
@@ -320,12 +327,17 @@
 .weaponCard { top: auto; bottom: max(20px, env(safe-area-inset-bottom)); left: 13px; width: auto; min-width: 105px; padding: 7px 10px; gap: 6px; border-radius: 12px; background: rgba(20, 49, 74, .64); box-shadow: none; }
 .weaponCard small, .weaponCard > div > span, .weaponProgress { display: none; }
 .weaponCard strong { font-size: 13px; }
+.weaponCard[data-upgraded="true"] { border-color: #fff28b; box-shadow: 0 0 0 2px #ffd65a40, 0 0 22px #ffce4555; }
+.weaponUpgradeTag { position: absolute; left: -1px; bottom: calc(100% + 5px); width: max-content; padding: 5px 8px; border: 1px solid #ffde77; border-radius: 7px; background: #493256e8; color: #fff2ae; font-size: 9px; font-weight: 700; letter-spacing: .04em; }
 .weaponIcon { flex-basis: 21px; height: 24px; font-size: 20px; border-radius: 6px; }
 .assaultStats { visibility: hidden; }
 .controlHint { display: none; }
 .championButton { width: 54px; height: 54px; right: 14px; bottom: max(20px, env(safe-area-inset-bottom)); box-shadow: 0 3px 0 rgba(4,30,51,.2); }
 .championCore { width: 31px; height: 31px; font-size: 18px; }
 .championLabel { font-size: 7px; bottom: -9px; }
+.championCallout { position: absolute; right: -2px; bottom: calc(100% + 12px); display: grid; width: max-content; gap: 3px; padding: 7px 10px; border: 1px solid #ffe38d; border-radius: 10px; background: #5b3c1fec; color: #fff2b4; font-size: 11px; line-height: 1; text-align: right; pointer-events: none; }
+.championCallout::after { position: absolute; right: 20px; bottom: -5px; width: 8px; height: 8px; transform: rotate(45deg); background: #5b3c1f; border-right: 1px solid #ffe38d; border-bottom: 1px solid #ffe38d; content: ""; }
+.championCallout small { color: #fff; font-size: 9px; font-weight: 500; }
 .tip { top: auto; bottom: 83px; left: 30px; right: 30px; background: rgba(22,35,56,.62); border: 0; font-size: 12px; }
 .upgradeFlash { top: auto; bottom: 140px; }
 .weaponUnlocked { min-width: 175px; padding: 9px 15px; border-radius: 16px; }
@@ -336,7 +348,7 @@
   z-index: 10;
   inset: 0;
   display: flex;
-  align-items: center;
+  align-items: safe center;
   justify-content: center;
   overflow: auto;
   padding: 18px;
@@ -344,7 +356,7 @@
   backdrop-filter: blur(2px) saturate(1.05);
 }
 
-.menuOverlay { align-items: center; padding: 20px 14px; background: radial-gradient(ellipse at 50% 15%, #264c7877, #101c3ac9); }
+.menuOverlay { align-items: safe center; padding: 20px 14px; background: radial-gradient(ellipse at 50% 15%, #264c7877, #101c3ac9); }
 
 .menuPanel,
 .modalPanel {
@@ -400,17 +412,19 @@
 .playButton { margin-top: 12px; }
 
 .levelHeader { display: flex; justify-content: space-between; margin: 16px 1px 8px; color: #b4dfe2; }
-.levelGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.levelButton { position: relative; display: flex; min-width: 0; min-height: 63px; flex-direction: column; align-items: center; justify-content: center; padding: 5px 3px 4px; overflow: hidden; border-radius: 13px; font-family: "Fredoka", sans-serif; transition: transform 120ms ease, filter 120ms ease; }
+.levelGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.levelButton { position: relative; display: flex; min-width: 0; min-height: 70px; gap: 3px; flex-direction: column; align-items: center; justify-content: center; padding: 7px 3px; overflow: hidden; border-radius: 13px; font-family: "Fredoka", sans-serif; transition: transform 120ms ease, filter 120ms ease; }
 .levelButton:hover:not(:disabled), .levelButton:focus-visible { outline: none; transform: translateY(-2px); }
 .levelOpen { border: 1px solid #8be0ff99; background: linear-gradient(145deg, #3b8ace, #27578e); box-shadow: 0 3px 0 #122449, inset 0 1px 0 #ffffff33; color: #f3ffff; cursor: pointer; }
 .levelOpen:hover, .levelOpen:focus-visible { filter: brightness(1.05); }
-.levelLocked { border: 1px solid rgba(160, 205, 210, 0.18); background: rgba(170, 211, 215, 0.08); color: rgba(208, 235, 237, 0.4); cursor: not-allowed; }
-.levelButton strong { font-size: 21px; line-height: 1; }
-.levelButton small { max-width: 100%; overflow: hidden; color: rgba(223, 249, 249, 0.8); font-size: 7px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.levelLocked small { color: rgba(208, 233, 235, 0.42); }
-.levelButton .stars { font-size: 8px; line-height: 1; }
-.lock { display: grid; width: 17px; height: 17px; place-items: center; color: #a2b9ba; font-size: 12px; }
+.levelLocked { border: 1px solid #7594b14d; background: #152b4a; color: #a5bbd2; cursor: not-allowed; }
+.levelButton strong { font-size: 24px; line-height: 1; }
+.levelButton small { max-width: 100%; color: #e4f8ff; font-size: 10px; font-weight: 500; line-height: 1.1; }
+.levelLocked small { color: #a5bbd2; }
+.levelButton .stars { font-size: 12px; line-height: 1; }
+.lock { position: absolute; top: 8px; right: 8px; width: 10px; height: 9px; border: 1.5px solid #a5bbd2; border-radius: 2px; }
+.lock::before { position: absolute; bottom: 6px; left: 1px; width: 5px; height: 5px; border: 1.5px solid #a5bbd2; border-bottom: 0; border-radius: 5px 5px 0 0; content: ""; }
+.levelLocked strong { margin-block: 4px 10px; }
 
 .trainingRow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; color: #b2d3e0; font-size: 10px; line-height: 1.3; }
 .trainingRow button { flex: 0 0 auto; padding: 7px 0 7px 4px; border: 0; background: transparent; color: #e0c17a; font: 700 10px/1 "Fredoka", sans-serif; text-decoration: underline; cursor: pointer; }
@@ -497,17 +511,13 @@
 @keyframes readyPulse { 0%, 100% { box-shadow: 0 7px 0 rgba(4, 30, 51, 0.24), 0 10px 25px rgba(4, 34, 55, 0.28), 0 0 0 0 rgba(255, 224, 103, 0.45); } 50% { box-shadow: 0 7px 0 rgba(4, 30, 51, 0.24), 0 10px 25px rgba(4, 34, 55, 0.28), 0 0 0 9px rgba(255, 224, 103, 0); } }
 
 @media (max-width: 599px) {
-  :global(html):has(.gameShell), :global(body):has(.gameShell) { overflow: hidden; overscroll-behavior: none; }
-  .gameShell { position: fixed; z-index: 50; inset: 0; width: 100vw; width: 100dvw; height: 100vh; height: 100dvh; min-height: 0; max-height: none; margin: 0; border: 0; border-radius: 0; box-shadow: none; }
-  .gameShell::before { border-radius: 0; }
   .hud { right: max(10px, env(safe-area-inset-right)); left: max(10px, env(safe-area-inset-left)); }
   .menuOverlay { padding: max(12px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
   .menuPanel { width: min(100%, 430px); padding: 14px 14px 13px; }
-  .brandLockup strong { font-size: clamp(38px, 11vw, 48px); }
+  .brandLockup { margin-top: 13px; }
+  .brandLockup strong { font-size: clamp(34px, 10vw, 43px); }
   .menuLead { max-width: 335px; font-size: 12px; }
   .levelGrid { gap: 7px; }
-  .levelButton { min-height: 58px; }
-  .levelButton small { font-size: 7px; }
   .modalPanel { width: min(100%, 350px); }
   .levelPill { padding-inline: 0; }
   .encounterProgress { min-width: 73px; padding-inline: 7px; }
@@ -515,6 +525,36 @@
   .assaultStat { min-width: 51px; padding-inline: 7px; }
   .championButton { right: 13px; bottom: max(17px, env(safe-area-inset-bottom)); }
   .controlHint { right: 89px; bottom: max(5px, env(safe-area-inset-bottom)); font-size: 7px; }
+}
+
+@media (min-width: 800px) {
+  .menuOverlay > .menuPanel { display: grid; grid-template-columns: 310px 370px; column-gap: 38px; width: 770px; padding: 28px 25px 24px; }
+  .menuHero { display: flex; flex-direction: column; justify-content: center; }
+  .menuRoutes { padding-top: 3px; }
+  .menuHero .brandLockup { margin-top: 28px; }
+  .menuHero .menuLead { text-align: center; }
+  .menuHero .trainingRow { margin-top: 20px; }
+  .menuRoutes .levelHeader { margin-top: 0; margin-bottom: 14px; }
+  .levelButton { min-height: 82px; }
+  .levelButton small { font-size: 12px; }
+  .hud { inset: 26px 28px auto; }
+  .levelPill strong { font-size: 34px; }
+  .levelPill em { font-size: 29px; }
+  .levelPill > span { font-size: 12px; margin-top: 3px; }
+  .pauseButton { width: 44px; height: 44px; }
+  .encounterProgress { right: 60px; }
+  .encounterLabel { font-size: 12px; }
+  .battleObjective, .battleObjective[data-compact="true"] { top: 26px; left: 50%; right: auto; transform: translateX(-50%); width: max-content; max-width: 460px; }
+  .battleObjective[data-compact="true"] strong { font-size: 13px; }
+  .weaponCard { left: 28px; bottom: 28px; min-width: 135px; padding: 10px 14px; }
+  .weaponCard strong { font-size: 17px; }
+  .championButton { right: 28px; bottom: 32px; width: 70px; height: 70px; }
+  .championCore { width: 44px; height: 44px; font-size: 25px; }
+  .championLabel { font-size: 10px; }
+  .championCallout { font-size: 13px; }
+  .championCallout small { font-size: 11px; }
+  .controlHint { display: flex; left: 210px; right: 140px; bottom: 15px; justify-content: center; gap: 24px; font-size: 11px; }
+  .tip { left: 50%; right: auto; width: max-content; max-width: 480px; transform: translateX(-50%); }
 }
 
 @media (prefers-reduced-motion: reduce) {

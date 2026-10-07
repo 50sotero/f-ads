@@ -55,6 +55,27 @@ const counterattackGame = ({ blue = [], red = [] } = {}) => {
   return game;
 };
 
+test("crowd movement stays deterministic when another game runs between frames", () => {
+  const level = assaultLevel({ assault: { horde: 160, reserve: 60, speed: 16, theme: "fork" } });
+  const reference = newGame(level, 5), interleaved = newGame(level, 5);
+  const unrelated = newGame(level, 37);
+  const advance = (game, frame) => {
+    game.firing = true;
+    game.targetX = frame < 70 ? 110 : 245;
+    step(game, 1 / 60);
+  };
+  for (let frame = 0; frame < 180; frame++) advance(reference, frame);
+  for (let frame = 0; frame < 180; frame++) {
+    for (let extra = 0; extra <= frame % 3; extra++) advance(unrelated, frame);
+    advance(interleaved, frame);
+  }
+  assert.ok(reference.blue.length > 10 && reference.red.length > 10);
+  assert.deepEqual(interleaved.blue, reference.blue);
+  assert.deepEqual(interleaved.red, reference.red);
+  assert.deepEqual(interleaved.bases, reference.bases);
+  assert.deepEqual(interleaved.stats, reference.stats);
+});
+
 test("red forward spacing uses the enemy travel direction", () => {
   const game = newGame(assaultLevel({
     bases: [{ x: 180, y: 1000, hp: 99999, every: 9999, group: 0 }],

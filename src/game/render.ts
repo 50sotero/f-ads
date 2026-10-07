@@ -9,7 +9,7 @@ const SX = 0.052, SZ = 0.115;
 const wx = (x: number) => (x - W / 2) * SX;
 // The long approach separates the multiplier decisions from the battlefront.
 const wz = (y: number) => (y - CANNON_Y) * SZ;
-const BLUE = 0x008fff, RED = 0xf00c2d;
+const BLUE = 0x00a7ff, RED = 0xf00c2d;
 type Particle = { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; size: number; color: number };
 type Label = { sprite: THREE.Sprite; write: (text: string, fill?: string) => void };
 type GateView = { group: THREE.Group; panel: THREE.Mesh; material: THREE.MeshStandardMaterial; frame: THREE.MeshStandardMaterial; hazard: THREE.Group; label: Label; value: string; nextBurst: number; brokenAt: number };
@@ -32,9 +32,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   renderer.shadowMap.autoUpdate = false;
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(41, 390 / 844, 0.2, 380);
-  const cameraHome = new THREE.Vector3(2, 52, 20);
-  const cameraTarget = new THREE.Vector3(-1.6, 0, -20);
-  let combatFocus = 0, framingFov = 43;
+  const cameraHome = new THREE.Vector3(7.5, 40, 20);
+  const cameraTarget = new THREE.Vector3(0, 0, -18);
+  let combatFocus = 0, framingFov = 43, cameraFollow = 0, combatLookZ = -18, displayedFov = 43;
   const stage = new THREE.Group(); scene.add(stage);
   let theme = "fork", travel = 0;
   const worldCurve = (z: number) => theme === "bend" ? Math.sin(z * 0.018) * 1.3 : 0;
@@ -150,6 +150,26 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     }
   }
   bake(landscape);
+  // Low silhouettes outside the arena give each route family a distinct place.
+  // They are merged once; no extra per-frame crowd or terrain work is needed.
+  const meadow = new THREE.Group(), lagoon = new THREE.Group(), canyon = new THREE.Group();
+  stage.add(meadow, lagoon, canyon);
+  const hill = standard(0x72b99b), hillLight = standard(0x96cfab);
+  const island = standard(0xe7d8b4), cliff = standard(0xbd8f84), cliffTop = standard(0xdbb59d);
+  const landform = geo(new THREE.IcosahedronGeometry(1, 1));
+  const cliffForm = geo(new THREE.CylinderGeometry(0.72, 1, 1, 6));
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 9; i++) {
+      const z = 8 - i * 17.3, x = side * (29 + random() * 7), size = 3 + random() * 3;
+      mesh(meadow, landform, i % 2 ? hill : hillLight, x, -0.5, z, size * 1.9, size, size * 2.3).castShadow = false;
+      mesh(lagoon, landform, island, side * (z > -20 ? 20 : 22), -0.78, z, 8, 1.25, 12).castShadow = false;
+      const mesa = mesh(canyon, cliffForm, cliff, x, size * 0.6 - 0.5, z, size * 1.5, size * 1.2, size * 2.1);
+      mesa.rotation.y = i * 1.73;
+      const cap = mesh(canyon, cliffForm, cliffTop, x, size * 1.2 - 0.4, z, size * 1.12, 0.38, size * 1.56);
+      cap.rotation.y = mesa.rotation.y;
+    }
+  }
+  bake(meadow); bake(lagoon); bake(canyon);
   const fortress = new THREE.Group(); stage.add(fortress);
   const castleStone = standard(0x657b9b), castleLight = standard(0x9dadc3), banner = standard(0xf23862);
   box(fortress, castleStone, 0, 2.4, -78, 29, 4.8, 3.2);
@@ -162,7 +182,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   }
   for (let x = -13; x <= 13; x += 2) box(fortress, castleLight, x, 5.2, -78, 1, 1, 3.3);
   bake(fortress);
-  fortress.position.z = 16;
+  fortress.position.z = -35;
   const bridges = new THREE.Group(); scene.add(bridges);
   const water = standard(0x4dadc0, { roughness: 0.34, metalness: 0.12 });
   const foam = basic(0xa4d9ce, { transparent: true, opacity: 0.45 });
@@ -215,17 +235,18 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const group = new THREE.Group(); stage.add(group);
     const material = standard(color, { emissive: color, emissiveIntensity: 0.22, transparent: true, opacity: 0.48, roughness: 0.3, depthWrite: false });
     const frameMaterial = standard(color, { roughness: 0.32 });
-    const panel = box(group, material, 0, 0.95, 0, 1, 1.65, 0.12); panel.castShadow = false;
+    const panel = box(group, material, 0, 1.32, 0, 1, 2.4, 0.12); panel.castShadow = false;
     box(group, frameMaterial, 0, 0.13, 0, 1.04, 0.24, 0.48);
-    for (const x of [-0.51, 0.51]) box(group, frameMaterial, x, 1, 0, 0.027, 2, 0.28);
-    const label = makeLabel(text, 0.74, 2.08, "#ffffff", text.startsWith("+") ? 188 : 151);
-    const lettering = new THREE.Mesh(geo(new THREE.PlaneGeometry(0.72, 2.35)), mat(new THREE.MeshBasicMaterial({ map: label.sprite.material.map, transparent: true, depthTest: false, depthWrite: false, toneMapped: false })));
-    lettering.position.set(0, 1.23, 0.13); lettering.renderOrder = 4; group.add(lettering);
+    for (const x of [-0.51, 0.51]) box(group, frameMaterial, x, 1.36, 0, 0.027, 2.72, 0.28);
+    const label = makeLabel(text, 0.76, 2, "#ffffff", text.startsWith("+") ? 188 : 151);
+    // Keep the decision legible above moving heads at every camera angle.
+    // The translucent structure stays in world space; its value faces the player.
+    label.sprite.position.set(0, 1.98, 0.13); group.add(label.sprite);
     const hazard = new THREE.Group(); group.add(hazard); hazard.visible = false;
     const stripe = basic(0xffe37b);
     for (let i = -4; i <= 4; i++) {
       box(hazard, stripe, i * 0.112, 0.28, 0.135, 0.05, 0.12, 0.02).castShadow = false;
-      box(hazard, stripe, i * 0.112, 1.68, 0.135, 0.05, 0.1, 0.02).castShadow = false;
+      box(hazard, stripe, i * 0.112, 2.46, 0.135, 0.05, 0.1, 0.02).castShadow = false;
     }
     bake(hazard);
     if (!castShadow) group.traverse((object) => { object.castShadow = false; });
@@ -269,7 +290,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     return { ...value, shots: 0, recoil: 0 };
   });
 
-  function targetChest() {
+  function targetChest(title: string) {
     const group = new THREE.Group(); stage.add(group);
     const lacquer = standard(0xc64452, { roughness: 0.36 });
     const steel = standard(0x414753, { metalness: 0.25, roughness: 0.42 });
@@ -285,10 +306,11 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const bolt = geo(new THREE.ExtrudeGeometry(boltShape, { depth: 0.12, bevelEnabled: true, bevelSegments: 2, steps: 1, bevelSize: 0.035, bevelThickness: 0.03 }));
     mesh(group, bolt, gold, 0, 2.28, 0.53, 1, 1, 1);
     const count = makeLabel("20", 3.1, 1.8, "#ffffff", 147); count.sprite.position.set(0, 1.05, 1.1); group.add(count.sprite);
+    const caption = makeLabel(title, 4.8, 1.15, "#fff1a3", 103); caption.sprite.position.set(0, 3.1, 0); group.add(caption.sprite);
     bake(group);
     return { group, count, lacquer };
   }
-  const weaponChest = targetChest(), cannonChest = targetChest();
+  const weaponChest = targetChest("WEAPON ↑"), cannonChest = targetChest("CANNON +1");
   const weaponCrate = weaponChest.group, crateCount = weaponChest.count;
   const prize = createSiegeCannon(true); bakeCannon(prize.group); prize.group.scale.setScalar(1.25); prize.group.rotation.y = Math.PI;
   prize.group.position.set(0, 0.12, -4.8); weaponCrate.add(prize.group);
@@ -423,6 +445,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     object.geometry.setAttribute("runMotion", new THREE.InstancedBufferAttribute(new Float32Array(object.instanceMatrix.count * 4), 4).setUsage(THREE.DynamicDrawUsage));
     stage.add(object);
   }
+  for (const object of [friends, enemies, guards]) {
+    object.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(object.instanceMatrix.count * 3), 3).setUsage(THREE.DynamicDrawUsage);
+  }
   const shadowSource = document.createElement("canvas"); shadowSource.width = shadowSource.height = 32;
   const shadowContext = shadowSource.getContext("2d")!;
   const shadowGradient = shadowContext.createRadialGradient(16, 16, 2, 16, 16, 16);
@@ -432,6 +457,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const shadowMaterial = basic(0xffffff, { map: texture(new THREE.CanvasTexture(shadowSource)), transparent: true, depthWrite: false });
   const shadowGeometry = geo(new THREE.PlaneGeometry(1, 1)); shadowGeometry.rotateX(-Math.PI / 2);
   const shadows = new THREE.InstancedMesh(shadowGeometry, shadowMaterial, MAX_UNITS + 1632); shadows.frustumCulled = false; stage.add(shadows);
+  shadows.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   const dummy = new THREE.Object3D();
   const unitWhite = new THREE.Color(0xffffff), blueChampion = new THREE.Color(0xa8f4ff);
   const redSoldier = new THREE.Color(RED), redBrute = new THREE.Color(0xc81a4b), redRunner = new THREE.Color(0xff7135);
@@ -446,18 +472,25 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const crowdScale = enemy ? 1 : 1 - Math.min(1, Math.max(0, (count - 600) / 300)) * 0.13;
     const runMotion = object.geometry.getAttribute("runMotion") as THREE.InstancedBufferAttribute;
     const matrices = object.instanceMatrix.array, shadowMatrices = shadows.instanceMatrix.array;
+    const colors = object.instanceColor!.array;
+    const time = currentGame?.t ?? 0;
+    const boss = currentGame?.bases[currentGame.assault?.encounter ?? 0];
+    const front = currentGame?.assault?.frontline ?? boss?.y ?? 300;
     for (let i = 0; i < count; i++) {
       const unit = units[i];
       const runner = enemy && unit.kind === "runner", guard = enemy && unit.kind === "guard";
       const size = unit.big ? (enemy ? 1.9 : 2.1) : guard ? 1.18 : enemy ? 0.99 : 1.2 * crowdScale;
       const z = wz(unit.y) - (enemy ? entry : 0);
-      const time = currentGame?.t ?? 0;
-      const state = motion.get(unit) ?? {
+      let state = motion.get(unit);
+      if (!state) {
+        state = {
         x: unit.x, y: unit.y, travel, time, angle: enemy ? Math.PI : 0, run: 1,
         phase: (unitSequence++ * 2.39996) % (Math.PI * 2),
         launchedAt: !enemy && unit.used === 0 && unit.y >= CANNON_Y - 40 ? time : -Infinity,
         used: unit.used, glow: !enemy && unit.used !== 0 && hasRenderedUnits ? 1 : 0, enemy,
-      };
+        };
+        motion.set(unit, state);
+      }
       // Flight ends on a clock, even if a crowd ahead blocks ground movement.
       // Position-based arcs left queued runners hovering above the muzzle.
       const flight = Math.max(0, Math.min(1, (time - state.launchedAt) / 0.34));
@@ -468,10 +501,11 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       if (elapsed > 0) {
         const dx = (unit.x - state.x) * SX + curve(z) - curve(wz(state.y));
         const dz = wz(unit.y) - wz(state.y) - (travel - state.travel);
-        const speed = Math.hypot(dx, dz) / elapsed;
+        const speed = Math.sqrt(dx * dx + dz * dz) / elapsed;
         if (speed > 0.8) {
           const target = Math.atan2(-dx, -dz);
-          const delta = Math.atan2(Math.sin(target - state.angle), Math.cos(target - state.angle));
+          let delta = target - state.angle;
+          delta -= Math.floor((delta + Math.PI) / (Math.PI * 2)) * Math.PI * 2;
           state.angle += delta * Math.min(1, elapsed * 14);
         }
         state.run += (Math.min(1, speed / (enemy ? 1.8 : 7)) - state.run) * Math.min(1, elapsed * 12);
@@ -479,9 +513,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         // by a changing cadence makes feet snap when a runner brakes or turns.
         state.phase += elapsed * (9 + Math.min(14, speed) * 2) * Math.max(0.15, state.run);
       }
-      state.x = unit.x; state.y = unit.y; state.travel = travel; state.time = time; motion.set(unit, state);
-      const boss = currentGame?.bases[currentGame.assault?.encounter ?? 0];
-      const front = currentGame?.assault?.frontline ?? boss?.y ?? 300;
+      state.x = unit.x; state.y = unit.y; state.travel = travel; state.time = time;
       const fighting = shotFlight === 0 && state.run < 0.55 && (Math.abs(unit.y - front) < 32 || !!boss && Math.abs(unit.y - boss.y - boss.h / 2) < 25) ? (0.55 - state.run) / 0.55 : 0;
       runMotion.setXYZW(i, state.phase, shotFlight > 0 ? 0.15 : state.run, fighting, state.glow);
       const landing = flight >= 1 ? Math.max(0, 1 - (time - state.launchedAt - 0.34) / 0.12) : 0;
@@ -496,7 +528,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       matrices[offset + 4] = sy * sp * syScale; matrices[offset + 5] = cp * syScale; matrices[offset + 6] = cy * sp * syScale; matrices[offset + 7] = 0;
       matrices[offset + 8] = sy * cp * sx; matrices[offset + 9] = -sp * sx; matrices[offset + 10] = cy * cp * sx; matrices[offset + 11] = 0;
       matrices[offset + 12] = x; matrices[offset + 13] = 0.025 + shotFlight; matrices[offset + 14] = z; matrices[offset + 15] = 1;
-      object.setColorAt(i, enemy ? unit.big ? redBrute : runner ? redRunner : guard ? unitWhite : redSoldier : unit.big ? blueChampion : unitWhite);
+      const tint = enemy ? unit.big ? redBrute : runner ? redRunner : guard ? unitWhite : redSoldier : unit.big ? blueChampion : unitWhite;
+      const colorOffset = i * 3;
+      colors[colorOffset] = tint.r; colors[colorOffset + 1] = tint.g; colors[colorOffset + 2] = tint.b;
       const shadowOffset = shadowCount++ * 16;
       // Contact shadows remain axis aligned; all other entries retain the
       // identity values initialized by InstancedMesh.
@@ -551,39 +585,83 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   let previousPhase = "battle", previousWave = 0, previousWaveLane = 0, counterattackAt = -99, retreatCount = 0, retreatZ = -57;
   let reserveAnchor = NaN;
   const projected = new THREE.Vector3();
-  function updateCamera() {
-    const followX = 0;
+  function updateCamera(dt = 1) {
+    const followX = cameraFollow;
     camera.position.copy(cameraHome); camera.position.z -= travel;
-    camera.fov = framingFov - combatFocus * 1.8; camera.updateProjectionMatrix();
+    camera.position.y -= combatFocus * 5;
+    camera.position.z -= combatFocus * 2;
+    camera.fov = framingFov - combatFocus * 2; camera.updateProjectionMatrix();
     camera.position.x += curve(0) + followX;
     camera.position.x += Math.sin(frameTime * 57) * shake * 0.09;
     camera.position.y += Math.cos(frameTime * 43) * shake * 0.06;
-    camera.lookAt(cameraTarget.x + curve(cameraTarget.z) + followX, cameraTarget.y, cameraTarget.z - travel); camera.updateMatrixWorld();
-    // Fit the entire aiming lane even at full combat focus and on curved
-    // stages. Camera composition must never hide an outer cannon wheel.
+    camera.lookAt(cameraTarget.x + curve(combatLookZ) + followX, cameraTarget.y, combatLookZ - travel); camera.updateMatrixWorld();
+    // Frame the actual battery and actionable panels. Fitting both empty
+    // cannon extremes at once kept the camera too far from every collision.
     let framingScale = 1;
-    for (const x of [-9.25, 9.25]) {
-      projected.set(x + curve(0), 0.4, 0.6 - travel).project(camera);
-      framingScale = Math.max(framingScale, Math.abs(projected.x) / 0.96, Math.max(0, -projected.y) / 0.86);
+    const framePoint = (x: number, y: number, z: number, bottom = 0.86) => {
+      projected.set(x + curve(z), y, z - travel).project(camera);
+      framingScale = Math.max(framingScale, Math.abs(projected.x) / 0.93, Math.max(0, -projected.y) / bottom);
+    };
+    const cannonX = wx(currentGame?.cannonX ?? W / 2);
+    const batteryHalf = currentGame ? Math.max(...cannonBarrelPositions(currentGame.assault?.tier ?? 1).map((barrel) => Math.abs(barrel.x) * SX)) + 1.2 : 1.2;
+    framePoint(cannonX - batteryHalf, 0.4, 0.8);
+    framePoint(cannonX + batteryHalf, 0.4, 0.8);
+    for (const gate of currentGame?.gates ?? []) {
+      if (gate.overrun) continue;
+      framePoint(wx(gate.cx - gate.w / 2) - 0.2, 1.5, wz(gate.y));
+      framePoint(wx(gate.cx + gate.w / 2) + 0.2, 1.5, wz(gate.y));
+    }
+    for (const pickup of currentGame?.assault?.pickups ?? []) {
+      if (pickup.y > CANNON_Y) continue;
+      framePoint(wx(pickup.x - pickup.w / 2) - 0.2, 1.5, wz(pickup.y));
+      framePoint(wx(pickup.x + pickup.w / 2) + 0.2, 1.5, wz(pickup.y));
+    }
+    for (const lock of [currentGame?.assault?.cannonTarget, currentGame?.assault?.weaponTarget]) {
+      if (!lock) continue;
+      framePoint(wx(lock.x) - 2.65, 3.1, wz(lock.y));
+      framePoint(wx(lock.x) + 2.65, 3.1, wz(lock.y));
+    }
+    const active = currentGame?.bases[currentGame.assault?.encounter ?? 0];
+    if (active) {
+      const combatY = currentGame?.assault?.phase === "counterattack" ? currentGame.assault.frontline : active.y;
+      const combatZ = wz(combatY), height = active.hp > 0 ? 6.2 : 2.8;
+      projected.set(wx(active.x) + curve(combatZ), height, combatZ - travel).project(camera);
+      // Reserve ranks may extend beyond the horizon; the actual collision
+      // front must stay below the HUD even when a counterattack moves uphill.
+      framingScale = Math.max(framingScale, projected.y / 0.68);
+      for (const x of [-8.8, 8.8]) framePoint(x, 1.5, combatZ);
     }
     if (framingScale > 1) {
       camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * framingScale));
       camera.updateProjectionMatrix();
     }
+    // Open immediately when a control needs space, then return to the closer
+    // composition smoothly when an offscreen pickup expires or a wave ends.
+    displayedFov = Math.max(camera.fov, displayedFov + (camera.fov - displayedFov) * Math.min(1, dt * 2.5));
+    camera.fov = displayedFov;
+    camera.updateProjectionMatrix();
     sun.position.set(-25, 45, -12 - travel); sun.target.position.set(0, 0, -20 - travel);
   }
   function render(game: Game, dt: number) {
     dt = Math.min(dt, 0.05); frameTime += dt;
     if (currentGame !== game) {
       currentGame = game; shot = game.stats.fired; previousTier = game.assault?.tier ?? 1;
-      hasRenderedUnits = false; combatFocus = 0;
+      hasRenderedUnits = false; combatFocus = 0; cameraFollow = 0; combatLookZ = -18; displayedFov = framingFov;
       previousWeapon = game.assault?.weaponLevel ?? 1; crateHp = crateMax = cannonLockHp = -1;
       cannon.forEach((value, i) => { value.shots = game.assault?.barrelShots[i] ?? 0; value.recoil = 0; });
       shadowAt = 0;
       theme = game.level.assault?.theme ?? "fork"; travel = (game.assault?.travel ?? 0) * SZ;
+      meadow.visible = theme === "fork"; lagoon.visible = theme === "bridge"; canyon.visible = theme === "bend";
+      const palette = theme === "bridge"
+        ? { ground: 0x73c9d3, trees: [0x3ea393, 0x81cbb1, 0x287e83], rock: 0xe3d5b6 }
+        : theme === "bend"
+          ? { ground: 0xd4b7a1, trees: [0xdb8e71, 0xe3b77c, 0xad7c82], rock: 0xb48c88 }
+          : { ground: 0xb1d6b9, trees: [0x41a17e, 0x77c49b, 0x328770], rock: 0xc5d7c5 };
+      sand.color.setHex(palette.ground); rock.color.setHex(palette.rock);
+      foliage.forEach((material, index) => material.color.setHex(palette.trees[index]));
       bridges.visible = theme === "bridge"; dividers.visible = game.gates.every((gate) => gate.kind === "x" && Math.abs(gate.x - 180) < 15); bendGeometry(worldBends); bendGeometry(stageBends, -travel); previousTravel = travel;
       previousStatus = "playing"; winAt = -1;
-      fortress.position.set(0, 0, 16); fortress.rotation.set(0, 0, 0); previousBreaches = 0;
+      fortress.position.set(0, 0, -35); fortress.rotation.set(0, 0, 0); previousBreaches = 0;
       previousPulse = 0; wasRushing = false;
       previousPhase = game.assault?.phase ?? "battle"; previousWave = game.assault?.wave ?? 0; previousWaveLane = game.assault?.waveLane ?? 0; counterattackAt = -99; retreatCount = 0; reserveAnchor = NaN;
       particleList.length = 0; fallen.length = previousUnits.length = 0;
@@ -848,11 +926,11 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       view.art.group.visible = (active && base.hp > 0) || death < 1 && base.hp <= 0;
       view.label.sprite.visible = view.bar.visible = active && base.hp > 0;
       view.art.group.position.set(x, -death * 2, z);
-      view.art.group.scale.setScalar((active ? 1.08 : 1.02) * (1 - death * 0.65));
+      view.art.group.scale.setScalar((active ? 1.2 : 1.02) * (1 - death * 0.65));
       view.art.group.rotation.z = death * -1.3;
       if (view.art.group.visible) view.art.animate(game.t + i * 2.3, base.hitFlash, active ? Math.max(warning, pulse) : 0);
-      view.label.sprite.position.set(x, 5.55, z); view.label.sprite.scale.set(3.5, 1.15, 1);
-      view.bar.position.set(x, 5.1, z); view.bar.scale.set(0.77, 0.65, 1);
+      view.label.sprite.position.set(x, 6.05, z); view.label.sprite.scale.set(3.5, 1.15, 1);
+      view.bar.position.set(x, 5.6, z); view.bar.scale.set(0.86, 0.65, 1);
       const fraction = Math.max(0, base.hp / base.maxHp); view.fill.scale.x = 5.15 * fraction; view.fill.position.x = -2.575 * (1 - fraction);
     });
 
@@ -861,11 +939,11 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const z = wz(pop.y), x = wx(pop.x) + curve(z);
       if (pop.text?.includes("UPGRADE")) continue;
       burst(x, 0.5, z, [0xf4fbff, 0xe9edee, 0xff426a][pop.color] ?? 0xffffff, pop.text ? 9 : 4, pop.text ? 0.65 : 0.9);
-      if (pop.text && !pop.text.startsWith("×")) tag(pop.text, x, z, "#fff3b4");
+      if (pop.text && !pop.text.startsWith("×") && !["KO", "DOWN"].includes(pop.text)) tag(pop.text, x, z, "#fff3b4");
     }
     if (game.status === "won" && previousStatus !== "won") {
       winAt = frameTime; shake = 0.75;
-      for (const x of [-14, -8, 0, 8, 14]) { burst(x, 4, -60, 0x91a8c8, 50, 2.8); ring(x, -60, 0xffd887, 7); }
+      for (const x of [-14, -8, 0, 8, 14]) { burst(x, 4, -111, 0x91a8c8, 50, 2.8); ring(x, -111, 0xffd887, 7); }
     }
     if (winAt > 0) {
       const collapse = Math.min(1, (frameTime - winAt) / 1.5);
@@ -893,15 +971,17 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     particles.count = particleCount; particles.instanceMatrix.needsUpdate = true; if (particles.instanceColor) particles.instanceColor.needsUpdate = true;
     for (let i = fallen.length - 1; i >= 0; i--) {
       const body = fallen[i]; body.life += dt;
-      if (body.life > 0.42) { fallen.splice(i, 1); continue; }
+      if (body.life > 0.55) { fallen.splice(i, 1); continue; }
     }
     fallen.forEach((body, i) => {
-      const t = body.life / 0.42, scale = body.size * (1 - t * t);
-      dummy.position.set(body.x + body.side * t * 1.15, 0.04 + Math.sin(t * Math.PI) * 1.75, body.z + travel - body.travel + t * 0.5);
-      dummy.rotation.set(t * 1.6, body.angle, body.side * t * 1.8); dummy.scale.setScalar(scale); dummy.updateMatrix();
+      const t = body.life / 0.55, scale = body.size * (1 - Math.max(0, (t - 0.65) / 0.35));
+      dummy.position.set(body.x + body.side * t * 1.8, 0.04 + Math.sin(t * Math.PI) * 2.4, body.z + travel - body.travel + t * 0.8);
+      dummy.rotation.set(t * 2.3, body.angle, body.side * t * 2.5); dummy.scale.setScalar(scale); dummy.updateMatrix();
       fallenMesh.setMatrixAt(i, dummy.matrix); fallenMesh.setColorAt(i, body.color);
+      (fallenMesh.geometry.getAttribute("runMotion") as THREE.InstancedBufferAttribute).setXYZW(i, body.angle + t * 8, 0.7, 0.35, 0);
     });
     fallenMesh.count = fallen.length; fallenMesh.instanceMatrix.needsUpdate = true;
+    fallenMesh.geometry.getAttribute("runMotion").needsUpdate = true;
     if (fallenMesh.instanceColor) fallenMesh.instanceColor.needsUpdate = true;
     rings.forEach((value) => { value.age += dt * 2.8; value.object.visible = value.age < 1; value.material.opacity = Math.max(0, 0.55 * (1 - value.age)); value.object.scale.setScalar(0.3 + value.age * value.max); });
     tags.forEach((value) => { value.age += dt; value.sprite.visible = value.age < 0.85; value.sprite.position.y = value.y + value.age * 2; value.sprite.material.opacity = Math.max(0, 1 - value.age / 0.85); });
@@ -911,15 +991,18 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     if (frameTime >= shadowAt) { renderer.shadowMap.needsUpdate = true; shadowAt = frameTime + 1 / 15; }
     // Close in gently as the front meets the giant, then open the view for
     // flank warnings and travel. Keep the full cannon lane in frame throughout.
-    const inContact = assault?.phase === "battle" && !!activeBoss && activeBoss.hp < activeBoss.maxHp && activeBoss.hp > 0;
+    const inContact = assault?.phase === "counterattack" || assault?.phase === "battle" && !!activeBoss && activeBoss.hp < activeBoss.maxHp && activeBoss.hp > 0;
     combatFocus += ((inContact ? 1 : 0) - combatFocus) * Math.min(1, dt * 1.6);
-    updateCamera(); renderer.render(scene, camera);
+    cameraFollow += (wx(game.cannonX) * 0.18 - cameraFollow) * Math.min(1, dt * 4);
+    const combatY = assault?.phase === "counterattack" ? assault.frontline : activeBoss?.y ?? 300;
+    const desiredLookZ = assault?.phase === "advance" ? cameraTarget.z : Math.max(-30, Math.min(-14, wz(combatY) * 0.5));
+    combatLookZ += (desiredLookZ - combatLookZ) * Math.min(1, dt * 2.5);
+    updateCamera(dt); renderer.render(scene, camera);
   }
   function resize(width: number, height: number) {
     camera.aspect = width / height;
     // Preserve the full aiming lane on a phone without shrinking the fighters.
-    const depth = cameraHome.length();
-    framingFov = Math.max(40, THREE.MathUtils.radToDeg(2 * Math.atan(10.35 / (depth * camera.aspect))));
+    framingFov = Math.max(42, THREE.MathUtils.radToDeg(2 * Math.atan(8.2 / (cameraHome.length() * camera.aspect))));
     camera.fov = framingFov;
     camera.updateProjectionMatrix(); renderer.setSize(width, height, false); updateCamera();
   }
