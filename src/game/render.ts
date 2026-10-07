@@ -589,7 +589,19 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     if (colorsDirty) object.instanceColor!.needsUpdate = true;
   }
 
-  type BossView = { art: ReturnType<typeof createWarden>; label: Label; bar: THREE.Group; fill: THREE.Mesh; hp: number; deadAt: number; damageAt: number; deathX: number; deathZ: number; deathTravel: number };
+  const impactCanvas = document.createElement("canvas"); impactCanvas.width = impactCanvas.height = 256;
+  const impactContext = impactCanvas.getContext("2d")!;
+  impactContext.fillStyle = "#fffbe7"; impactContext.strokeStyle = "#ffd267"; impactContext.lineWidth = 5;
+  impactContext.shadowColor = "#ffbb42"; impactContext.shadowBlur = 12;
+  impactContext.beginPath();
+  for (let i = 0; i < 16; i++) {
+    const angle = i * Math.PI / 8, radius = i % 2 ? 25 : i % 4 ? 70 : 112;
+    const x = 128 + Math.cos(angle) * radius, y = 128 + Math.sin(angle) * radius;
+    if (i === 0) impactContext.moveTo(x, y); else impactContext.lineTo(x, y);
+  }
+  impactContext.closePath(); impactContext.fill(); impactContext.stroke();
+  const impactTexture = texture(new THREE.CanvasTexture(impactCanvas)); impactTexture.colorSpace = THREE.SRGBColorSpace;
+  type BossView = { art: ReturnType<typeof createWarden>; label: Label; bar: THREE.Group; fill: THREE.Mesh; impact: THREE.Sprite; hitX: number; hp: number; deadAt: number; damageAt: number; deathX: number; deathZ: number; deathTravel: number };
   const bosses: BossView[] = [];
   function ensureBosses(count: number) {
     while (bosses.length < count) {
@@ -598,7 +610,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const bar = new THREE.Group(); stage.add(bar);
       box(bar, dark, 0, 0, 0, 5.4, 0.65, 0.18);
       const fill = box(bar, standard(0xff294e, { emissive: 0xff1734, emissiveIntensity: 0.3 }), 0, 0, 0.11, 5.15, 0.46, 0.1);
-      bosses.push({ art, label, bar, fill, hp: -1, deadAt: -99, damageAt: -99, deathX: 0, deathZ: 0, deathTravel: 0 });
+      const impact = new THREE.Sprite(mat(new THREE.SpriteMaterial({ map: impactTexture, transparent: true, opacity: 0, depthWrite: false, depthTest: false })));
+      impact.renderOrder = 4; impact.visible = false; stage.add(impact);
+      bosses.push({ art, label, bar, fill, impact, hitX: 0, hp: -1, deadAt: -99, damageAt: -99, deathX: 0, deathZ: 0, deathTravel: 0 });
     }
   }
   const particleList: Particle[] = [];
@@ -795,12 +809,12 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const startZ = wz(waveWarning > 0 ? (activeBoss?.y ?? 419) - 60 : nearest.y);
       for (let i = 0; i < 12; i++) {
         const z = startZ + (defenseZ - startZ) * ((i + game.t * 2 % 1) / 12);
-        dummy.position.set(wx(guideX) + curve(z), 0.075, z); dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(0.9); dummy.updateMatrix();
+        dummy.position.set(wx(guideX) + curve(z), 0.075, z); dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(1.15); dummy.updateMatrix();
         laneGuide.setMatrixAt(i, dummy.matrix);
       }
       laneGuide.instanceMatrix.needsUpdate = true;
-      laneGuideMaterial.color.setHex(danger > 0.4 ? 0xff6171 : 0xffbe66);
-      laneGuideMaterial.opacity = waveWarning > 0 ? 0.56 : 0.32;
+      laneGuideMaterial.color.setHex(danger > 0.4 ? 0xff5268 : waveWarning > 0 ? 0xff9e28 : 0xffb54b);
+      laneGuideMaterial.opacity = waveWarning > 0 ? 0.78 : 0.48;
       laneBeacon.position.x = wx(guideX) + curve(defenseZ);
     }
     flankWarning.visible = counterattack && waveWarning > 0 && game.status === "playing";
@@ -1004,9 +1018,11 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       else if (active && (assault?.advance ?? 0) > 0) x += waitingSide * (assault?.advance ?? 0);
       if (base.hp <= 0 && view.hp > 0) { view.deathX = view.art.group.position.x; view.deathZ = view.art.group.position.z; view.deathTravel = travel; }
       if (base.hp <= 0) { x = view.deathX; z = view.deathZ + travel - view.deathTravel; }
-      if (view.hp >= 0 && base.hp < view.hp && base.hp > 0 && game.t > view.damageAt + 0.24) {
-        burst(x + (random() - 0.5) * 4.2, 1.1, z + 3.2, 0xfff7cf, 16, 1.6);
-        burst(x, 1.8, z + 2.8, 0xffd25b, 7, 1.3); view.damageAt = game.t; shake = Math.max(shake, 0.4);
+      if (view.hp >= 0 && base.hp < view.hp && base.hp > 0 && game.t > view.damageAt + 0.3) {
+        view.hitX = (random() - 0.5) * 2.2;
+        view.impact.material.rotation = (random() - 0.5) * 0.65;
+        burst(x + view.hitX, 1.1, z + 3.2, 0xfff7cf, 16, 1.6);
+        burst(x, 1.8, z + 2.8, 0xffd25b, 7, 1.3); view.damageAt = game.t; shake = Math.max(shake, 0.55);
       }
       if (base.hp <= 0 && view.hp > 0) {
         view.deadAt = frameTime;
@@ -1019,8 +1035,13 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const death = base.hp <= 0 ? Math.min(1, (frameTime - view.deadAt) / 0.85) : 0;
       view.art.group.visible = (active && base.hp > 0) || death < 1 && base.hp <= 0;
       view.label.sprite.visible = view.bar.visible = active && base.hp > 0;
-      const hit = base.hp > 0 ? Math.max(base.hitFlash * 0.18, 1 - (game.t - view.damageAt) / 0.16, 0) : 0;
-      view.art.group.position.set(x, -death * 2, z - hit * 0.45);
+      const hit = base.hp > 0 ? Math.max(base.hitFlash * 0.18, 1 - (game.t - view.damageAt) / 0.22, 0) : 0;
+      const impact = Math.max(0, 1 - (game.t - view.damageAt) / 0.17);
+      view.impact.visible = active && base.hp > 0 && impact > 0;
+      view.impact.material.opacity = impact * 0.9;
+      view.impact.position.set(x + view.hitX, 2.2, z + 3.1);
+      view.impact.scale.setScalar(3.2 + (1 - impact) * 1.6);
+      view.art.group.position.set(x, -death * 2, z - hit * 1.05);
       view.art.group.scale.setScalar((active ? 1.2 : 1.02) * (1 - death * 0.65));
       view.art.group.rotation.z = death * -1.3;
       if (view.art.group.visible) view.art.animate(game.t + i * 2.3, hit, active ? Math.max(warning, pulse) : 0);

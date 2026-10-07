@@ -297,12 +297,12 @@ export function createWarden(variant = 0): WardenArt {
     const damage = THREE.MathUtils.clamp(hit || 0, 0, 1), windup = THREE.MathUtils.clamp(attack || 0, 0, 1);
     const stride = Math.sin(t * 4.2);
     upper.position.y = 1.43 + Math.abs(stride) * 0.07 - windup * 0.13;
-    upper.position.z = -damage * 0.25;
-    upper.rotation.x = 0.13 - damage * 0.24 + windup * 0.22;
+    upper.position.z = -damage * 0.55;
+    upper.rotation.x = 0.13 - damage * 0.62 + windup * 0.22;
     upper.rotation.z = stride * 0.028 + Math.sin(t * 36) * damage * 0.025;
-    head.rotation.x = -0.15 - damage * 0.3;
+    head.rotation.x = -0.15 - damage * 0.45;
     arms.forEach((arm, i) => {
-      arm.rotation.x = -0.26 + Math.sin(t * 4.2 + i * Math.PI) * 0.19 - windup * 1.3 + damage * 0.5;
+      arm.rotation.x = -0.26 + Math.sin(t * 4.2 + i * Math.PI) * 0.19 - windup * 1.3 + damage * 0.85;
       arm.rotation.z = (i ? 1 : -1) * (0.11 + windup * 0.12);
     });
     feet.forEach((leg, i) => { leg.rotation.x = Math.sin(t * 4.2 + i * Math.PI) * 0.18; });
