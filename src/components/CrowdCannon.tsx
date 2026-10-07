@@ -583,6 +583,7 @@ export function CrowdCannon() {
         : hud.time < 12 ? "Protect the cyan line · Tap the star for a champion" : null
     : null;
   const hasNext = levelIndex + 1 < levels.length;
+  const remixedGates = (level.assault?.horde ?? 0) > 0 && level.gates?.some((gate) => Math.abs(gate.x - W / 2) > 1);
   const firstUnbeaten = Math.max(0, levels.findIndex((_, index) => !save.stars[index]));
   const skipTutorial = () => {
     writeSave({ ...readSave(), tutorialDone: true });
@@ -647,10 +648,10 @@ export function CrowdCannon() {
           </div>
           {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-warning={assault.waveWarning > 0} data-compact={assault.phase === "counterattack" || assault.phase === "battle" && hud.time > 4}>
             <span className={styles.objectiveIcon} aria-hidden="true">{assault.phase === "counterattack" ? "!" : assault.phase === "advance" ? "»" : "⚑"}</span>
-            <div><strong>{assault.phase === "counterattack" ? assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "← LEFT" : assault.waveLane > 0 ? "RIGHT →" : "CENTER"} WAVE INCOMING` : `${assault.remaining} DEFENDERS LEFT` : assault.phase === "advance" ? "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
+            <div><strong>{assault.phase === "counterattack" ? assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "← LEFT" : assault.waveLane > 0 ? "RIGHT →" : "CENTER"} WAVE INCOMING` : `${assault.remaining} DEFENDERS LEFT` : assault.phase === "advance" ? remixedGates ? "LANES SWITCHED" : "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
               <span>{assault.phase === "counterattack"
                 ? `${assault.remaining} enemies left · ${assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "LEFT" : assault.waveLane > 0 ? "RIGHT" : "CENTER"} WAVE INCOMING` : `wave ${assault.wave} / ${assault.waves}`}`
-                : assault.phase === "advance" ? "Keep your upgrades. Push forward!" : "Then survive the counterattack"}</span></div>
+                : assault.phase === "advance" ? remixedGates ? "Find the new gate chain. Keep your upgrades!" : "Keep your upgrades. Push forward!" : "Then survive the counterattack"}</span></div>
             {assault.phase === "counterattack" && <span className={styles.wavePips} aria-label={`${assault.wave} of ${assault.waves} waves deployed`}>{Array.from({ length: assault.waves }, (_, i) => <i key={i} data-done={i < assault.wave} />)}</span>}
           </div>}
           {tutorialLesson ? (

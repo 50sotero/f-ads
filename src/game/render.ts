@@ -856,7 +856,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const text = value.kind === "trap" ? "!" : `×${value.n ?? 2}`;
       if (view.value !== text) { view.label.write(text); view.value = text; }
       const z = wz(value.y);
-      view.group.position.set(wx(value.cx) + curve(z), 0.025, z);
+      const entrance = assault?.phase === "advance" ? Math.min(1, assault.advance * 1.6) : 0;
+      view.group.position.set(wx(value.cx) + curve(z), 0.025 - entrance * 2.8, z);
+      view.label.sprite.visible = entrance < 0.25;
       if (value.overrun && view.brokenAt < 0) {
         view.brokenAt = game.t;
         burst(view.group.position.x, 1.5, z, 0xc355ff, 32, 1.6);
