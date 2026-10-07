@@ -1252,15 +1252,40 @@ const ASSAULT_MOTION_COLS = Math.ceil(W / ASSAULT_MOTION_CELL);
 const ASSAULT_MOTION_ROWS = Math.ceil((H + ASSAULT_MOTION_CELL) / ASSAULT_MOTION_CELL) + 1;
 const ASSAULT_MOTION_SEARCH = 2;
 const ASSAULT_MOTION_NEIGHBOUR_COUNT = (ASSAULT_MOTION_SEARCH * 2 + 1) ** 2;
-const assaultMotionNeighbourRows = new Int8Array(ASSAULT_MOTION_NEIGHBOUR_COUNT);
-const assaultMotionNeighbourCols = new Int8Array(ASSAULT_MOTION_NEIGHBOUR_COUNT);
-const assaultMotionNeighbourDeltas = new Int16Array(ASSAULT_MOTION_NEIGHBOUR_COUNT);
-for (let index = 0; index < ASSAULT_MOTION_NEIGHBOUR_COUNT; index++) {
-  const dr = Math.floor(index / (ASSAULT_MOTION_SEARCH * 2 + 1)) - ASSAULT_MOTION_SEARCH;
-  const dc = index % (ASSAULT_MOTION_SEARCH * 2 + 1) - ASSAULT_MOTION_SEARCH;
-  assaultMotionNeighbourRows[index] = dr;
-  assaultMotionNeighbourCols[index] = dc;
-  assaultMotionNeighbourDeltas[index] = dr * ASSAULT_MOTION_COLS + dc;
+const ASSAULT_MOTION_CELL_COUNT = ASSAULT_MOTION_COLS * ASSAULT_MOTION_ROWS;
+// The motion query visits the same bounded 5x5 neighborhood every frame.
+// Store valid cell order, hash adjustments, and sampled offsets once so the
+// hot path does not redo boundary checks, divisions, or modulo wrapping.
+const assaultMotionNeighbourCounts = new Uint8Array(ASSAULT_MOTION_CELL_COUNT);
+const assaultMotionNeighbourCells = new Int16Array(ASSAULT_MOTION_CELL_COUNT * ASSAULT_MOTION_NEIGHBOUR_COUNT);
+const assaultMotionNeighbourHashAdjust = new Int16Array(assaultMotionNeighbourCells.length);
+const ASSAULT_MOTION_SAMPLE_STRIDE = ASSAULT_MAX_CELL_SAMPLES;
+const assaultMotionSampleOffsets = new Uint16Array((MAX_UNITS + 1) * ASSAULT_MOTION_SAMPLE_STRIDE);
+for (let cellLength = 1; cellLength <= MAX_UNITS; cellLength++) {
+  const sampleCount = Math.min(cellLength, ASSAULT_MAX_CELL_SAMPLES);
+  const sampleOffset = cellLength * ASSAULT_MOTION_SAMPLE_STRIDE;
+  for (let sample = 0; sample < sampleCount; sample++) {
+    assaultMotionSampleOffsets[sampleOffset + sample] = Math.floor(sample * cellLength / sampleCount);
+  }
+}
+for (let row = 0; row < ASSAULT_MOTION_ROWS; row++) {
+  for (let col = 0; col < ASSAULT_MOTION_COLS; col++) {
+    const baseCellIndex = row * ASSAULT_MOTION_COLS + col;
+    const baseOffset = baseCellIndex * ASSAULT_MOTION_NEIGHBOUR_COUNT;
+    let count = 0;
+    for (let dr = -ASSAULT_MOTION_SEARCH; dr <= ASSAULT_MOTION_SEARCH; dr++) {
+      const rr = row + dr;
+      if (rr < 0 || rr >= ASSAULT_MOTION_ROWS) continue;
+      for (let dc = -ASSAULT_MOTION_SEARCH; dc <= ASSAULT_MOTION_SEARCH; dc++) {
+        const cc = col + dc;
+        if (cc < 0 || cc >= ASSAULT_MOTION_COLS) continue;
+        assaultMotionNeighbourCells[baseOffset + count] = rr * ASSAULT_MOTION_COLS + cc;
+        assaultMotionNeighbourHashAdjust[baseOffset + count] = dr * 17 + dc * 13;
+        count++;
+      }
+    }
+    assaultMotionNeighbourCounts[baseCellIndex] = count;
+  }
 }
 const assaultMotionCells: Array<number[] | undefined> = new Array(ASSAULT_MOTION_COLS * ASSAULT_MOTION_ROWS);
 const assaultMotionCellGeneration = new Uint32Array(ASSAULT_MOTION_COLS * ASSAULT_MOTION_ROWS);
@@ -1544,24 +1569,18 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1, owner: Ass
   }
   const frame = owner.motionFrame;
   let refresh = false;
-  for (const unit of units) {
+  for (let i = 0; i < units.length; i++) {
+    const unit = units[i];
     if (unit.dead) continue;
     const intent = assaultMotionIntentCache.get(unit);
     if (!intent || intent.owner !== owner || intent.direction !== forwardDirection || intent.nextRefreshFrame <= frame) {
       refresh = true;
       break;
     }
+    assaultMotionForward[i] = intent.forward;
+    assaultMotionLateral[i] = intent.lateral;
   }
-  if (!refresh) {
-    for (let i = 0; i < units.length; i++) {
-      const unit = units[i];
-      if (unit.dead) continue;
-      const intent = assaultMotionIntentCache.get(unit)!;
-      assaultMotionForward[i] = intent.forward;
-      assaultMotionLateral[i] = intent.lateral;
-    }
-    return { forward: assaultMotionForward, lateral: assaultMotionLateral };
-  }
+  if (!refresh) return { forward: assaultMotionForward, lateral: assaultMotionLateral };
 
   assaultMotionGeneration = (assaultMotionGeneration + 1) >>> 0;
   if (assaultMotionGeneration === 0) {
@@ -1615,18 +1634,15 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1, owner: Ass
     const row = assaultMotionUnitRows[i];
     const baseCellIndex = row * motionCols + col;
     const sampleHash = i * 31 + row * 17 + col * 13;
+    const neighbourStart = baseCellIndex * ASSAULT_MOTION_NEIGHBOUR_COUNT;
+    const neighbourCellCount = assaultMotionNeighbourCounts[baseCellIndex];
     let limit = 1;
     let sideForce = 0;
     let neighbourCount = 0;
     let inspected = 0;
-    neighbourSearch: for (let offsetIndex = 0; offsetIndex < ASSAULT_MOTION_NEIGHBOUR_COUNT; offsetIndex++) {
-      const dr = assaultMotionNeighbourRows[offsetIndex];
-      const rr = row + dr;
-      if (rr < 0 || rr >= ASSAULT_MOTION_ROWS) continue;
-      const dc = assaultMotionNeighbourCols[offsetIndex];
-      const cc = col + dc;
-      if (cc < 0 || cc >= ASSAULT_MOTION_COLS) continue;
-      const cellIndex = baseCellIndex + assaultMotionNeighbourDeltas[offsetIndex];
+    neighbourSearch: for (let offsetIndex = 0; offsetIndex < neighbourCellCount; offsetIndex++) {
+      const neighbourOffset = neighbourStart + offsetIndex;
+      const cellIndex = assaultMotionNeighbourCells[neighbourOffset];
       if (cellGeneration[cellIndex] !== generation) continue;
       const cell = cells[cellIndex];
       if (!cell || cell.length === 0) continue;
@@ -1636,13 +1652,13 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1, owner: Ass
       const cellLength = cell.length;
       const sampleCount = Math.min(cellLength, ASSAULT_MAX_CELL_SAMPLES);
       const sampleStart = sampleCount > 1
-        ? ((sampleHash + dr * 17 + dc * 13) % cellLength + cellLength) % cellLength
+        ? ((sampleHash + assaultMotionNeighbourHashAdjust[neighbourOffset]) % cellLength + cellLength) % cellLength
         : 0;
       for (let sample = 0; sample < sampleCount; sample++) {
         if (inspected >= ASSAULT_MAX_NEIGHBOURS) break neighbourSearch;
         inspected++;
-        const sampleOffset = Math.floor(sample * cellLength / sampleCount);
-        const otherIndex = cell[(sampleStart + sampleOffset) % cellLength];
+        const sampleIndex = sampleStart + assaultMotionSampleOffsets[cellLength * ASSAULT_MOTION_SAMPLE_STRIDE + sample];
+        const otherIndex = cell[sampleIndex < cellLength ? sampleIndex : sampleIndex - cellLength];
         if (otherIndex === i) continue;
         const other = units[otherIndex];
         if (!other || other.dead) continue;
