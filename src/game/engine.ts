@@ -2206,7 +2206,16 @@ function updateAssaultBlue(g: Game, dt: number) {
       pop(g, u.x, u.y, 0);
       continue;
     }
-    if (u.y < -10) u.dead = true;
+    if (g.level.assault?.practice && active) {
+      // The immortal training target absorbs completed shots. Letting them
+      // run through it filled the lesson panel with an offscreen crowd.
+      const atTarget = u.y <= active.y + active.h / 2 + u.r
+        && Math.abs(u.x - active.x) <= active.w / 2 + u.r;
+      if (atTarget) {
+        active.hitFlash = Math.max(active.hitFlash, 0.35);
+        u.dead = true;
+      } else if (u.y < active.y - active.h / 2 - 10) u.dead = true;
+    } else if (u.y < -10) u.dead = true;
   }
   for (const u of spawned) g.blue.push(u);
 }

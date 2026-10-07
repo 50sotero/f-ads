@@ -44,6 +44,22 @@ test("tutorial requires firing AND steering before teaching multipliers", () => 
   assert.equal(advanceTutorial(movedOnly, game), false);
 });
 
+test("the practice target absorbs completed shots without scoring or spilling behind the lesson", () => {
+  const game = newGame(tutorialLevel, 5);
+  const target = game.bases[0];
+  const hp = target.hp;
+  game.firing = true;
+  for (let frame = 0; frame < 1080; frame++) {
+    game.targetX = [180, 305, 55][Math.floor(frame / 360)];
+    step(game, 1 / 60);
+    assert.ok(game.blue.every((unit) => unit.y >= target.y - target.h / 2 - 10), "finished practice shots leave before they crowd the lesson panel");
+  }
+  assert.ok(game.stats.multiplied > 100, "the check exercises a sustained multiplied stream");
+  assert.equal(target.hp, hp, "the training target remains immortal");
+  assert.equal(game.stats.baseHits, 0, "practice cleanup does not score campaign damage");
+  assert.equal(game.status, "playing");
+});
+
 test("tutorial checks new actions for each lesson and completes once", () => {
   const progress = newTutorialProgress();
   const game = newGame(tutorialLevel);
