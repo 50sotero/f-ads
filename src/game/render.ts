@@ -470,11 +470,14 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const enemies = new THREE.InstancedMesh(geo(mobGeometry.clone()), enemyMaterial, 1600);
   const guards = new THREE.InstancedMesh(geo(createGuardGeometry()), crowdMaterial(0xe72a55), 1600);
   const bracedGuards = new THREE.InstancedMesh(geo(createGuardGeometry(true)), crowdMaterial(0xdb2851), 16);
+  // Draw priority targets after the billboard gate numbers. They still test
+  // against real scene depth, but a value plaque must not hide their bodies.
+  bracedGuards.material.transparent = true; bracedGuards.renderOrder = 8;
   const regularUnits: Unit[] = [], guardUnits: Unit[] = [], bracedUnits: Unit[] = [];
   const shieldLabel = makeLabel("SHIELD", 4.3, 1.45, "#ffe5a0", 127, true);
-  stage.add(shieldLabel.sprite); shieldLabel.sprite.visible = false; shieldLabel.sprite.renderOrder = 7;
+  stage.add(shieldLabel.sprite); shieldLabel.sprite.visible = false; shieldLabel.sprite.renderOrder = 10;
   const shieldHalo = new THREE.InstancedMesh(geo(new THREE.RingGeometry(0.72, 1, 24).rotateX(-Math.PI / 2)), basic(0xffd66c, { transparent: true, opacity: 0.8, depthTest: false, depthWrite: false }), 16);
-  shieldHalo.instanceMatrix.setUsage(THREE.DynamicDrawUsage); shieldHalo.frustumCulled = false; shieldHalo.renderOrder = 2; stage.add(shieldHalo);
+  shieldHalo.instanceMatrix.setUsage(THREE.DynamicDrawUsage); shieldHalo.frustumCulled = false; shieldHalo.renderOrder = 7; stage.add(shieldHalo);
   // A marker for every shield keeps separated late threats readable at phone
   // scale. The center sight shows the champion's real launch lane; it never
   // bends toward a guard that the player has not lined up with.
@@ -487,7 +490,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   markerContext.stroke(); markerContext.fillStyle = "#ffe58a"; markerContext.fill();
   const markerTexture = texture(new THREE.CanvasTexture(markerCanvas)); markerTexture.colorSpace = THREE.SRGBColorSpace;
   const shieldMarkers = new THREE.InstancedMesh(geo(new THREE.PlaneGeometry(1.45, 2.15)), basic(0xffffff, { map: markerTexture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }), 16);
-  shieldMarkers.instanceMatrix.setUsage(THREE.DynamicDrawUsage); shieldMarkers.frustumCulled = false; shieldMarkers.renderOrder = 6; stage.add(shieldMarkers);
+  shieldMarkers.instanceMatrix.setUsage(THREE.DynamicDrawUsage); shieldMarkers.frustumCulled = false; shieldMarkers.renderOrder = 9; stage.add(shieldMarkers);
   const championSightMaterial = basic(0xffdc64, { transparent: true, opacity: 0.8, depthTest: false, depthWrite: false });
   const championSight = new THREE.InstancedMesh(cube, championSightMaterial, 20);
   championSight.instanceMatrix.setUsage(THREE.DynamicDrawUsage); championSight.frustumCulled = false; championSight.renderOrder = 4; stage.add(championSight);
