@@ -1219,11 +1219,25 @@ const ASSAULT_MAX_NEIGHBOURS = 48;
 const ASSAULT_MAX_CELL_SAMPLES = 8;
 const ASSAULT_MOTION_COLS = Math.ceil(W / ASSAULT_MOTION_CELL);
 const ASSAULT_MOTION_ROWS = Math.ceil((H + ASSAULT_MOTION_CELL) / ASSAULT_MOTION_CELL) + 1;
+const ASSAULT_MOTION_SEARCH = 2;
+const ASSAULT_MOTION_NEIGHBOUR_COUNT = (ASSAULT_MOTION_SEARCH * 2 + 1) ** 2;
+const assaultMotionNeighbourRows = new Int8Array(ASSAULT_MOTION_NEIGHBOUR_COUNT);
+const assaultMotionNeighbourCols = new Int8Array(ASSAULT_MOTION_NEIGHBOUR_COUNT);
+const assaultMotionNeighbourDeltas = new Int16Array(ASSAULT_MOTION_NEIGHBOUR_COUNT);
+for (let index = 0; index < ASSAULT_MOTION_NEIGHBOUR_COUNT; index++) {
+  const dr = Math.floor(index / (ASSAULT_MOTION_SEARCH * 2 + 1)) - ASSAULT_MOTION_SEARCH;
+  const dc = index % (ASSAULT_MOTION_SEARCH * 2 + 1) - ASSAULT_MOTION_SEARCH;
+  assaultMotionNeighbourRows[index] = dr;
+  assaultMotionNeighbourCols[index] = dc;
+  assaultMotionNeighbourDeltas[index] = dr * ASSAULT_MOTION_COLS + dc;
+}
 const assaultMotionCells: Array<number[] | undefined> = new Array(ASSAULT_MOTION_COLS * ASSAULT_MOTION_ROWS);
 const assaultMotionCellGeneration = new Uint32Array(ASSAULT_MOTION_COLS * ASSAULT_MOTION_ROWS);
 let assaultMotionGeneration = 0;
 let assaultMotionForward = new Float32Array(MAX_UNITS);
 let assaultMotionLateral = new Float32Array(MAX_UNITS);
+let assaultMotionUnitRows = new Int16Array(MAX_UNITS);
+let assaultMotionUnitCols = new Int16Array(MAX_UNITS);
 const ASSAULT_RED_SPEED_SCALE = 0.85;
 const ASSAULT_BOSS_W = 140;
 const ASSAULT_CORRIDOR_HALF = 72;
@@ -1456,93 +1470,108 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1) {
     const size = Math.max(units.length, assaultMotionForward.length * 2);
     assaultMotionForward = new Float32Array(size);
     assaultMotionLateral = new Float32Array(size);
+    assaultMotionUnitRows = new Int16Array(size);
+    assaultMotionUnitCols = new Int16Array(size);
   }
   assaultMotionGeneration = (assaultMotionGeneration + 1) >>> 0;
   if (assaultMotionGeneration === 0) {
     assaultMotionCellGeneration.fill(0);
     assaultMotionGeneration = 1;
   }
-  assaultMotionForward.fill(1, 0, units.length);
-  assaultMotionLateral.fill(0, 0, units.length);
+  const generation = assaultMotionGeneration;
+  const cells = assaultMotionCells;
+  const cellGeneration = assaultMotionCellGeneration;
+  const motionCols = ASSAULT_MOTION_COLS;
 
   for (let i = 0; i < units.length; i++) {
     const unit = units[i];
     if (unit.dead) continue;
     const col = Math.max(0, Math.min(ASSAULT_MOTION_COLS - 1, Math.floor(unit.x / ASSAULT_MOTION_CELL)));
     const row = Math.max(0, Math.min(ASSAULT_MOTION_ROWS - 1, Math.floor((unit.y + ASSAULT_MOTION_CELL) / ASSAULT_MOTION_CELL)));
-    const cellIndex = row * ASSAULT_MOTION_COLS + col;
-    let cell = assaultMotionCells[cellIndex];
-    if (assaultMotionCellGeneration[cellIndex] !== assaultMotionGeneration) {
+    const cellIndex = row * motionCols + col;
+    assaultMotionUnitRows[i] = row;
+    assaultMotionUnitCols[i] = col;
+    let cell = cells[cellIndex];
+    if (cellGeneration[cellIndex] !== generation) {
       if (!cell) {
         cell = [];
-        assaultMotionCells[cellIndex] = cell;
+        cells[cellIndex] = cell;
       } else {
         cell.length = 0;
       }
-      assaultMotionCellGeneration[cellIndex] = assaultMotionGeneration;
+      cellGeneration[cellIndex] = generation;
     }
     cell!.push(i);
   }
 
+  const verticalReach = ASSAULT_UNIT_SPACING + 4.5;
+  const direction = forwardDirection;
   for (let i = 0; i < units.length; i++) {
     const unit = units[i];
     if (unit.dead) continue;
-    const col = Math.max(0, Math.min(ASSAULT_MOTION_COLS - 1, Math.floor(unit.x / ASSAULT_MOTION_CELL)));
-    const row = Math.max(0, Math.min(ASSAULT_MOTION_ROWS - 1, Math.floor((unit.y + ASSAULT_MOTION_CELL) / ASSAULT_MOTION_CELL)));
-    const search = 2;
+    const unitX = unit.x;
+    const unitY = unit.y;
+    const unitRadius = unit.r;
+    const col = assaultMotionUnitCols[i];
+    const row = assaultMotionUnitRows[i];
+    const baseCellIndex = row * motionCols + col;
+    const sampleHash = i * 31 + row * 17 + col * 13;
     let limit = 1;
     let sideForce = 0;
     let neighbourCount = 0;
     let inspected = 0;
-    neighbourSearch: for (let dr = -search; dr <= search; dr++) {
+    neighbourSearch: for (let offsetIndex = 0; offsetIndex < ASSAULT_MOTION_NEIGHBOUR_COUNT; offsetIndex++) {
+      const dr = assaultMotionNeighbourRows[offsetIndex];
       const rr = row + dr;
       if (rr < 0 || rr >= ASSAULT_MOTION_ROWS) continue;
-      for (let dc = -search; dc <= search; dc++) {
-        const cc = col + dc;
-        if (cc < 0 || cc >= ASSAULT_MOTION_COLS) continue;
-        const cellIndex = rr * ASSAULT_MOTION_COLS + cc;
-        if (assaultMotionCellGeneration[cellIndex] !== assaultMotionGeneration) continue;
-        const cell = assaultMotionCells[cellIndex];
-        if (!cell || cell.length === 0) continue;
-        // Dense multiplication can put hundreds of units in one cell. Sample
-        // evenly and cap the total work per runner instead of reopening a
-        // quadratic all-pairs pass.
-        const sampleCount = Math.min(cell.length, ASSAULT_MAX_CELL_SAMPLES);
-        const sampleStart = cell.length > 0
-          ? ((i * 31 + rr * 17 + cc * 13) % cell.length + cell.length) % cell.length
-          : 0;
-        for (let sample = 0; sample < sampleCount; sample++) {
-          if (inspected >= ASSAULT_MAX_NEIGHBOURS) break neighbourSearch;
-          inspected++;
-          const sampleOffset = Math.floor(sample * cell.length / sampleCount);
-          const otherIndex = cell[(sampleStart + sampleOffset) % cell.length];
-          if (otherIndex === i) continue;
-          const other = units[otherIndex];
-          if (!other || other.dead) continue;
-          const signedDx = unit.x - other.x;
-          const verticalGap = unit.y - other.y;
-          const forwardGap = (other.y - unit.y) * forwardDirection;
-          const lateralReach = unit.r + other.r + 12;
-          const verticalReach = ASSAULT_UNIT_SPACING + 4.5;
-          const lateralRatio = Math.abs(signedDx) / lateralReach;
-          const verticalRatio = Math.abs(verticalGap) / verticalReach;
-          const distance = Math.sqrt(lateralRatio * lateralRatio + verticalRatio * verticalRatio);
-          if (distance >= 1) continue;
+      const dc = assaultMotionNeighbourCols[offsetIndex];
+      const cc = col + dc;
+      if (cc < 0 || cc >= ASSAULT_MOTION_COLS) continue;
+      const cellIndex = baseCellIndex + assaultMotionNeighbourDeltas[offsetIndex];
+      if (cellGeneration[cellIndex] !== generation) continue;
+      const cell = cells[cellIndex];
+      if (!cell || cell.length === 0) continue;
+      // Dense multiplication can put hundreds of units in one cell. Sample
+      // evenly and cap the total work per runner instead of reopening a
+      // quadratic all-pairs pass.
+      const cellLength = cell.length;
+      const sampleCount = Math.min(cellLength, ASSAULT_MAX_CELL_SAMPLES);
+      const sampleStart = sampleCount > 1
+        ? ((sampleHash + dr * 17 + dc * 13) % cellLength + cellLength) % cellLength
+        : 0;
+      for (let sample = 0; sample < sampleCount; sample++) {
+        if (inspected >= ASSAULT_MAX_NEIGHBOURS) break neighbourSearch;
+        inspected++;
+        const sampleOffset = Math.floor(sample * cellLength / sampleCount);
+        const otherIndex = cell[(sampleStart + sampleOffset) % cellLength];
+        if (otherIndex === i) continue;
+        const other = units[otherIndex];
+        if (!other || other.dead) continue;
+        const signedDx = unitX - other.x;
+        const verticalGap = unitY - other.y;
+        const lateralReach = unitRadius + other.r + 12;
+        const absDx = Math.abs(signedDx);
+        const absDy = Math.abs(verticalGap);
+        if (absDx > lateralReach || absDy > verticalReach) continue;
+        const forwardGap = (other.y - unitY) * direction;
+        const lateralRatio = absDx / lateralReach;
+        const verticalRatio = absDy / verticalReach;
+        const distance = Math.sqrt(lateralRatio * lateralRatio + verticalRatio * verticalRatio);
+        if (distance >= 1) continue;
 
-          const proximity = 1 - distance;
-          neighbourCount++;
-          const side = Math.abs(signedDx) > 0.15 ? Math.sign(signedDx) : i < otherIndex ? -1 : 1;
-          sideForce += side * proximity;
+        const proximity = 1 - distance;
+        neighbourCount++;
+        const side = absDx > 0.15 ? Math.sign(signedDx) : i < otherIndex ? -1 : 1;
+        sideForce += side * proximity;
 
-          // A neighbour at the same y is also a forward blockage: the crowd
-          // must first open a lateral gap before those runners can advance.
-          if (forwardGap >= -0.5) {
-            const lateralOverlap = Math.max(0, 1 - Math.abs(signedDx) / lateralReach);
-            const gapOverlap = Math.max(0, 1 - Math.max(0, forwardGap) / verticalReach);
-            // Leave enough motion for the lateral flow to open a gap. A hard
-            // zero here recreates the old stationary queue at the boss edge.
-            limit = Math.min(limit, 1 - lateralOverlap * gapOverlap * 0.96);
-          }
+        // A neighbour at the same y is also a forward blockage: the crowd
+        // must first open a lateral gap before those runners can advance.
+        if (forwardGap >= -0.5) {
+          const lateralOverlap = Math.max(0, 1 - absDx / lateralReach);
+          const gapOverlap = Math.max(0, 1 - Math.max(0, forwardGap) / verticalReach);
+          // Leave enough motion for the lateral flow to open a gap. A hard
+          // zero here recreates the old stationary queue at the boss edge.
+          limit = Math.min(limit, 1 - lateralOverlap * gapOverlap * 0.96);
         }
       }
     }
