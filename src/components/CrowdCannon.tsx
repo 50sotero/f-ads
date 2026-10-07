@@ -168,12 +168,14 @@ function useSound(muted: boolean, weaponLevel: number) {
           const gain = context.createGain();
           oscillator.type = oscillatorType;
           oscillator.frequency.value = frequency;
-          gain.gain.setValueAtTime(kind === "shot" ? 0.035 : kind === "pop" ? 0.04 : 0.07, time);
+          gain.gain.setValueAtTime(0.0001, time);
+          gain.gain.exponentialRampToValueAtTime(kind === "shot" ? 0.035 : kind === "pop" ? 0.04 : 0.07, time + 0.004);
           if (kind === "shot") oscillator.frequency.exponentialRampToValueAtTime(100, time + length);
           gain.gain.exponentialRampToValueAtTime(0.0001, time + length);
           oscillator.connect(gain).connect(context.destination);
           oscillator.start(time);
           oscillator.stop(time + length);
+          oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
           time += length * 0.8;
         }
       } catch {
@@ -498,7 +500,7 @@ export function CrowdCannon() {
         // Preserve native Space activation for focused controls during play.
         if (event.target instanceof Element && event.target.closest("button, a, input, textarea, select, [contenteditable]")) return;
         event.preventDefault();
-        if (game && launchChampion(game)) soundRef.current("champ");
+        if (game) launchChampion(game);
         return;
       }
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "a", "d", "w"].includes(event.key)) {
@@ -598,7 +600,7 @@ export function CrowdCannon() {
   const launch = () => {
     const game = gameRef.current;
     if (!game || screenRef.current !== "playing") return;
-    if (launchChampion(game)) soundRef.current("champ");
+    launchChampion(game);
   };
 
   return (

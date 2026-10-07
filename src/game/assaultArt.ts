@@ -215,8 +215,10 @@ export type WardenArt = { group: THREE.Group; animate: (time: number, hit: numbe
 export function createWarden(variant = 0): WardenArt {
   const owned = resources(), group = new THREE.Group();
   group.name = "warden";
-  const body = owned.material([0xffce19, 0xffb71b, 0xffdc39][variant % 3], 0.35);
-  const cuff = owned.material(0xec582a, 0.4), trim = owned.material(0x633954, 0.46);
+  const style = variant % 3;
+  const body = owned.material([0xffce19, 0xff9243, 0xa382ed][style], 0.35);
+  const cuff = owned.material([0xec582a, 0x354765, 0xffc550][style], 0.4), trim = owned.material(0x633954, 0.46);
+  const armor = owned.material(style === 1 ? 0x415977 : 0xffd270, 0.32);
   const eye = owned.material(0x3b2340), ivory = owned.material(0xffedb0);
   const ball = owned.geometry(new THREE.SphereGeometry(1, 20, 14));
   const round = (w: number, h: number, d: number, r: number) => owned.geometry(new RoundedBoxGeometry(w, h, d, 3, r));
@@ -246,6 +248,20 @@ export function createWarden(variant = 0): WardenArt {
     const crest = mesh(head, round(0.19, 0.28 + i * 0.05, 0.26, 0.08), trim, 0, 0.77, z);
     crest.rotation.x = -0.25;
   }
+  if (style === 1) {
+    const helmet = owned.geometry(new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.48));
+    mesh(head, helmet, armor, 0, 0.18, -0.08, 0.94, 0.89, 0.9);
+    mesh(head, round(1.55, 0.2, 0.2, 0.08), armor, 0, 0.27, 0.68);
+    mesh(upper, round(1.17, 1.3, 0.22, 0.16), armor, 0, 0.63, 0.86);
+    mesh(upper, round(0.22, 0.72, 0.07, 0.04), ivory, 0, 0.63, 1.01);
+  } else if (style === 2) {
+    const horn = owned.geometry(new THREE.ConeGeometry(0.24, 0.85, 8));
+    for (const side of [-1, 1]) {
+      const point = mesh(head, horn, armor, side * 0.59, 0.75, 0.02);
+      point.rotation.z = -side * 0.42;
+    }
+    mesh(upper, owned.geometry(new THREE.IcosahedronGeometry(0.48, 0)), armor, 0, 0.96, 1.01, 1, 1.25, 0.36);
+  }
   const armShape = owned.geometry(form([
     [0.35, 0.08, 0.08], [0.18, 0.64, 0.67], [-0.36, 0.79, 0.77, 0.2, 0.1],
     [-0.9, 0.66, 0.65, 0.44, 0.3], [-1.39, 0.64, 0.62, 0.53, 0.48],
@@ -259,6 +275,13 @@ export function createWarden(variant = 0): WardenArt {
       for (let i = 0; i < index.count; i += 3) { const a = index.getX(i); index.setX(i, index.getX(i + 2)); index.setX(i + 2, a); }
     }
     mesh(arm, owned.geometry(shape), body);
+    if (style !== 0) {
+      mesh(arm, round(1.58, 0.55, 1.5, 0.25), armor, side * 0.04, 0.12, 0.08);
+      if (style === 2) {
+        const spike = mesh(arm, owned.geometry(new THREE.ConeGeometry(0.19, 0.59, 7)), armor, side * 0.45, 0.56, 0.03);
+        spike.rotation.z = -side * 0.28;
+      }
+    }
     mesh(arm, round(1.43, 0.57, 1.35, 0.23), cuff, side * 0.48, -1.32, 0.47);
     mesh(arm, round(1.46, 1.0, 1.18, 0.39), body, side * 0.49, -1.91, 0.69);
     // Separate rounded fingers read as a hand from the high camera.

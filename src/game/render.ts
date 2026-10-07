@@ -135,13 +135,13 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   }
   bake(arena); bake(dividers);
   // Sparse sculpted scenery frames the playable road without hiding a lane.
-  const landscape = new THREE.Group(); stage.add(landscape);
+  const landscape = new THREE.Group(); scene.add(landscape);
   const foliage = [standard(0x47a98b), standard(0x77c5a2), standard(0x398c7c)];
   const trunk = standard(0x947d73), rock = standard(0xc9d7d4);
   const crown = geo(new THREE.IcosahedronGeometry(1, 0));
   const stem = geo(new THREE.CylinderGeometry(0.14, 0.22, 1, 5));
   for (const side of [-1, 1]) {
-    for (let i = 0; i < 17; i++) {
+    for (let i = 0; i < 30; i++) {
       const z = 10 - i * 7.7, x = side * (z > -20 ? 16.5 + random() * 4 : 19 + random() * 5);
       const scale = 1.05 + random() * 0.6;
       mesh(landscape, stem, trunk, x, scale * 0.7, z, scale, scale * 1.4, scale);
@@ -153,13 +153,13 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   // Low silhouettes outside the arena give each route family a distinct place.
   // They are merged once; no extra per-frame crowd or terrain work is needed.
   const meadow = new THREE.Group(), lagoon = new THREE.Group(), canyon = new THREE.Group();
-  stage.add(meadow, lagoon, canyon);
+  scene.add(meadow, lagoon, canyon);
   const hill = standard(0x72b99b), hillLight = standard(0x96cfab);
   const island = standard(0xe7d8b4), cliff = standard(0xbd8f84), cliffTop = standard(0xdbb59d);
   const landform = geo(new THREE.IcosahedronGeometry(1, 1));
   const cliffForm = geo(new THREE.CylinderGeometry(0.72, 1, 1, 6));
   for (const side of [-1, 1]) {
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < 15; i++) {
       const z = 8 - i * 17.3, x = side * (29 + random() * 7), size = 3 + random() * 3;
       mesh(meadow, landform, i % 2 ? hill : hillLight, x, -0.5, z, size * 1.9, size, size * 2.3).castShadow = false;
       mesh(lagoon, landform, island, side * (z > -20 ? 20 : 22), -0.78, z, 8, 1.25, 12).castShadow = false;
@@ -215,7 +215,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     }
   }
 
-  function makeLabel(text: string, width: number, height: number, fill = "#ffffff", fontSize = 135): Label {
+  function makeLabel(text: string, width: number, height: number, fill = "#ffffff", fontSize = 135, plate = false): Label {
     const source = document.createElement("canvas"); source.width = 512; source.height = 192;
     const context = source.getContext("2d")!;
     const map = texture(new THREE.CanvasTexture(source)); map.colorSpace = THREE.SRGBColorSpace;
@@ -226,6 +226,11 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       context.font = `700 ${fontSize}px Fredoka, Arial, sans-serif`; context.lineJoin = "round";
       const textWidth = context.measureText(value).width;
       if (textWidth > 472) context.font = `700 ${Math.floor(fontSize * 472 / textWidth)}px Fredoka, Arial, sans-serif`;
+      if (plate) {
+        const plateWidth = Math.min(504, context.measureText(value).width + 38);
+        context.fillStyle = "#27324be8"; context.strokeStyle = "#ffffffb0"; context.lineWidth = 4;
+        context.beginPath(); context.roundRect(256 - plateWidth / 2, 14, plateWidth, 170, 27); context.fill(); context.stroke();
+      }
       context.strokeStyle = "#31263e"; context.lineWidth = 14; context.strokeText(value, 256, 104);
       context.fillStyle = color; context.fillText(value, 256, 104); map.needsUpdate = true;
     };
@@ -238,7 +243,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     const panel = box(group, material, 0, 1.32, 0, 1, 2.4, 0.12); panel.castShadow = false;
     box(group, frameMaterial, 0, 0.13, 0, 1.04, 0.24, 0.48);
     for (const x of [-0.51, 0.51]) box(group, frameMaterial, x, 1.36, 0, 0.027, 2.72, 0.28);
-    const label = makeLabel(text, 0.76, 2, "#ffffff", text.startsWith("+") ? 188 : 151);
+    const label = makeLabel(text, 5.4, 2.05, "#ffffff", text.startsWith("+") ? 165 : 151, true);
     // Keep the decision legible above moving heads at every camera angle.
     // The translucent structure stays in world space; its value faces the player.
     label.sprite.position.set(0, 1.98, 0.13); group.add(label.sprite);
@@ -713,7 +718,10 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const z = wz(activeBoss.y + 33), x = wx(activeBoss.x) + curve(z);
       warningRing.position.set(x, 0.045, z); warningRing.scale.set(3.3 + warning * 0.7, 1, 2.3 + warning * 0.5);
       warningMaterial.opacity = 0.2 + warning * 0.55;
-      if (pulse > previousPulse + 0.1) { ring(x, z, 0xffc658, 5); burst(x, 0.3, z, 0xffc36a, 35, 1.3); shake = 1; }
+      if (pulse > previousPulse + 0.1) {
+        ring(x, z, 0xffc658, 6.5); ring(x, z + 0.4, 0xfff1c5, 4.3);
+        burst(x, 0.2, z, 0xd9c3b5, 32, 2); burst(x, 0.4, z, 0xffc36a, 18, 2.4); shake = 1;
+      }
     }
     previousPulse = pulse;
     if (counterattack && previousPhase !== "counterattack") {
@@ -830,6 +838,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       view.group.visible = collapse < 1;
       const flash = Math.min(1, value.flash * 4);
       view.group.scale.set(value.w * SX, 1 + flash * 0.04, 1);
+      view.label.sprite.scale.x = 5.4 / view.group.scale.x;
       view.material.color.setHex(value.kind === "trap" ? 0xff274f : 0xa521ee);
       view.material.emissive.setHex(value.kind === "trap" ? 0xff274f : 0xa521ee);
       view.frame.color.setHex(value.kind === "trap" ? 0xff3956 : 0x9236e8);
@@ -849,6 +858,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const reward = tier >= 5 ? "★" : "+1";
       if (view.value !== reward) { view.label.write(reward, tier >= 5 ? "#fff2a2" : "#ffffff"); view.value = reward; }
       view.group.position.set(wx(pickup.x) + curve(wz(pickup.y)), 0.03, wz(pickup.y)); view.group.scale.set(pickup.w * SX, 1.04, 1);
+      view.label.sprite.scale.x = 5.4 / view.group.scale.x;
       view.material.emissiveIntensity = 0.4 + Math.sin(game.t * 4 + i) * 0.12;
     });
 
@@ -920,9 +930,15 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       if (view.hp >= 0 && base.hp < view.hp && base.hp > 0 && game.t > view.damageAt + 0.12) {
         burst(x, 2.4, z + 1.3, 0xffe074, 8, 1.1); view.damageAt = game.t; shake = Math.max(shake, 0.25);
       }
-      if (base.hp <= 0 && view.hp > 0) { view.deadAt = frameTime; burst(x, 2, z, 0xffbf4d, 85, 2.3); ring(x, z, 0xffd34c, 6); tag("BOSS DOWN", x, z, "#ffe570"); shake = 1.7; }
+      if (base.hp <= 0 && view.hp > 0) {
+        view.deadAt = frameTime;
+        burst(x, 2, z, [0xffbf4d, 0xff985b, 0xc2a2ff][i % 3], 65, 2.8);
+        burst(x, 0.4, z, 0xfff0ce, 35, 2);
+        ring(x, z, 0xffd34c, 8); ring(x, z + 0.5, 0xfff7cb, 5);
+        tag("BOSS DOWN", x, z, "#ffe570"); shake = 1.7;
+      }
       if (view.hp !== base.hp) { view.label.write(game.level.assault?.practice ? "PRACTICE" : `${Math.max(0, Math.ceil(base.hp))}`); view.hp = base.hp; }
-      const death = base.hp <= 0 ? Math.min(1, (frameTime - view.deadAt) / 0.65) : 0;
+      const death = base.hp <= 0 ? Math.min(1, (frameTime - view.deadAt) / 0.85) : 0;
       view.art.group.visible = (active && base.hp > 0) || death < 1 && base.hp <= 0;
       view.label.sprite.visible = view.bar.visible = active && base.hp > 0;
       view.art.group.position.set(x, -death * 2, z);
@@ -939,7 +955,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const z = wz(pop.y), x = wx(pop.x) + curve(z);
       if (pop.text?.includes("UPGRADE")) continue;
       burst(x, 0.5, z, [0xf4fbff, 0xe9edee, 0xff426a][pop.color] ?? 0xffffff, pop.text ? 9 : 4, pop.text ? 0.65 : 0.9);
-      if (pop.text && !pop.text.startsWith("×") && !["KO", "DOWN"].includes(pop.text)) tag(pop.text, x, z, "#fff3b4");
+      if (pop.text && !pop.text.startsWith("×") && !["KO", "DOWN", "DOWN!", "COUNTERATTACK"].includes(pop.text)) tag(pop.text, x, z, "#fff3b4");
     }
     if (game.status === "won" && previousStatus !== "won") {
       winAt = frameTime; shake = 0.75;
