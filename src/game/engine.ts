@@ -475,6 +475,12 @@ type BossSlamRecoilState = {
   startFrame: number;
   elapsed: number;
   extra: number;
+  duration: number;
+  decay: number;
+  endEnvelope: number;
+  decayNormalizer: number;
+  initialKick: number;
+  reactive: boolean;
 };
 const bossSlamRecoilStates = new WeakMap<Unit, BossSlamRecoilState>();
 type BossBraceRuntime = {
@@ -512,11 +518,15 @@ const bossBreakthroughStates = new WeakMap<Game, BossBreakthroughState>();
 const SHIELD_BRACE_FATIGUE_SECONDS = 1.25;
 const ASSAULT_BOSS_SLAM_DURATION = 0.35;
 const ASSAULT_BOSS_SLAM_DECAY = 8;
-const ASSAULT_BOSS_SLAM_END_ENVELOPE = Math.exp(-ASSAULT_BOSS_SLAM_DECAY * ASSAULT_BOSS_SLAM_DURATION);
-const ASSAULT_BOSS_SLAM_DECAY_NORMALIZER = 1 - ASSAULT_BOSS_SLAM_END_ENVELOPE;
 const ASSAULT_BOSS_SLAM_INITIAL_KICK = 10;
 const ASSAULT_BOSS_SLAM_RUNNER_EXTRA = 26;
 const ASSAULT_BOSS_SLAM_CHAMPION_EXTRA = 2;
+const ASSAULT_BOSS_REACTIVE_SLAM_DURATION = 1;
+const ASSAULT_BOSS_REACTIVE_SLAM_DECAY = 6;
+const ASSAULT_BOSS_REACTIVE_SLAM_END_ENVELOPE = Math.exp(-ASSAULT_BOSS_REACTIVE_SLAM_DECAY * ASSAULT_BOSS_REACTIVE_SLAM_DURATION);
+const ASSAULT_BOSS_REACTIVE_SLAM_DECAY_NORMALIZER = 1 - ASSAULT_BOSS_REACTIVE_SLAM_END_ENVELOPE;
+const ASSAULT_BOSS_REACTIVE_SLAM_INITIAL_KICK = 12;
+const ASSAULT_BOSS_REACTIVE_SLAM_RUNNER_EXTRA = 64;
 const ASSAULT_BOSS_BRACE_DURATION = 4.75;
 const ASSAULT_BOSS_BRACE_STAGGER = 0.6;
 const ASSAULT_BOSS_BRACE_IMPACT = 0.3;
@@ -589,21 +599,19 @@ function applyShieldBraceFatigue(game: Game, guards: Set<Unit>, dt: number) {
 function activeBossSlamRecoilState(game: Game, unit: Unit) {
   const assault = game.assault;
   const config = game.level.assault;
+  const state = bossSlamRecoilStates.get(unit);
   if (
     !assault
     || !config
     || config.practice
     || !config.slamEvery
     || game.status !== "playing"
-    || assault.phase !== "battle"
     || unit.dead
-  ) return null;
-  const state = bossSlamRecoilStates.get(unit);
-  if (
-    !state
+    || !state
     || state.owner !== game
     || state.assault !== assault
     || state.encounter !== assault.encounter
+    || (assault.phase !== "battle" && !(state.reactive && assault.phase === "counterattack"))
   ) return null;
   return state;
 }
@@ -617,8 +625,8 @@ function activeBossSlamRecoilState(game: Game, unit: Unit) {
 export function bossSlamRecoil(game: Game, unit: Unit) {
   const state = activeBossSlamRecoilState(game, unit);
   if (!state) return 0;
-  const envelope = Math.exp(-ASSAULT_BOSS_SLAM_DECAY * state.elapsed);
-  return Math.max(0, Math.min(1, (envelope - ASSAULT_BOSS_SLAM_END_ENVELOPE) / ASSAULT_BOSS_SLAM_DECAY_NORMALIZER));
+  const envelope = Math.exp(-state.decay * state.elapsed);
+  return Math.max(0, Math.min(1, (envelope - state.endEnvelope) / state.decayNormalizer));
 }
 
 function bossBraceEncounterEligible(game: Game, assault: AssaultState) {
@@ -914,7 +922,7 @@ function updateBossBrace(game: Game, dt: number) {
     assault!.bossPulse = 1;
     assault!.slamTimer = Math.max(1, game.level.assault?.slamEvery ?? Infinity);
     pop(game, active.x, active.y - active.h / 2 - 10, 1, "BRACE IMPACT");
-    applyAssaultBossSlamImpact(game, active);
+    applyAssaultBossSlamImpact(game, active, true);
     applyBossBraceRedDrive(game, active);
     beginBossBreakthrough(game, active);
     return;
@@ -2563,7 +2571,7 @@ function applyAssaultBossSlamRecoil(g: Game, u: Unit, dt: number, state = active
   // The initial kick is intentionally visible for a complete frame. Starting
   // the tail on the next frame preserves the old >=8px one-step slam motion.
   if (assault.motionFrame <= state.startFrame) return;
-  const available = ASSAULT_BOSS_SLAM_DURATION - state.elapsed;
+  const available = state.duration - state.elapsed;
   if (available <= 0) {
     bossSlamRecoilStates.delete(u);
     return;
@@ -2571,9 +2579,9 @@ function applyAssaultBossSlamRecoil(g: Game, u: Unit, dt: number, state = active
   const slice = Math.min(Math.max(0, dt), available);
   if (slice <= 0) return;
   const nextElapsed = state.elapsed + slice;
-  const startEnvelope = Math.exp(-ASSAULT_BOSS_SLAM_DECAY * state.elapsed);
-  const endEnvelope = Math.exp(-ASSAULT_BOSS_SLAM_DECAY * nextElapsed);
-  const dy = state.extra * (startEnvelope - endEnvelope) / ASSAULT_BOSS_SLAM_DECAY_NORMALIZER;
+  const startEnvelope = Math.exp(-state.decay * state.elapsed);
+  const endEnvelope = Math.exp(-state.decay * nextElapsed);
+  const dy = state.extra * (startEnvelope - endEnvelope) / state.decayNormalizer;
   if (dy > 0) {
     // `move` owns walls and horizontal bounds. A zero horizontal timestep keeps
     // recoil from replaying ordinary vx motion when it is applied after the
@@ -2583,7 +2591,7 @@ function applyAssaultBossSlamRecoil(g: Game, u: Unit, dt: number, state = active
     if (boundedDy > 0) move(g, u, boundedDy, 0);
   }
   state.elapsed = nextElapsed;
-  if (state.elapsed >= ASSAULT_BOSS_SLAM_DURATION) bossSlamRecoilStates.delete(u);
+  if (state.elapsed >= state.duration) bossSlamRecoilStates.delete(u);
 }
 
 function updateAssaultBlue(g: Game, dt: number) {
@@ -3008,28 +3016,37 @@ function resolveAssaultBossContact(g: Game, active: Base, unit: Unit) {
   }
 }
 
-/** Applies the existing bounded, nonlethal recoil to the nearest blue crowd. */
-function applyAssaultBossSlamImpact(g: Game, active: Base) {
+/** Applies the bounded, nonlethal recoil to a local blue impact cohort. */
+function applyAssaultBossSlamImpact(g: Game, active: Base, reactive = false) {
   const assault = g.assault!;
   const front = active.y + active.h / 2;
-  const targets = g.blue
-    .filter((u) => !u.dead && u.y >= active.y - active.h / 2 && u.y <= front + 112 && Math.abs(u.x - active.x) <= active.w / 2 + 30)
-    .sort((a, b) => a.y - b.y)
-    .slice(0, 120);
+  const cohort = g.blue
+    .filter((u) => !u.dead && u.y >= active.y - active.h / 2 && u.y <= front + 112 && Math.abs(u.x - active.x) <= active.w / 2 + 30);
+  const targets = reactive ? cohort : cohort.sort((a, b) => a.y - b.y).slice(0, 120);
   for (const u of targets) {
+    const longRunner = reactive && !u.big;
+    const duration = longRunner ? ASSAULT_BOSS_REACTIVE_SLAM_DURATION : ASSAULT_BOSS_SLAM_DURATION;
+    const decay = longRunner ? ASSAULT_BOSS_REACTIVE_SLAM_DECAY : ASSAULT_BOSS_SLAM_DECAY;
     bossSlamRecoilStates.set(u, {
       owner: g,
       assault,
       encounter: assault.encounter,
       startFrame: assault.motionFrame,
       elapsed: 0,
-      extra: u.big ? ASSAULT_BOSS_SLAM_CHAMPION_EXTRA : ASSAULT_BOSS_SLAM_RUNNER_EXTRA,
+      extra: longRunner ? ASSAULT_BOSS_REACTIVE_SLAM_RUNNER_EXTRA : u.big ? ASSAULT_BOSS_SLAM_CHAMPION_EXTRA : ASSAULT_BOSS_SLAM_RUNNER_EXTRA,
+      duration,
+      decay,
+      endEnvelope: Math.exp(-decay * duration),
+      decayNormalizer: 1 - Math.exp(-decay * duration),
+      initialKick: longRunner ? ASSAULT_BOSS_REACTIVE_SLAM_INITIAL_KICK : ASSAULT_BOSS_SLAM_INITIAL_KICK,
+      reactive,
     });
     // Preserve the immediate shove. The longer tail is applied after ordinary
     // movement on following frames, so the collision-aware movement path keeps
     // owning walls and the impact never changes hp.
     const maxY = CANNON_Y - u.r - 2;
-    const kick = Math.max(0, Math.min(ASSAULT_BOSS_SLAM_INITIAL_KICK, maxY - u.y));
+    const state = bossSlamRecoilStates.get(u)!;
+    const kick = Math.max(0, Math.min(state.initialKick, maxY - u.y));
     if (kick > 0) move(g, u, kick, 0);
   }
 }

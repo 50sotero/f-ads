@@ -4,6 +4,7 @@ import {
   bossBrace,
   bossBraceChampionIncoming,
   bossBreakthrough,
+  bossSlamRecoil,
   championBossAim,
   launchChampion,
   newGame,
@@ -271,6 +272,40 @@ test("breakthrough shoves only the swept body cohort by the giant's small step",
   assert.equal(behindUnit.y, before[2], "blue behind the old rear edge was moved");
   assert.equal(aheadUnit.y, before[3], "blue ahead of the new front was moved");
   assert.equal(wallUnit.y, before[4], "the shove crossed an authored wall");
+});
+
+test("an ignored brace rebounds the full local runner cohort through counterattack", () => {
+  const game = armBrace({ counterattack: { waves: 1, runners: 0, guards: 0, brutes: 0, interval: 1.4 } });
+  game.assault.bossTimer = Infinity;
+  const runners = Array.from({ length: 130 }, () => ({ ...makeUnit({ y: 320 }), pace: 0 }));
+  game.blue.push(...runners);
+  const initialY = runners[0].y;
+  advanceUntil(game, () => bossBrace(game)?.phase === "impact");
+
+  assert.equal(runners.filter((unit) => bossSlamRecoil(game, unit) > 0).length, 130, "reactive recoil still capped its local cohort");
+  game.bases[0].hp = 0;
+  step(game, FRAME);
+  assert.equal(game.assault.phase, "counterattack");
+  for (let frame = 0; frame < 59; frame++) step(game, FRAME);
+  assert.ok(runners[0].y - initialY >= 70 && runners[0].y - initialY <= 82, `runner rebound was ${runners[0].y - initialY}px`);
+  assert.equal(bossSlamRecoil(game, runners[0]), 0, "reactive runner recoil did not expire");
+});
+
+test("reactive brace recoil keeps champions on the short resistant tail", () => {
+  const game = armBrace({ counterattack: { waves: 1, runners: 0, guards: 0, brutes: 0, interval: 1.4 } });
+  game.assault.bossTimer = Infinity;
+  const active = game.bases[0];
+  const champion = { ...makeUnit({ x: active.x, y: active.y + active.h / 2 + 80, big: true }), pace: 0 };
+  game.blue.push(champion);
+  const initialY = champion.y;
+  advanceUntil(game, () => bossBrace(game)?.phase === "impact");
+
+  assert.ok(bossSlamRecoil(game, champion) > 0);
+  game.bases[0].hp = 0;
+  step(game, FRAME);
+  for (let frame = 0; frame < 21; frame++) step(game, FRAME);
+  assert.ok(champion.y - initialY >= 10 && champion.y - initialY <= 13, `reactive champion rebound was ${champion.y - initialY}px`);
+  assert.equal(bossSlamRecoil(game, champion), 0);
 });
 
 test("breakthrough momentum carries marked nearby reds into the same encounter counterattack", () => {
