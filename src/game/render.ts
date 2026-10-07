@@ -723,6 +723,16 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       topY = Math.max(topY, projected.y);
       if (!portrait) framingScale = Math.max(framingScale, Math.abs(projected.x) / 0.93, Math.max(0, -projected.y) / bottom);
     };
+    const frameLabel = (x: number, y: number, z: number, width: number, height: number) => {
+      projected.set(x + curve(z), y, z - travel).applyMatrix4(camera.matrixWorldInverse);
+      const halfWidth = width * camera.projectionMatrix.elements[0] / (-2 * projected.z);
+      const halfHeight = height * camera.projectionMatrix.elements[5] / (-2 * projected.z);
+      projected.applyMatrix4(camera.projectionMatrix);
+      minX = Math.min(minX, projected.x - halfWidth); maxX = Math.max(maxX, projected.x + halfWidth);
+      topY = Math.max(topY, projected.y + halfHeight);
+      if (!portrait) framingScale = Math.max(framingScale, (Math.abs(projected.x) + halfWidth) / 0.93,
+        (projected.y + halfHeight) / 0.68, Math.max(0, halfHeight - projected.y) / 0.86);
+    };
     const cannonX = wx(currentGame?.cannonX ?? W / 2);
     const batteryHalf = currentGame ? Math.max(...cannonBarrelPositions(currentGame.assault?.tier ?? 1).map((barrel) => Math.abs(barrel.x) * SX)) + 1.2 : 1.2;
     framePoint(cannonX - batteryHalf, 0.4, 0.8);
@@ -733,11 +743,15 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       if (gate.overrun) continue;
       framePoint(wx(gate.cx - gate.w / 2) - 0.2, 1.5, wz(gate.y));
       framePoint(wx(gate.cx + gate.w / 2) + 0.2, 1.5, wz(gate.y));
+      frameLabel(wx(gate.cx), 2.1, wz(gate.y) + 0.13, 5.6, 2.2);
     }
     for (const pickup of currentGame?.assault?.pickups ?? []) {
       if (pickup.y > CANNON_Y) continue;
       framePoint(wx(pickup.x - pickup.w / 2) - 0.2, 1.5, wz(pickup.y));
       framePoint(wx(pickup.x + pickup.w / 2) + 0.2, 1.5, wz(pickup.y));
+      // The billboard number is wider than a narrow +1 panel. Fit the
+      // actual readable label too, especially beside the lower phone edge.
+      frameLabel(wx(pickup.x), 2.1, wz(pickup.y) + 0.13, 5.6, 2.2);
     }
     for (const lock of [currentGame?.assault?.cannonTarget, currentGame?.assault?.weaponTarget]) {
       if (!lock) continue;
@@ -748,9 +762,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       if (unit.dead || !unit.braced) continue;
       // The shield cue can sit above the crowd's leading edge. Keep its
       // complete label below the HUD, including the first incoming guard.
-      framePoint(wx(unit.x) - 2.15, 6.6, wz(unit.y));
-      framePoint(wx(unit.x) + 2.15, 6.6, wz(unit.y));
-      if (!portrait) framingScale = Math.max(framingScale, projected.y / 0.68);
+      frameLabel(wx(unit.x), 5.6, wz(unit.y), 4.5, 1.7);
     }
     const active = currentGame?.bases[currentGame.assault?.encounter ?? 0];
     if (active) {
