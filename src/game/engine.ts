@@ -435,6 +435,64 @@ export function championShieldAim(game: Game): { target: Unit; direction: "left"
 // changes their object shapes and slows the shared crowd-neighbour hot loop.
 const championTargets = new WeakMap<Unit, Unit>();
 const counterCommitments = new WeakMap<Unit, { owner: AssaultState; encounter: number }>();
+const shieldBraceFatigue = new WeakMap<Unit, { owner: Game; seconds: number }>();
+const SHIELD_BRACE_FATIGUE_SECONDS = 1.25;
+
+/**
+ * The final counterattack cleanup lets ordinary contact wear down a remaining
+ * guard. It is intentionally narrow: a campaign counterattack must have
+ * deployed every configured wave and have no more than six living red units.
+ * Count actual units rather than `assault.remaining`, which also includes
+ * waves that have not spawned yet.
+ */
+export function isShieldCleanup(game: Game) {
+  const assault = game.assault;
+  const config = game.level.assault;
+  if (
+    game.status !== "playing"
+    || !assault
+    || !config
+    || config.practice
+    || !config.counterattack
+    || assault.phase !== "counterattack"
+    || assault.wave < assault.waves
+  ) return false;
+
+  let livingRed = 0;
+  for (const unit of game.red) {
+    if (!unit.dead && ++livingRed > 6) return false;
+  }
+  return true;
+}
+
+/** Returns the current 0..1 ordinary-contact fatigue on a braced guard. */
+export function shieldBracePressure(game: Game, unit: Unit) {
+  if (!isShieldCleanup(game) || unit.dead || !unit.braced) return 0;
+  const fatigue = shieldBraceFatigue.get(unit);
+  if (!fatigue || fatigue.owner !== game) return 0;
+  return Math.max(0, Math.min(1, fatigue.seconds / SHIELD_BRACE_FATIGUE_SECONDS));
+}
+
+function applyShieldBraceFatigue(game: Game, guards: Set<Unit>, dt: number) {
+  if (!isShieldCleanup(game)) return;
+  const contactSeconds = Math.max(0, dt);
+  if (contactSeconds <= 0) return;
+  for (const guard of guards) {
+    if (guard.dead || !guard.braced) continue;
+    const previous = shieldBraceFatigue.get(guard);
+    const seconds = Math.min(
+      SHIELD_BRACE_FATIGUE_SECONDS,
+      (previous?.owner === game ? previous.seconds : 0) + contactSeconds,
+    );
+    if (seconds >= SHIELD_BRACE_FATIGUE_SECONDS) {
+      guard.braced = false;
+      shieldBraceFatigue.delete(guard);
+      pop(game, guard.x, guard.y, 1, "SHIELD BREAK");
+    } else {
+      shieldBraceFatigue.set(guard, { owner: game, seconds });
+    }
+  }
+}
 
 export function launchChampion(g: Game) {
   if (g.status !== "playing" || g.charge < CHARGE_MAX) return false;
@@ -2052,8 +2110,9 @@ function updateAssaultRed(g: Game, dt: number) {
   if (front > -Infinity) assault.frontline = Math.min(DEFENSE_Y, front);
 }
 
-function resolveAssaultFights(g: Game) {
+function resolveAssaultFights(g: Game, dt: number) {
   const grid: Unit[][] = new Array(COLS * ROWS);
+  const braceContacts = isShieldCleanup(g) ? new Set<Unit>() : null;
   for (const r of g.red) {
     if (r.dead) continue;
     const c = Math.max(0, Math.min(COLS - 1, Math.floor(r.x / CELL)));
@@ -2082,7 +2141,10 @@ function resolveAssaultFights(g: Game) {
             // A braced guard visibly holds the line until a champion arrives.
             // Ordinary runners are consumed on contact without weakening the
             // guard, while the existing collision path remains unchanged once
-            // the brace has been broken.
+            // the brace has been broken. Count each guard once after the
+            // complete collision pass so a dense same-frame pileup cannot
+            // multiply its fatigue.
+            braceContacts?.add(e);
             u.dead = true;
             pop(g, u.x, u.y, 0);
             break;
@@ -2108,6 +2170,7 @@ function resolveAssaultFights(g: Game) {
       }
     }
   }
+  if (braceContacts) applyShieldBraceFatigue(g, braceContacts, dt);
 }
 
 function updateAssaultBossSlam(g: Game, dt: number) {
@@ -2319,7 +2382,7 @@ function stepAssault(g: Game, dt: number) {
     resolveWeaponTarget(g);
     updateAssaultRed(g, dt);
     if (g.status === "playing") {
-      resolveAssaultFights(g);
+      resolveAssaultFights(g, dt);
       const active = g.bases[assault.encounter];
       if (!g.level.assault?.practice && active && active.hp > 0) {
         assault.bossTimer -= dt;
