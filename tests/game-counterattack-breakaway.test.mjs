@@ -68,7 +68,7 @@ test("late counterattack runners commit to a bounded flank target", () => {
 test("a centered follow-up wave fans both ways while legacy and practice units stay untouched", () => {
   const g = setupCounterattack();
   assert.equal(counterattackWaveRole(g, 0), "flank");
-  assert.equal(counterattackWaveRole(g, 1), "shield");
+  assert.equal(counterattackWaveRole(g, 1), "mixed", "a centered runner-only wave has no shield role");
   step(g, 1 / 60);
   const firstWaveCount = g.red.length;
   g.assault.wave = 1;
@@ -92,7 +92,7 @@ test("a centered follow-up wave fans both ways while legacy and practice units s
 
   const mirrored = setupCounterattack({ encounter: 2 });
   assert.equal(counterattackWaveRole(mirrored, 0), "flank", "mirroring changes side, not the wave role");
-  assert.equal(counterattackWaveRole(mirrored, 1), "shield");
+  assert.equal(counterattackWaveRole(mirrored, 1), "mixed");
   step(mirrored, 1 / 60);
   const mirroredRunners = mirrored.red.filter((unit) => unit.kind === "runner");
   assert.ok(mirroredRunners.every((unit) => (unit.breakawayTargetX ?? 180) < unit.x), "the mirrored first wave uses the left flank");

@@ -765,7 +765,15 @@ export function counterattackWaveRole(game: Game, waveIndex: number): Counteratt
     || index < 0
     || index >= assault.waves
   ) return "mixed";
-  return counterattackLane(counterattack, index, assault.encounter) === 0 ? "shield" : "flank";
+  const authoredPlan = counterattackWavePlan(counterattack, index);
+  if (counterattackLane(counterattack, index, assault.encounter) === 0) {
+    // A centered wave cannot advertise a shield role without a scaled guard
+    // to brace. Zero-authored guards stay a runner/brute mixed wave.
+    return authoredPlan.guards > 0 ? "shield" : "mixed";
+  }
+  // A flank role is a runner rush. Keep a runnerless custom wave mixed so the
+  // telegraph never promises runners that the authored plan cannot provide.
+  return authoredPlan.runners > 0 ? "flank" : "mixed";
 }
 
 function counterattackWavePlan(

@@ -124,12 +124,33 @@ test("late role compositions preserve each scaled wave total and authored zero r
   const noGuards = setupCounterattack({ waves: 2 });
   noGuards.level.assault.counterattack.guards = 0;
   noGuards.level.assault.counterattack.runners = 3;
+  assert.equal(counterattackWaveRole(noGuards, 1), "mixed", "a centered wave without guards keeps the mixed telegraph");
   step(noGuards, 1 / 60);
   noGuards.assault.wave = 1;
   noGuards.assault.waveSpawned = 0;
   noGuards.assault.waveTimer = 0;
   step(noGuards, 1 / 60);
   assert.ok(noGuards.red.every((unit) => unit.kind !== "guard"), "shield waves do not invent guards");
+});
+
+test("custom zero-role waves keep mixed telegraphs and exact brute-only totals", () => {
+  const runnerlessFlank = setupCounterattack({ waves: 2 });
+  Object.assign(runnerlessFlank.level.assault.counterattack, { runners: 0, guards: 3, brutes: 0 });
+  assert.equal(counterattackWaveRole(runnerlessFlank, 0), "mixed", "a runnerless flank cannot announce a runner rush");
+  assert.equal(counterattackWaveRole(runnerlessFlank, 1), "shield", "a centered wave may still brace its authored guards");
+  step(runnerlessFlank, 1 / 60);
+  assert.equal(runnerlessFlank.red.length, 3);
+  assert.ok(runnerlessFlank.red.every((unit) => unit.kind === "guard"));
+  assert.equal(runnerlessFlank.assault.remaining, 6, "the mixed fallback preserves both scaled wave totals");
+
+  const bruteOnly = setupCounterattack({ waves: 2 });
+  Object.assign(bruteOnly.level.assault.counterattack, { runners: 0, guards: 0, brutes: 2 });
+  assert.equal(counterattackWaveRole(bruteOnly, 0), "mixed", "a brute-only flank stays mixed");
+  assert.equal(counterattackWaveRole(bruteOnly, 1), "mixed", "a brute-only center has no shield role");
+  step(bruteOnly, 1 / 60);
+  assert.equal(bruteOnly.red.length, 2);
+  assert.ok(bruteOnly.red.every((unit) => unit.kind === "brute"));
+  assert.equal(bruteOnly.assault.remaining, 4, "brute-only waves keep their scaled count without inventing runners or guards");
 });
 
 test("partial counterattack capacity deploys every role wave and keeps remaining exact", () => {
