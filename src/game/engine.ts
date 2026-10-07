@@ -105,6 +105,8 @@ export type Unit = {
   pace?: number;
   /** Counterattack role; legacy/custom assault units default to runner/brute. */
   kind?: AssaultWaveKind;
+  /** A late-wave guard's visible brace; ordinary runners cannot damage it. */
+  braced?: boolean;
   /** Stable outer-flank target for a late counterattack runner. */
   breakawayTargetX?: number;
   /** Starting row for the smooth road-to-road advance. */
@@ -671,6 +673,13 @@ function spawnCounterattackWave(g: Game, waveIndex: number) {
     const x = Math.max(10, Math.min(W - 10, center - 29 + column * spacing + (g.rand() - 0.5) * 2.5));
     const y = spawnY - row * 8.5 - g.rand() * 2.4;
     const enemy = makeAssaultEnemy(g, x, y, kind === "brute", lane * 2 + column - Math.floor(columns / 2), kind);
+    if (kind === "guard"
+      && i === plan.runners
+      && !g.level.assault?.practice
+      && assault.encounter > 0
+      && g.level.assault?.slamEvery !== undefined) {
+      enemy.braced = true;
+    }
     if (kind === "runner" && !g.level.assault?.practice && assault.encounter > 0 && g.level.assault?.slamEvery !== undefined) {
       enemy.breakawayTargetX = counterattackBreakawayTarget(center, lane, x, i);
     }
@@ -1999,6 +2008,19 @@ function resolveAssaultFights(g: Game) {
           const dx = u.x - e.x;
           const dy = u.y - e.y;
           if (dx * dx + dy * dy > reach * reach) continue;
+          if (e.braced && !u.big) {
+            // A braced guard visibly holds the line until a champion arrives.
+            // Ordinary runners are consumed on contact without weakening the
+            // guard, while the existing collision path remains unchanged once
+            // the brace has been broken.
+            u.dead = true;
+            pop(g, u.x, u.y, 0);
+            break;
+          }
+          if (e.braced) {
+            e.braced = false;
+            pop(g, e.x, e.y, 1, "SHIELD BREAK");
+          }
           const dmg = Math.min(u.hp, e.hp);
           u.hp -= dmg;
           e.hp -= dmg;
