@@ -243,14 +243,24 @@ test("fresh counterattack shots keep their committed launch lane before the fina
   assert.ok(survivor.y > 510, "fixture runner crossed the first gate during the launch-lane check");
 });
 
-test("a previous encounter's engagement does not steer a survivor on the next route", () => {
-  const survivor = counterattackUnit(180, 555, { used: 0, counterStage: 0 });
-  const game = counterattackGame({ blue: [survivor], red: [counterattackUnit(100, 555, { used: 0 })] });
-  game.bases.push({ ...game.bases[0] });
-  game.assault.encounter = 1;
-  for (let frame = 0; frame < 20; frame++) step(game, 1 / 60);
-  assert.equal(survivor.x, 180, "engagement leaked across encounters before the new approach");
-  assert.ok(survivor.y > 510);
+test("engagement does not leak into another encounter or game", () => {
+  for (const scope of ["encounter", "game"]) {
+    const survivor = counterattackUnit(180, 407, { used: 0 });
+    let game = counterattackGame({ blue: [survivor], red: [counterattackUnit(180, 441, { used: 0 })] });
+    step(game, 1 / 60);
+    assert.ok(survivor.y > 407, "fixture did not commit to the counterattack");
+    survivor.y = 555;
+    const target = counterattackUnit(100, 555, { used: 0 });
+    if (scope === "game") game = counterattackGame({ blue: [survivor], red: [target] });
+    else {
+      game.bases.push({ ...game.bases[0] });
+      game.assault.encounter = 1;
+      game.red = [target];
+    }
+    for (let frame = 0; frame < 20; frame++) step(game, 1 / 60);
+    assert.equal(survivor.x, 180, `engagement leaked across ${scope} before the new approach`);
+    assert.ok(survivor.y > 510);
+  }
 });
 
 test("counterattack survivors stage near the defeated boss when the road is empty", () => {

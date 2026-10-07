@@ -111,10 +111,6 @@ export type Unit = {
   braced?: boolean;
   /** Stable outer-flank target for a late counterattack runner. */
   breakawayTargetX?: number;
-  /** Encounter whose final approach this survivor has already crossed. */
-  counterStage?: number;
-  /** Aligned shield selected at launch; correction remains local and physical. */
-  championTarget?: Unit;
   /** Starting row for the smooth road-to-road advance. */
   advanceFromY?: number;
 };
@@ -435,13 +431,18 @@ export function championShieldAim(game: Game): { target: Unit; direction: "left"
   return { target, direction };
 }
 
+// Keep engagement metadata outside Unit. Adding fields to runners mid-battle
+// changes their object shapes and slows the shared crowd-neighbour hot loop.
+const championTargets = new WeakMap<Unit, Unit>();
+const counterCommitments = new WeakMap<Unit, { owner: AssaultState; encounter: number }>();
+
 export function launchChampion(g: Game) {
   if (g.status !== "playing" || g.charge < CHARGE_MAX) return false;
   g.charge = 0;
   g.stats.champions++;
   const aim = championShieldAim(g);
   const champion: Unit = { x: g.cannonX, y: CANNON_Y - 26, vx: 0, hp: 14, r: 11, big: true, used: 0, dead: false };
-  if (aim?.direction === "aligned") champion.championTarget = aim.target;
+  if (aim?.direction === "aligned") championTargets.set(champion, aim.target);
   g.blue.push(champion);
   return true;
 }
@@ -1785,7 +1786,8 @@ function updateAssaultBlue(g: Game, dt: number) {
     // previous target-following code made every in-flight unit swing toward the
     // latest pointer position and made the controls feel like remote steering.
     const lane = Math.max(-4, Math.min(4, u.lane ?? 0));
-    const championTarget = u.championTarget && !u.championTarget.dead && u.championTarget.braced ? u.championTarget : null;
+    const selectedGuard = u.big ? championTargets.get(u) : null;
+    const championTarget = selectedGuard && !selectedGuard.dead && selectedGuard.braced ? selectedGuard : null;
     const guidedChampion = championTarget && Math.abs(championTarget.x - u.x) <= ASSAULT_COUNTER_TARGET_LATERAL
       && Math.abs(championTarget.y - u.y) <= ASSAULT_COUNTER_TARGET_DEPTH;
     const crossedFirstGate = !championTarget && assault.phase === "battle" && g.gates.some((_, gateIndex) => (u.used & (1 << gateIndex)) !== 0);
@@ -1877,13 +1879,15 @@ function updateAssaultBlue(g: Game, dt: number) {
     // moving guard before the final approach. Fresh ordinary shots keep their
     // launch lane, and shield damage still requires the normal contact test.
     if (guidedChampion) applyAssaultCounterattackGuidance(u, championTarget, dt);
+    const commitment = assault.phase === "counterattack" ? counterCommitments.get(u) : null;
+    const alreadyCommitted = commitment?.owner === assault && commitment.encounter === assault.encounter;
     const passedCounterattackLine = assault.phase === "counterattack"
-      && (u.counterStage === assault.encounter || u.y <= counterApproachY || (allGatesMask !== 0 && (u.used & allGatesMask) === allGatesMask));
+      && (alreadyCommitted || u.y <= counterApproachY || (allGatesMask !== 0 && (u.used & allGatesMask) === allGatesMask));
     if (passedCounterattackLine) {
       // Crossing the final approach commits this survivor to the current
       // fight. Turning back across that line must not turn it into a fresh
       // forward-only shot again; that feedback pinned whole rows to the gate.
-      u.counterStage = assault.encounter;
+      if (!alreadyCommitted) counterCommitments.set(u, { owner: assault, encounter: assault.encounter });
       // A red outside the global expanded bounding box cannot be a local
       // target. This exact rejection avoids the 99-cell query for staged
       // survivors that are still far from the incoming wave.

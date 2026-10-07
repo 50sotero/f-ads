@@ -147,7 +147,6 @@ test("an unaligned champion does not acquire a shield or follow later cannon ste
   const champion = g.blue[0];
   g.targetX = 75;
   for (let frame = 0; frame < 20; frame++) step(g, 1 / 60);
-  assert.equal(champion.championTarget, undefined);
   assert.equal(champion.x, 240);
   assert.equal(guard.braced, true);
 });
