@@ -1249,19 +1249,35 @@ const ASSAULT_COUNTER_TARGET_COLS = COLS;
 const ASSAULT_COUNTER_TARGET_ROWS = ROWS;
 const assaultCounterTargetCells: Array<Unit[] | undefined> = new Array(ASSAULT_COUNTER_TARGET_COLS * ASSAULT_COUNTER_TARGET_ROWS);
 const assaultCounterTargetCellGeneration = new Uint32Array(ASSAULT_COUNTER_TARGET_COLS * ASSAULT_COUNTER_TARGET_ROWS);
-const assaultCounterTargetCellOffsets: Array<{ dr: number; dc: number }> = [];
+const assaultCounterTargetOffsetEntries: Array<{ dr: number; dc: number }> = [];
 for (let dr = -Math.ceil(ASSAULT_COUNTER_TARGET_DEPTH / CELL); dr <= Math.ceil(ASSAULT_COUNTER_TARGET_DEPTH / CELL); dr++) {
   for (let dc = -Math.ceil(ASSAULT_COUNTER_TARGET_LATERAL / CELL); dc <= Math.ceil(ASSAULT_COUNTER_TARGET_LATERAL / CELL); dc++) {
-    assaultCounterTargetCellOffsets.push({ dr, dc });
+    assaultCounterTargetOffsetEntries.push({ dr, dc });
   }
 }
-assaultCounterTargetCellOffsets.sort((a, b) => {
+assaultCounterTargetOffsetEntries.sort((a, b) => {
   const distanceA = a.dr * a.dr + a.dc * a.dc;
   const distanceB = b.dr * b.dr + b.dc * b.dc;
   return distanceA - distanceB || a.dr - b.dr || a.dc - b.dc;
 });
+// Keep the exact nearest-cell order above, but use flat typed arrays in the
+// hot query. This removes object property accesses from each of the 99
+// candidate cells examined by a survivor.
+const assaultCounterTargetOffsetRows = new Int8Array(assaultCounterTargetOffsetEntries.length);
+const assaultCounterTargetOffsetCols = new Int8Array(assaultCounterTargetOffsetEntries.length);
+const assaultCounterTargetOffsetDeltas = new Int16Array(assaultCounterTargetOffsetEntries.length);
+for (let i = 0; i < assaultCounterTargetOffsetEntries.length; i++) {
+  const { dr, dc } = assaultCounterTargetOffsetEntries[i];
+  assaultCounterTargetOffsetRows[i] = dr;
+  assaultCounterTargetOffsetCols[i] = dc;
+  assaultCounterTargetOffsetDeltas[i] = dr * ASSAULT_COUNTER_TARGET_COLS + dc;
+}
 let assaultCounterTargetGeneration = 0;
 let assaultCounterTargetCount = 0;
+let assaultCounterTargetMinX = Infinity;
+let assaultCounterTargetMaxX = -Infinity;
+let assaultCounterTargetMinY = Infinity;
+let assaultCounterTargetMaxY = -Infinity;
 
 /**
  * Indexes living red units for a counterattack-local query. The index is
@@ -1276,9 +1292,17 @@ function prepareAssaultCounterattackTargets(units: Unit[]) {
     assaultCounterTargetGeneration = 1;
   }
   assaultCounterTargetCount = 0;
+  assaultCounterTargetMinX = Infinity;
+  assaultCounterTargetMaxX = -Infinity;
+  assaultCounterTargetMinY = Infinity;
+  assaultCounterTargetMaxY = -Infinity;
   for (let i = 0; i < units.length; i++) {
     const unit = units[i];
     if (unit.dead) continue;
+    if (unit.x < assaultCounterTargetMinX) assaultCounterTargetMinX = unit.x;
+    if (unit.x > assaultCounterTargetMaxX) assaultCounterTargetMaxX = unit.x;
+    if (unit.y < assaultCounterTargetMinY) assaultCounterTargetMinY = unit.y;
+    if (unit.y > assaultCounterTargetMaxY) assaultCounterTargetMaxY = unit.y;
     const col = Math.max(0, Math.min(ASSAULT_COUNTER_TARGET_COLS - 1, Math.floor(unit.x / CELL)));
     const row = Math.max(0, Math.min(ASSAULT_COUNTER_TARGET_ROWS - 1, Math.floor((unit.y + CELL) / CELL)));
     const cellIndex = row * ASSAULT_COUNTER_TARGET_COLS + col;
@@ -1299,23 +1323,32 @@ function prepareAssaultCounterattackTargets(units: Unit[]) {
 
 function nearestAssaultCounterattackTarget(unit: Unit) {
   if (assaultCounterTargetCount === 0) return null;
-  const col = Math.max(0, Math.min(ASSAULT_COUNTER_TARGET_COLS - 1, Math.floor(unit.x / CELL)));
-  const row = Math.max(0, Math.min(ASSAULT_COUNTER_TARGET_ROWS - 1, Math.floor((unit.y + CELL) / CELL)));
+  const unitX = unit.x;
+  const unitY = unit.y;
+  const col = Math.max(0, Math.min(ASSAULT_COUNTER_TARGET_COLS - 1, Math.floor(unitX / CELL)));
+  const row = Math.max(0, Math.min(ASSAULT_COUNTER_TARGET_ROWS - 1, Math.floor((unitY + CELL) / CELL)));
+  const baseCellIndex = row * ASSAULT_COUNTER_TARGET_COLS + col;
+  // This hash is stable for the whole query. Hoisting it out of the nonempty
+  // cell loop preserves the original sample order without recomputing the
+  // same unit coordinates up to 99 times.
+  const sampleHash = Math.floor(unitX) * 17 + Math.floor(unitY) * 13 + row * 7 + col * 5;
   let best: Unit | null = null;
   let bestDistance = Infinity;
   let inspected = 0;
-  for (const offset of assaultCounterTargetCellOffsets) {
-    const rr = row + offset.dr;
+  for (let offsetIndex = 0; offsetIndex < assaultCounterTargetOffsetRows.length; offsetIndex++) {
+    const dr = assaultCounterTargetOffsetRows[offsetIndex];
+    const rr = row + dr;
     if (rr < 0 || rr >= ASSAULT_COUNTER_TARGET_ROWS) continue;
-    const cc = col + offset.dc;
+    const dc = assaultCounterTargetOffsetCols[offsetIndex];
+    const cc = col + dc;
     if (cc < 0 || cc >= ASSAULT_COUNTER_TARGET_COLS) continue;
-    const cellIndex = rr * ASSAULT_COUNTER_TARGET_COLS + cc;
+    const cellIndex = baseCellIndex + assaultCounterTargetOffsetDeltas[offsetIndex];
     if (assaultCounterTargetCellGeneration[cellIndex] !== assaultCounterTargetGeneration) continue;
     const cell = assaultCounterTargetCells[cellIndex];
     if (!cell || cell.length === 0) continue;
     const sampleCount = Math.min(cell.length, ASSAULT_COUNTER_TARGET_MAX_CELL_SAMPLES);
     const sampleStart = cell.length > 1
-      ? ((Math.floor(unit.x) * 17 + Math.floor(unit.y) * 13 + rr * 7 + cc * 5) % cell.length + cell.length) % cell.length
+      ? ((sampleHash + dr * 7 + dc * 5) % cell.length + cell.length) % cell.length
       : 0;
     for (let sample = 0; sample < sampleCount; sample++) {
       if (inspected >= ASSAULT_COUNTER_TARGET_MAX_CANDIDATES) return best;
@@ -1323,8 +1356,8 @@ function nearestAssaultCounterattackTarget(unit: Unit) {
       const sampleOffset = Math.floor(sample * cell.length / sampleCount);
       const target = cell[(sampleStart + sampleOffset) % cell.length];
       if (!target || target.dead) continue;
-      const dx = target.x - unit.x;
-      const dy = target.y - unit.y;
+      const dx = target.x - unitX;
+      const dy = target.y - unitY;
       if (Math.abs(dx) > ASSAULT_COUNTER_TARGET_LATERAL || Math.abs(dy) > ASSAULT_COUNTER_TARGET_DEPTH) continue;
       const distance = dx * dx + dy * dy;
       if (distance < bestDistance) {
@@ -1634,7 +1667,15 @@ function updateAssaultBlue(g: Game, dt: number) {
     const passedCounterattackLine = assault.phase === "counterattack"
       && (u.y <= counterApproachY || (allGatesMask !== 0 && (u.used & allGatesMask) === allGatesMask));
     if (passedCounterattackLine) {
-      const target = nearestAssaultCounterattackTarget(u);
+      // A red outside the global expanded bounding box cannot be a local
+      // target. This exact rejection avoids the 99-cell query for staged
+      // survivors that are still far from the incoming wave.
+      const hasNearbyRed = assaultCounterTargetCount > 0
+        && u.x >= assaultCounterTargetMinX - ASSAULT_COUNTER_TARGET_LATERAL
+        && u.x <= assaultCounterTargetMaxX + ASSAULT_COUNTER_TARGET_LATERAL
+        && u.y >= assaultCounterTargetMinY - ASSAULT_COUNTER_TARGET_DEPTH
+        && u.y <= assaultCounterTargetMaxY + ASSAULT_COUNTER_TARGET_DEPTH;
+      const target = hasNearbyRed ? nearestAssaultCounterattackTarget(u) : null;
       if (target) applyAssaultCounterattackGuidance(u, target, dt);
 
       const targetDepth = target ? target.y - u.y : 0;
