@@ -483,6 +483,7 @@ type BossBraceChampionDrive = {
   owner: Game;
   assault: AssaultState;
   encounter: number;
+  target: Base;
 };
 type BossBraceRedDrive = {
   owner: Game;
@@ -683,6 +684,56 @@ export function bossBrace(game: Game): BossBraceSnapshot | null {
   };
 }
 
+/**
+ * Returns the active giant's launch lane during its winding cue. The direction
+ * is measured from the cannon to the giant so the player can deliberately
+ * align a champion before committing it to the interruption lane.
+ */
+export function championBossAim(game: Game): { target: Base; direction: "left" | "right" | "aligned"; canInterrupt: boolean } | null {
+  const assault = game.assault;
+  const state = bossBraceRuntime(game);
+  if (!assault || !state || state.phase !== "winding") return null;
+  const target = game.bases[assault.encounter];
+  if (!target || target.hp <= 0) return null;
+  const offset = target.x - game.cannonX;
+  const direction = Math.abs(offset) <= 14 ? "aligned" : offset < 0 ? "left" : "right";
+  const remaining = Math.max(0, ASSAULT_BOSS_BRACE_DURATION - state.elapsed);
+  const bossFront = target.y + target.h / 2;
+  const launchY = CANNON_Y - 26;
+  const distance = Math.max(0, launchY - bossFront);
+  const travel = distance / (ASSAULT_CHAMP_SPEED * ASSAULT_BOSS_BRACE_CHAMPION_FORWARD_FLOOR) + 0.15;
+  return { target, direction, canInterrupt: remaining + 1e-9 >= travel };
+}
+
+function activeBossBraceChampionDrive(game: Game, unit: Unit) {
+  const drive = bossBraceChampionDrives.get(unit);
+  const assault = game.assault;
+  const target = assault ? game.bases[assault.encounter] : null;
+  if (
+    !drive
+    || !assault
+    || game.status !== "playing"
+    || assault.phase !== "battle"
+    || drive.owner !== game
+    || drive.assault !== assault
+    || drive.encounter !== assault.encounter
+    || drive.target !== target
+    || !target
+    || target.hp <= 0
+    || unit.dead
+  ) return null;
+  return drive;
+}
+
+/** Returns whether a live champion is currently committed to this brace. */
+export function bossBraceChampionIncoming(game: Game) {
+  if (!game.assault) return false;
+  for (const unit of game.blue) {
+    if (unit.big && activeBossBraceChampionDrive(game, unit)) return true;
+  }
+  return false;
+}
+
 function beginBossBrace(game: Game, assault: AssaultState) {
   const state = ensureBossBraceRuntime(game, assault);
   if (state.triggered || state.invalidated) return false;
@@ -821,9 +872,14 @@ export function launchChampion(g: Game) {
   const aim = championShieldAim(g);
   const champion: Unit = { x: g.cannonX, y: CANNON_Y - 26, vx: 0, hp: 14, r: 11, big: true, used: 0, dead: false };
   if (aim?.direction === "aligned") championTargets.set(champion, aim.target);
-  const brace = bossBraceRuntime(g, true);
-  if (brace?.phase === "winding") {
-    bossBraceChampionDrives.set(champion, { owner: g, assault: g.assault!, encounter: g.assault!.encounter });
+  const bossAim = championBossAim(g);
+  if (bossAim?.direction === "aligned" && g.assault) {
+    bossBraceChampionDrives.set(champion, {
+      owner: g,
+      assault: g.assault,
+      encounter: g.assault.encounter,
+      target: bossAim.target,
+    });
   }
   g.blue.push(champion);
   return true;
@@ -2083,6 +2139,14 @@ function applyAssaultCounterattackGuidance(u: Unit, target: Unit, dt: number) {
   u.vx = current + Math.max(-maxDelta, Math.min(maxDelta, desired - current));
 }
 
+/** Keeps an explicitly aligned brace champion in the active boss's launch lane. */
+function applyAssaultBossCommitmentGuidance(u: Unit, active: Base, dt: number) {
+  const desired = Math.max(-ASSAULT_COUNTER_STEER_SPEED, Math.min(ASSAULT_COUNTER_STEER_SPEED, (active.x - u.x) * 3.2));
+  const current = u.vx;
+  const maxDelta = ASSAULT_COUNTER_STEER_ACCEL * dt;
+  u.vx = current + Math.max(-maxDelta, Math.min(maxDelta, desired - current));
+}
+
 /** Gives late counterattack runners a small, committed sidestep toward their own flank. */
 function applyAssaultRunnerBreakaway(u: Unit, dt: number) {
   if (u.breakawayTargetX === undefined) return;
@@ -2445,11 +2509,12 @@ function updateAssaultBlue(g: Game, dt: number) {
     // previous target-following code made every in-flight unit swing toward the
     // latest pointer position and made the controls feel like remote steering.
     const lane = Math.max(-4, Math.min(4, u.lane ?? 0));
-    const selectedGuard = u.big ? championTargets.get(u) : null;
+    const committedBoss = u.big ? activeBossBraceChampionDrive(g, u) : null;
+    const selectedGuard = u.big && !committedBoss ? championTargets.get(u) : null;
     const championTarget = selectedGuard && !selectedGuard.dead && selectedGuard.braced ? selectedGuard : null;
     const guidedChampion = championTarget && Math.abs(championTarget.x - u.x) <= ASSAULT_COUNTER_TARGET_LATERAL
       && Math.abs(championTarget.y - u.y) <= ASSAULT_COUNTER_TARGET_DEPTH;
-    const crossedFirstGate = !championTarget && assault.phase === "battle" && g.gates.some((_, gateIndex) => (u.used & (1 << gateIndex)) !== 0);
+    const crossedFirstGate = !championTarget && !committedBoss && assault.phase === "battle" && g.gates.some((_, gateIndex) => (u.used & (1 << gateIndex)) !== 0);
     // Before the first actual gate, keep the launch decision readable. Once a
     // runner has crossed a panel, guide it only toward the next panel that is
     // visibly ahead. Panels sharing one y coordinate are a genuine branch;
@@ -2494,14 +2559,7 @@ function updateAssaultBlue(g: Game, dt: number) {
         applyAssaultCorridorPressure(u, active.x, dt);
       }
     }
-    const braceChampionDrive = u.big && bossBraceChampionDrives.get(u);
-    const braceRuntime = braceChampionDrive
-      && braceChampionDrive.owner === g
-      && braceChampionDrive.assault === assault
-      && braceChampionDrive.encounter === assault.encounter
-      ? bossBraceRuntime(g, true)
-      : null;
-    const forwardMotion = braceRuntime?.phase === "winding"
+    const forwardMotion = committedBoss
       ? Math.max(assaultMotion.forward[blueIndex], ASSAULT_BOSS_BRACE_CHAMPION_FORWARD_FLOOR)
       : assaultMotion.forward[blueIndex];
     let dy = -(u.big ? ASSAULT_CHAMP_SPEED : ASSAULT_BLUE_SPEED) * dt
@@ -2521,7 +2579,7 @@ function updateAssaultBlue(g: Game, dt: number) {
     // Begin the flank turn as soon as the runner clears the last gate line.
     // Waiting until the boss's current y made side launches pass its entire
     // footprint before their lateral velocity had time to reach the flank.
-    if (passedFinalGate && !championTarget) {
+    if (passedFinalGate && !championTarget && !committedBoss) {
       // Keep a runner's own lane while it is already over the fortress. Only
       // steer a missed shot back to the nearest edge of the boss footprint;
       // pulling every survivor toward the centre creates a single broad row
@@ -2537,6 +2595,7 @@ function updateAssaultBlue(g: Game, dt: number) {
       const want = Math.max(-180, Math.min(180, (desiredX - u.x) * (missedFlank ? 3.4 : 2.4)));
       u.vx += (want - u.vx) * Math.min(1, dt * (missedFlank ? 9 : 4.5));
     }
+    if (committedBoss) applyAssaultBossCommitmentGuidance(u, active, dt);
 
     // A counterattack is a local reversal around the defeated giant, not a
     // new destination for every runner on the board. Preserve a shot's launch

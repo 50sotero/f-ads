@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { bossBrace, launchChampion, newGame, step } from "../src/game/engine.ts";
+import {
+  bossBrace,
+  bossBraceChampionIncoming,
+  championBossAim,
+  launchChampion,
+  newGame,
+  step,
+} from "../src/game/engine.ts";
 
 const FRAME = 1 / 60;
 
@@ -8,11 +15,12 @@ const makeLevel = (options = {}) => {
   const practice = options.practice ?? false;
   const horde = options.horde ?? 24;
   const slamEvery = Object.hasOwn(options, "slamEvery") ? options.slamEvery : 9;
+  const baseX = options.baseX ?? 180;
   return {
     name: "boss brace fixture",
     par: 30,
-    bases: [{ x: 180, y: 300, hp: 100, every: 9999, group: 0 }],
-    gates: [{ x: 180, y: 0, w: 1, kind: "x", n: 2 }],
+    bases: [{ x: baseX, y: 300, hp: 100, every: 9999, group: 0 }],
+    gates: [{ x: baseX, y: 0, w: 1, kind: "x", n: 2 }],
     assault: { horde, reserve: 0, speed: 16, theme: "fork", practice, slamEvery },
   };
 };
@@ -36,6 +44,17 @@ const prepare = (options = {}) => {
   game.assault.horde = horde;
   game.assault.reserve = 0;
   game.bases[0].hp = 75;
+  return game;
+};
+
+const armBrace = (options = {}) => {
+  const game = prepare(options);
+  game.blue.push(makeUnit({ x: game.bases[0].x }));
+  step(game, FRAME);
+  assert.equal(bossBrace(game)?.phase, "winding");
+  game.assault.weaponTarget = null;
+  game.assault.cannonTarget = null;
+  game.assault.weaponTargetsEnabled = false;
   return game;
 };
 
@@ -192,4 +211,92 @@ test("pause and phase changes invalidate the active cue without leaving a stale 
   phased.assault.phase = "battle";
   step(phased, FRAME);
   assert.equal(bossBrace(phased), null, "returning to the old phase did not resurrect the cue");
+});
+
+test("boss aim reports the readable lane and closes the interruption window near expiry", () => {
+  const game = armBrace({ baseX: 272 });
+  game.cannonX = 272;
+  game.targetX = 272;
+
+  const aligned = championBossAim(game);
+  assert.equal(aligned?.target, game.bases[0]);
+  assert.equal(aligned?.direction, "aligned");
+  assert.equal(aligned?.canInterrupt, true);
+
+  game.cannonX = 180;
+  game.targetX = 180;
+  assert.equal(championBossAim(game)?.direction, "right");
+
+  for (let frame = 0; frame < 250; frame++) step(game, FRAME);
+  const late = championBossAim(game);
+  assert.equal(late?.direction, "right", "the aim lane follows the cannon's current position");
+  assert.equal(late?.canInterrupt, false, "a late launch no longer promises an interruption");
+});
+
+test("only an aligned champion commits to the boss lane", () => {
+  const game = armBrace({ baseX: 272 });
+  game.cannonX = 180;
+  game.targetX = 180;
+  assert.equal(championBossAim(game)?.direction, "right");
+  game.charge = 30;
+
+  assert.equal(launchChampion(game), true);
+  const champion = game.blue.at(-1);
+  assert.ok(champion);
+  assert.equal(bossBraceChampionIncoming(game), false, "a side launch keeps its ordinary gate guidance");
+  step(game, 0.5);
+  assert.equal(bossBraceChampionIncoming(game), false);
+  assert.equal(champion.dead, false);
+});
+
+test("an aligned champion reaches the giant and keeps its commitment after another champion staggers it", () => {
+  const game = armBrace({ baseX: 272 });
+  game.cannonX = 272;
+  game.targetX = 272;
+  game.charge = 30;
+  assert.equal(championBossAim(game)?.direction, "aligned");
+  assert.equal(launchChampion(game), true);
+  const committed = game.blue.at(-1);
+  assert.ok(committed);
+  const launchY = committed.y;
+  assert.equal(bossBraceChampionIncoming(game), true);
+
+  // This champion is already at the boss and breaks the brace before the
+  // committed launch has crossed the road. The committed unit must retain
+  // the boss lane through that stagger and the later phase cleanup.
+  game.blue.push(makeUnit({ x: game.bases[0].x, big: true }));
+  game.assault.bossTimer = 0;
+  step(game, FRAME);
+  assert.equal(bossBrace(game)?.phase, "staggered");
+  assert.equal(bossBraceChampionIncoming(game), true);
+  assert.equal(committed.dead, false);
+
+  advanceUntil(game, () => bossBrace(game) === null, 90);
+  assert.equal(bossBrace(game), null);
+  assert.equal(bossBraceChampionIncoming(game), true);
+
+  const hpBeforeCommittedContact = game.bases[0].hp;
+  const frames = advanceUntil(game, () => committed.dead, 420);
+  assert.ok(frames < 420, "the committed champion reached the giant instead of leaking past it");
+  assert.ok(launchY - committed.y > 150, "the champion made a physical road advance");
+  assert.ok(game.bases[0].hp < hpBeforeCommittedContact, "the committed champion made actual boss contact");
+  assert.equal(bossBraceChampionIncoming(game), false, "the incoming cue clears when the champion dies");
+});
+
+test("boss champion commitment is invalidated by phase, pause, or encounter changes", () => {
+  const game = armBrace({ baseX: 272 });
+  game.cannonX = 272;
+  game.targetX = 272;
+  game.charge = 30;
+  assert.equal(launchChampion(game), true);
+  assert.equal(bossBraceChampionIncoming(game), true);
+
+  game.assault.phase = "counterattack";
+  assert.equal(bossBraceChampionIncoming(game), false);
+  game.assault.phase = "battle";
+  game.status = "lost";
+  assert.equal(bossBraceChampionIncoming(game), false);
+  game.status = "playing";
+  game.assault.encounter = 1;
+  assert.equal(bossBraceChampionIncoming(game), false);
 });
