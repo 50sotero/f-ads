@@ -740,18 +740,61 @@ function counterattackLane(config: AssaultCounterattackDef | undefined, waveInde
   return (encounter % 2 === 0 ? flank : -flank) as -1 | 1;
 }
 
-function counterattackWavePlan(config: AssaultCounterattackDef | undefined, waveIndex: number) {
+export type CounterattackWaveRole = "mixed" | "flank" | "shield";
+
+/**
+ * Describes the authored role for a counterattack wave without changing the
+ * wave or game state. Early encounters and one-wave fixtures retain the
+ * original mixed composition; later slam encounters use their existing lane
+ * cadence to distinguish fast flanks from centered shield waves.
+ */
+export function counterattackWaveRole(game: Game, waveIndex: number): CounterattackWaveRole {
+  const assault = game.assault;
+  const config = game.level.assault;
+  const counterattack = config?.counterattack;
+  const index = Math.floor(waveIndex);
+  if (
+    !Number.isFinite(index)
+    || !assault
+    || !config
+    || config.practice
+    || !config.slamEvery
+    || !counterattack
+    || assault.encounter <= 0
+    || assault.waves <= 1
+    || index < 0
+    || index >= assault.waves
+  ) return "mixed";
+  return counterattackLane(counterattack, index, assault.encounter) === 0 ? "shield" : "flank";
+}
+
+function counterattackWavePlan(
+  config: AssaultCounterattackDef | undefined,
+  waveIndex: number,
+  role: CounterattackWaveRole = "mixed",
+) {
   if (!config) return { runners: 0, guards: 0, brutes: 0 };
   const scale = 1 + Math.max(0, waveIndex) * 0.08;
-  return {
+  const plan = {
     runners: Math.max(0, Math.round(Math.max(0, config.runners ?? 0) * scale)),
     guards: Math.max(0, Math.round(Math.max(0, config.guards ?? 0) * scale)),
     brutes: Math.max(0, Math.round(Math.max(0, config.brutes ?? 0) * scale)),
   };
+  if (role === "flank" && plan.guards > 0) {
+    const redistributed = Math.min(plan.guards, Math.max(0, Math.round(plan.guards * 0.75)));
+    plan.runners += redistributed;
+    plan.guards -= redistributed;
+  } else if (role === "shield" && plan.guards > 0 && plan.runners > 0) {
+    const redistributed = Math.min(6, plan.runners, Math.max(0, Math.round(plan.guards * 0.75)));
+    plan.runners -= redistributed;
+    plan.guards += redistributed;
+  }
+  return plan;
 }
 
-function counterattackWaveSize(config: AssaultCounterattackDef | undefined, waveIndex: number) {
-  const plan = counterattackWavePlan(config, waveIndex);
+function counterattackWaveSize(g: Game, waveIndex: number) {
+  const config = g.level.assault?.counterattack;
+  const plan = counterattackWavePlan(config, waveIndex, counterattackWaveRole(g, waveIndex));
   return plan.runners + plan.guards + plan.brutes;
 }
 
@@ -776,8 +819,8 @@ function refreshAssaultRemaining(g: Game) {
   if (assault.phase === "counterattack") {
     const counterattack = g.level.assault?.counterattack;
     if (assault.wave < assault.waves) {
-      remaining += Math.max(0, counterattackWaveSize(counterattack, assault.wave) - assault.waveSpawned);
-      for (let wave = assault.wave + 1; wave < assault.waves; wave++) remaining += counterattackWaveSize(counterattack, wave);
+      remaining += Math.max(0, counterattackWaveSize(g, assault.wave) - assault.waveSpawned);
+      for (let wave = assault.wave + 1; wave < assault.waves; wave++) remaining += counterattackWaveSize(g, wave);
     }
   } else {
     remaining += Math.max(0, assault.reserve);
@@ -790,7 +833,8 @@ function spawnCounterattackWave(g: Game, waveIndex: number) {
   const config = g.level.assault?.counterattack;
   const active = assault ? g.bases[assault.encounter] : undefined;
   if (!assault || !config || !active) return;
-  const plan = counterattackWavePlan(config, waveIndex);
+  const role = counterattackWaveRole(g, waveIndex);
+  const plan = counterattackWavePlan(config, waveIndex, role);
   const lane = counterattackLane(config, waveIndex, assault.encounter);
   const center = active.x + lane * 105;
   const total = plan.runners + plan.guards + plan.brutes;
@@ -815,7 +859,8 @@ function spawnCounterattackWave(g: Game, waveIndex: number) {
       && i === plan.runners
       && !g.level.assault?.practice
       && assault.encounter > 0
-      && g.level.assault?.slamEvery !== undefined) {
+      && g.level.assault?.slamEvery !== undefined
+      && role !== "flank") {
       enemy.braced = true;
     }
     if (kind === "runner" && !g.level.assault?.practice && assault.encounter > 0 && g.level.assault?.slamEvery !== undefined) {
@@ -845,7 +890,7 @@ function updateAssaultCounterattack(g: Game, dt: number) {
   }
   const deployedLane = counterattackLane(config, assault.wave, assault.encounter);
   spawnCounterattackWave(g, assault.wave);
-  if (assault.waveSpawned < counterattackWaveSize(config, assault.wave)) {
+  if (assault.waveSpawned < counterattackWaveSize(g, assault.wave)) {
     // A preserved battle army can temporarily fill the red cap. Keep the
     // wave pending and deploy its remainder as soon as blue clears space,
     // instead of advancing the wave counter and silently dropping units.

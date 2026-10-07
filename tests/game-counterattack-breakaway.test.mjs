@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { newGame, step, W } from "../src/game/engine.ts";
+import { counterattackWaveRole, newGame, step, W } from "../src/game/engine.ts";
 
 const makeLevel = ({ practice = false, horde = 0, slamEvery = 8, waves = 2, runners = 4 } = {}) => ({
   name: "runner breakaway",
@@ -23,7 +23,7 @@ const makeLevel = ({ practice = false, horde = 0, slamEvery = 8, waves = 2, runn
 
 function setupCounterattack(options = {}) {
   const g = newGame(makeLevel(options), 23);
-  g.assault.encounter = 1;
+  g.assault.encounter = options.encounter ?? 1;
   g.assault.phase = "counterattack";
   g.assault.wave = 0;
   g.assault.waves = options.waves ?? 2;
@@ -67,6 +67,8 @@ test("late counterattack runners commit to a bounded flank target", () => {
 
 test("a centered follow-up wave fans both ways while legacy and practice units stay untouched", () => {
   const g = setupCounterattack();
+  assert.equal(counterattackWaveRole(g, 0), "flank");
+  assert.equal(counterattackWaveRole(g, 1), "shield");
   step(g, 1 / 60);
   const firstWaveCount = g.red.length;
   g.assault.wave = 1;
@@ -87,4 +89,11 @@ test("a centered follow-up wave fans both ways while legacy and practice units s
   const practiceX = practice.red.map((unit) => unit.x);
   for (let frame = 0; frame < 30; frame++) step(practice, 1 / 60);
   assert.deepEqual(practice.red.map((unit) => unit.x), practiceX, "practice assault must not sidestep or advance red units");
+
+  const mirrored = setupCounterattack({ encounter: 2 });
+  assert.equal(counterattackWaveRole(mirrored, 0), "flank", "mirroring changes side, not the wave role");
+  assert.equal(counterattackWaveRole(mirrored, 1), "shield");
+  step(mirrored, 1 / 60);
+  const mirroredRunners = mirrored.red.filter((unit) => unit.kind === "runner");
+  assert.ok(mirroredRunners.every((unit) => (unit.breakawayTargetX ?? 180) < unit.x), "the mirrored first wave uses the left flank");
 });

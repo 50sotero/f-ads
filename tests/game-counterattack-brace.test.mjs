@@ -4,6 +4,7 @@ import {
   CHARGE_MAX,
   MAX_UNITS,
   championShieldAim,
+  counterattackWaveRole,
   isShieldCleanup,
   launchChampion,
   newGame,
@@ -67,31 +68,126 @@ function contactGuard(g, guard, count = 1, dt = 1 / 60) {
   step(g, dt);
 }
 
-test("eligible late counterattack waves mark exactly one guard as braced", () => {
+test("late multi-wave roles brace only centered shield waves", () => {
   const late = setupCounterattack();
+  assert.equal(counterattackWaveRole(late, 0), "mixed", "a one-wave custom fixture keeps its mixed role");
   step(late, 1 / 60);
   assert.equal(late.red.filter((unit) => unit.braced).length, 1);
   assert.equal(late.red.filter((unit) => unit.braced)[0].kind, "guard");
 
   const everyWave = setupCounterattack({ waves: 2 });
+  assert.equal(counterattackWaveRole(everyWave, 0), "flank");
+  assert.equal(counterattackWaveRole(everyWave, 1), "shield");
   step(everyWave, 1 / 60);
+  assert.equal(everyWave.red.filter((unit) => unit.braced).length, 0, "flanks do not brace a guard");
   everyWave.assault.wave = 1;
   everyWave.assault.waveSpawned = 0;
   everyWave.assault.waveTimer = 0;
   step(everyWave, 1 / 60);
-  assert.equal(everyWave.red.filter((unit) => unit.braced).length, 2, "each eligible wave gets one brace");
+  assert.equal(everyWave.red.filter((unit) => unit.braced).length, 1, "the centered shield wave gets one brace");
 
   const early = setupCounterattack({ encounter: 0 });
+  assert.equal(counterattackWaveRole(early, 0), "mixed");
   step(early, 1 / 60);
   assert.equal(early.red.filter((unit) => unit.braced).length, 0);
 
   const practice = setupCounterattack({ practice: true });
+  assert.equal(counterattackWaveRole(practice, 0), "mixed");
   step(practice, 1 / 60);
   assert.ok(practice.red.length > 0);
   assert.equal(practice.red.filter((unit) => unit.braced).length, 0);
 
   const legacy = newGame(makeLevel({ horde: 2, waves: 0 }), 31);
   assert.ok(legacy.red.every((unit) => unit.braced === undefined));
+});
+
+test("late role compositions preserve each scaled wave total and authored zero roles", () => {
+  const g = setupCounterattack({ waves: 2 });
+  step(g, 1 / 60);
+  const first = g.red.slice();
+  assert.equal(first.length, 5);
+  assert.equal(first.filter((unit) => unit.kind === "runner").length, 4);
+  assert.equal(first.filter((unit) => unit.kind === "guard").length, 1);
+  assert.equal(first.filter((unit) => unit.kind === "brute").length, 0);
+
+  g.assault.wave = 1;
+  g.assault.waveSpawned = 0;
+  g.assault.waveTimer = 0;
+  step(g, 1 / 60);
+  const second = g.red.slice(first.length);
+  assert.equal(second.length, 5, "the shield transfer keeps the scaled total intact");
+  assert.equal(second.filter((unit) => unit.kind === "runner").length, 0);
+  assert.equal(second.filter((unit) => unit.kind === "guard").length, 5);
+  assert.equal(second.filter((unit) => unit.kind === "brute").length, 0);
+  assert.equal(second.filter((unit) => unit.braced).length, 1);
+
+  const noGuards = setupCounterattack({ waves: 2 });
+  noGuards.level.assault.counterattack.guards = 0;
+  noGuards.level.assault.counterattack.runners = 3;
+  step(noGuards, 1 / 60);
+  noGuards.assault.wave = 1;
+  noGuards.assault.waveSpawned = 0;
+  noGuards.assault.waveTimer = 0;
+  step(noGuards, 1 / 60);
+  assert.ok(noGuards.red.every((unit) => unit.kind !== "guard"), "shield waves do not invent guards");
+});
+
+test("partial counterattack capacity deploys every role wave and keeps remaining exact", () => {
+  const g = setupCounterattack({ waves: 2 });
+  Object.assign(g.level.assault.counterattack, { runners: 30, guards: 8, brutes: 4 });
+  g.red = Array.from({ length: 650 }, (_, index) => ({
+    x: 20 + (index % 20) * 15,
+    y: 250 - Math.floor(index / 20) * 2,
+    vx: 0,
+    hp: 1,
+    r: 4.4,
+    big: false,
+    used: 0,
+    dead: false,
+  }));
+  g.assault.wave = 0;
+  g.assault.waveSpawned = 0;
+  g.assault.waveTimer = 0;
+
+  // Wave 0 is a flank: 30 + 6 runners, 2 guards, 4 brutes = 42.
+  // Wave 1 is centered: 32 - 6 runners, 9 + 6 guards, 4 brutes = 45.
+  step(g, 1 / 60);
+  assert.equal(g.assault.wave, 0);
+  assert.equal(g.assault.waveSpawned, 0);
+  assert.equal(g.assault.remaining, 737);
+
+  g.red.slice(0, 10).forEach((unit) => { unit.dead = true; });
+  g.assault.waveTimer = 0;
+  step(g, 1 / 60);
+  g.assault.waveTimer = 0;
+  step(g, 1 / 60);
+  assert.equal(g.assault.waveSpawned, 10);
+  assert.equal(g.assault.remaining, 727);
+
+  g.red.slice(0, 32).forEach((unit) => { unit.dead = true; });
+  g.assault.waveTimer = 0;
+  step(g, 1 / 60);
+  g.assault.waveTimer = 0;
+  step(g, 1 / 60);
+  assert.equal(g.assault.wave, 1);
+  assert.equal(g.red.length, 650);
+  assert.equal(g.red.filter((unit) => unit.kind === "runner").length, 36);
+  assert.equal(g.red.filter((unit) => unit.kind === "guard").length, 2);
+  assert.equal(g.red.filter((unit) => unit.kind === "brute").length, 4);
+  assert.equal(g.assault.remaining, 695);
+
+  g.red.forEach((unit) => { unit.dead = true; });
+  g.assault.waveTimer = 0;
+  step(g, 1 / 60);
+  g.assault.waveTimer = 0;
+  step(g, 1 / 60);
+  assert.equal(g.assault.wave, 2);
+  assert.equal(g.red.length, 45);
+  assert.equal(g.red.filter((unit) => unit.kind === "runner").length, 26);
+  assert.equal(g.red.filter((unit) => unit.kind === "guard").length, 15);
+  assert.equal(g.red.filter((unit) => unit.kind === "brute").length, 4);
+  assert.equal(g.red.filter((unit) => unit.braced).length, 1);
+  assert.equal(g.assault.remaining, 45);
 });
 
 function collisionGame() {
