@@ -141,6 +141,19 @@ test("a full crowd can still launch a charged champion for the brace", () => {
   assert.equal(g.blue.length, MAX_UNITS + 1, "champion launch must remain available at the crowd cap");
 });
 
+test("a dense contact wave cannot erase shield-break feedback in the same step", () => {
+  const g = collisionGame();
+  g.red.push({ ...g.red[0], x: 260 });
+  g.blue[0].big = true;
+  g.blue[0].hp = 14;
+  g.blue[0].r = 11;
+  for (let i = 0; i < 300; i++) g.blue.push({ x: 260, y: 400, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false });
+  step(g, 1 / 60);
+  assert.equal(g.stats.kills, 1);
+  assert.ok(g.pops.length <= 261);
+  assert.equal(g.pops.filter((pop) => pop.text === "SHIELD BREAK").length, 1);
+});
+
 test("an aligned champion follows a drifting nearby shield through actual contact", () => {
   for (const vx of [80, 120, 180]) {
     const g = setupCounterattack();
@@ -213,6 +226,24 @@ test("ordinary contact fatigues one final-wave guard for 1.25 seconds and leaves
   assert.equal(guard.hp, 2, "fatigue breaks the brace before normal combat damage");
   assert.equal(shieldBracePressure(g, guard), 0);
   assert.equal(g.pops.filter((pop) => pop.text === "SHIELD BREAK").length, 1);
+});
+
+test("ordinary contact cannot fatigue a busy brace, and champions still break cleanup braces immediately", () => {
+  for (const pendingWave of [true, false]) {
+    const { g, guard } = cleanupGame();
+    if (pendingWave) g.assault.wave = g.assault.waves - 1;
+    else for (let i = 0; i < 6; i++) g.red.push({ x: 25 + i * 55, y: 250, vx: 0, hp: 10, r: 4.4, big: false, used: 0, dead: false });
+    for (let frame = 0; frame < 100; frame++) contactGuard(g, guard);
+    assert.equal(guard.braced, true);
+    assert.equal(guard.hp, 2);
+    assert.equal(shieldBracePressure(g, guard), 0);
+  }
+  const { g, guard } = cleanupGame();
+  g.blue = [{ x: guard.x, y: guard.y, vx: 0, hp: 14, r: 11, big: true, used: 0, dead: false }];
+  step(g, 1 / 60);
+  assert.equal(guard.braced, false);
+  assert.equal(guard.dead, true);
+  assert.equal(g.blue[0].hp, 12);
 });
 
 test("shield fatigue pauses without contact and a dense frame counts once", () => {

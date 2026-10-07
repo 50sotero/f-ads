@@ -321,6 +321,8 @@
 .battleObjective[data-shield="true"] .objectiveIcon { display: none; }
 .battleObjective[data-shield="true"] strong { color: #ffe6a2; font-size: 11px; }
 .battleObjective[data-shield="true"] > div > span { font-size: 10px; }
+.battleObjective[data-cleanup="true"] { border-color: #95ffe0; background: #17695fed; }
+.battleObjective[data-cleanup="true"] strong { color: #b9fff1; }
 .battleObjective[data-breached="true"] { background: #872d43ed; border-color: #ffad98; color: #fff0e4; }
 .battleObjective[data-cleared="true"] { background: #176b60ed; border-color: #adffe1; color: #e6fff5; }
 .objectiveIcon { display: grid; flex: 0 0 29px; height: 29px; place-items: center; border-radius: 9px; background: rgba(255,255,255,.15); color: #ffe680; font-size: 22px; }

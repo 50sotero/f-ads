@@ -532,7 +532,13 @@ export function applyStartingLoadout(g: Game, loadout: AssaultLoadout) {
 }
 
 function pop(g: Game, x: number, y: number, color: number, text?: string) {
-  if (g.pops.length > 260) g.pops.shift();
+  if (g.pops.length > 260) {
+    // A large contact wave can otherwise evict a shield break in the same
+    // simulation step, before the renderer and audio ever observe it.
+    const ordinary = g.pops.findIndex((value) => !value.text);
+    const expendable = ordinary >= 0 ? ordinary : g.pops.findIndex((value) => value.text !== "SHIELD BREAK");
+    g.pops.splice(Math.max(0, expendable), 1);
+  }
   g.pops.push({ x, y, t: 0, color, text });
 }
 

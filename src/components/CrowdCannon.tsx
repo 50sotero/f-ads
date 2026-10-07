@@ -6,7 +6,7 @@ import "@fontsource/fredoka/700.css";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 
-import { applyStartingLoadout, championShieldAim, CHARGE_MAX, launchChampion, newGame, stars, step, W, weaponForLevel, type Game } from "@/game/engine";
+import { applyStartingLoadout, championShieldAim, CHARGE_MAX, isShieldCleanup, launchChampion, newGame, stars, step, W, weaponForLevel, type Game } from "@/game/engine";
 import { levels } from "@/game/levels";
 import { createRenderer } from "@/game/render";
 import { advanceTutorial, newTutorialProgress, tutorialLessons, tutorialLevel, type TutorialProgress } from "@/game/tutorial";
@@ -19,7 +19,7 @@ const DT = 1 / 60;
 
 type Save = CampaignSave;
 type Screen = "menu" | "armory" | "playing" | "paused" | "won" | "lost" | "trained";
-type SoundKind = "shot" | "pop" | "hit" | "champ" | "upgrade" | "alert" | "win" | "lose";
+type SoundKind = "shot" | "pop" | "hit" | "champ" | "shield" | "upgrade" | "alert" | "win" | "lose";
 type AssaultHud = {
   encounter: number;
   encounters: number;
@@ -41,6 +41,7 @@ type AssaultHud = {
   remaining: number;
   shields: number;
   shieldAim: "left" | "right" | "aligned" | null;
+  shieldCleanup: boolean;
   integrity: number;
   maxIntegrity: number;
   breachFlash: number;
@@ -72,6 +73,7 @@ const defaultAssault = (): AssaultHud => ({
   remaining: 0,
   shields: 0,
   shieldAim: null,
+  shieldCleanup: false,
   integrity: 3,
   maxIntegrity: 3,
   breachFlash: 0,
@@ -100,6 +102,7 @@ function assaultHud(game: Game): AssaultHud {
     remaining: assault?.remaining ?? 0,
     shields: game.red.reduce((count, unit) => count + (unit.braced && !unit.dead ? 1 : 0), 0),
     shieldAim: championShieldAim(game)?.direction ?? null,
+    shieldCleanup: isShieldCleanup(game),
     integrity: assault?.integrity ?? 3,
     maxIntegrity: assault?.maxIntegrity ?? 3,
     breachFlash: assault?.breachFlash ?? 0,
@@ -137,7 +140,7 @@ function subscribe(listener: () => void) {
 /** Tiny synth blips keep the arcade feel without loading sound assets. */
 function useSound(muted: boolean, weaponLevel: number) {
   const contextRef = useRef<AudioContext | null>(null);
-  const lastRef = useRef<Record<SoundKind, number>>({ shot: 0, pop: 0, hit: 0, champ: 0, upgrade: 0, alert: 0, win: 0, lose: 0 });
+  const lastRef = useRef<Record<SoundKind, number>>({ shot: 0, pop: 0, hit: 0, champ: 0, shield: 0, upgrade: 0, alert: 0, win: 0, lose: 0 });
   useEffect(() => () => {
     void contextRef.current?.close();
     contextRef.current = null;
@@ -147,7 +150,7 @@ function useSound(muted: boolean, weaponLevel: number) {
     (kind: SoundKind) => {
       if (muted || typeof window === "undefined") return;
       const now = performance.now();
-      const gap = kind === "shot" ? 45 : kind === "pop" ? 110 : kind === "hit" ? 120 : 0;
+      const gap = kind === "shot" ? 45 : kind === "pop" ? 110 : kind === "hit" ? 120 : kind === "shield" ? 90 : 0;
       if (now - lastRef.current[kind] < gap) return;
       lastRef.current[kind] = now;
 
@@ -163,12 +166,23 @@ function useSound(muted: boolean, weaponLevel: number) {
           pop: [[660 + Math.random() * 200, 0.06, "triangle"]],
           hit: [[140, 0.08, "square"]],
           champ: [[330, 0.12, "sawtooth"], [495, 0.15, "sawtooth"]],
+          shield: [[130, 0.14, "triangle"], [1320, 0.08, "square"], [880, 0.2, "sine"]],
           upgrade: [[440, 0.1, "triangle"], [660, 0.1, "triangle"], [880, 0.22, "triangle"]],
           alert: [[587, 0.13, "triangle"], [440, 0.13, "triangle"], [587, 0.2, "triangle"]],
           win: [[523, 0.14, "triangle"], [659, 0.14, "triangle"], [784, 0.3, "triangle"]],
           lose: [[300, 0.2, "sawtooth"], [200, 0.35, "sawtooth"]],
         };
         let time = context.currentTime;
+        if (kind === "shield") {
+          const buffer = context.createBuffer(1, Math.ceil(context.sampleRate * 0.09), context.sampleRate);
+          const samples = buffer.getChannelData(0);
+          for (let i = 0; i < samples.length; i++) samples[i] = (Math.random() * 2 - 1) * (1 - i / samples.length);
+          const crack = context.createBufferSource(), gain = context.createGain();
+          crack.buffer = buffer; gain.gain.setValueAtTime(0.11, time);
+          gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.09);
+          crack.connect(gain).connect(context.destination); crack.start(time);
+          crack.onended = () => { crack.disconnect(); gain.disconnect(); };
+        }
         for (const [frequency, length, oscillatorType] of notes[kind]) {
           const oscillator = context.createOscillator();
           const gain = context.createGain();
@@ -176,7 +190,7 @@ function useSound(muted: boolean, weaponLevel: number) {
           oscillator.frequency.value = frequency;
           gain.gain.setValueAtTime(0.0001, time);
           gain.gain.exponentialRampToValueAtTime(kind === "shot" ? 0.035 : kind === "pop" ? 0.04 : 0.07, time + 0.004);
-          if (kind === "shot") oscillator.frequency.exponentialRampToValueAtTime(100, time + length);
+          if (kind === "shot" || kind === "shield") oscillator.frequency.exponentialRampToValueAtTime(kind === "shield" ? frequency * 0.55 : 100, time + length);
           gain.gain.exponentialRampToValueAtTime(0.0001, time + length);
           oscillator.connect(gain).connect(context.destination);
           oscillator.start(time);
@@ -323,6 +337,7 @@ export function CrowdCannon() {
     let hudAt = 0;
     let needsDraw = true;
     let seen = { fired: 0, multiplied: 0, baseHits: 0, champions: 0, weapon: 1, phase: "battle" };
+    const heardShieldBreaks = new WeakSet<object>();
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
       renderer.resize(Math.max(1, rect.width), Math.max(1, rect.height));
@@ -376,6 +391,10 @@ export function CrowdCannon() {
         if (game.stats.champions > seen.champions) soundRef.current("champ");
         if ((game.assault?.weaponLevel ?? 1) > seen.weapon) soundRef.current("upgrade");
         if (game.assault?.phase === "counterattack" && seen.phase !== "counterattack") soundRef.current("alert");
+        for (const pop of game.pops) {
+          if (pop.text !== "SHIELD BREAK" || heardShieldBreaks.has(pop)) continue;
+          heardShieldBreaks.add(pop); soundRef.current("shield");
+        }
         seen = { fired: game.stats.fired, multiplied: game.stats.multiplied, baseHits: game.stats.baseHits, champions: game.stats.champions, weapon: game.assault?.weaponLevel ?? 1, phase: game.assault?.phase ?? "battle" };
         const training = tutorialRef.current;
         if (training) {
@@ -420,6 +439,7 @@ export function CrowdCannon() {
           && previous.assault.remaining === nextAssault.remaining
           && previous.assault.shields === nextAssault.shields
           && previous.assault.shieldAim === nextAssault.shieldAim
+          && previous.assault.shieldCleanup === nextAssault.shieldCleanup
           && previous.assault.integrity === nextAssault.integrity
           && previous.assault.breachFlash === nextAssault.breachFlash
           ? previous : { crowd: game.blue.length, time: game.t, charge: game.charge, assault: nextAssault });
@@ -658,10 +678,10 @@ export function CrowdCannon() {
               <span className={styles.encounterDots} aria-hidden="true">{Array.from({ length: assault.encounters }, (_, index) => <i key={index} data-done={index < assault.encounter} data-current={index === assault.encounter} />)}</span>
             </div>
           </div>
-          {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-warning={assault.waveWarning > 0} data-breached={lineBroken} data-cleared={roadCleared} data-shield={!battleEnded && assault.shields > 0} data-compact={!battleEnded && assault.shields === 0 && (assault.phase === "counterattack" || assault.phase === "battle" && hud.time > 4)}>
+          {!tutorialLesson && assault.waves > 0 && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-warning={assault.waveWarning > 0} data-breached={lineBroken} data-cleared={roadCleared} data-shield={!battleEnded && assault.shields > 0} data-cleanup={!battleEnded && assault.shields > 0 && assault.shieldCleanup} data-compact={!battleEnded && assault.shields === 0 && (assault.phase === "counterattack" || assault.phase === "battle" && hud.time > 4)}>
             <span className={styles.objectiveIcon} aria-hidden="true">{roadCleared ? "★" : lineBroken || assault.phase === "counterattack" ? "!" : assault.phase === "advance" ? "»" : "⚑"}</span>
-            <div><strong>{lineBroken ? "LINE BREACHED" : roadCleared ? "ROAD CLEAR" : assault.shields > 0 ? "SHIELD GUARD" : assault.phase === "counterattack" ? assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "← LEFT" : assault.waveLane > 0 ? "RIGHT →" : "CENTER"} WAVE INCOMING` : `${assault.remaining} DEFENDERS LEFT` : assault.phase === "advance" ? remixedGates ? "LANES SWITCHED" : "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
-              <span>{lineBroken ? "Your cannon defense is gone." : roadCleared ? "All defenders cleared." : assault.shields > 0 ? hud.charge >= CHARGE_MAX ? assault.shieldAim === "aligned" ? "Aligned! Tap ★ to break the shield." : `${shieldInstruction} · line up the gold sight, then tap ★.` : `${shieldInstruction} · fire to charge ★. Normal shots blocked.`
+            <div><strong>{lineBroken ? "LINE BREACHED" : roadCleared ? "ROAD CLEAR" : assault.shields > 0 ? assault.shieldCleanup ? "OVERWHELM THEM!" : "SHIELD GUARD" : assault.phase === "counterattack" ? assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "← LEFT" : assault.waveLane > 0 ? "RIGHT →" : "CENTER"} WAVE INCOMING` : `${assault.remaining} DEFENDERS LEFT` : assault.phase === "advance" ? remixedGates ? "LANES SWITCHED" : "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
+              <span>{lineBroken ? "Your cannon defense is gone." : roadCleared ? "All defenders cleared." : assault.shields > 0 ? assault.shieldCleanup ? "Keep firing at the last shields. Your crowd can break them!" : hud.charge >= CHARGE_MAX ? assault.shieldAim === "aligned" ? "Aligned! Tap ★ to break the shield." : `${shieldInstruction} · line up the gold sight, then tap ★.` : `${shieldInstruction} · fire to charge ★. Normal shots blocked.`
                 : assault.phase === "counterattack"
                 ? `${assault.remaining} enemies left · ${assault.waveWarning > 0 ? `${assault.waveLane < 0 ? "LEFT" : assault.waveLane > 0 ? "RIGHT" : "CENTER"} WAVE INCOMING` : `wave ${assault.wave} / ${assault.waves}`}`
                 : assault.phase === "advance" ? remixedGates ? "Find the new gate chain. Keep your upgrades!" : "Keep your upgrades. Push forward!" : "Then survive the counterattack"}</span></div>
@@ -699,7 +719,7 @@ export function CrowdCannon() {
               launch();
             }
           }} disabled={battleEnded || hud.charge < CHARGE_MAX} aria-label={battleEnded ? "Champion unavailable" : hud.charge >= CHARGE_MAX ? "Launch champion" : `Champion charge ${Math.floor(hud.charge)} of ${CHARGE_MAX}`}>
-            {!battleEnded && !contextualHint && hud.charge >= CHARGE_MAX && <span className={styles.championCallout} role="status"><strong>{assault.shields > 0 ? assault.shieldAim === "aligned" ? "ALIGNED · LAUNCH!" : "BREAK THE SHIELD" : "CHAMPION READY"}</strong><small>{assault.shields > 0 ? assault.shieldAim === "aligned" ? "Tap ★ or press Space" : `${shieldInstruction} to aim your champion` : assault.frontline > 505 ? "Save the line!" : "Tap ★ or press Space"}</small></span>}
+            {!battleEnded && !contextualHint && hud.charge >= CHARGE_MAX && <span className={styles.championCallout} role="status"><strong>{assault.shields > 0 ? assault.shieldCleanup ? "FINISH THEM!" : assault.shieldAim === "aligned" ? "ALIGNED · LAUNCH!" : "BREAK THE SHIELD" : "CHAMPION READY"}</strong><small>{assault.shields > 0 ? assault.shieldCleanup ? "Keep firing, or tap ★ to break through" : assault.shieldAim === "aligned" ? "Tap ★ or press Space" : `${shieldInstruction} to aim your champion` : assault.frontline > 505 ? "Save the line!" : "Tap ★ or press Space"}</small></span>}
             <span className={styles.championRing} style={{ background: `conic-gradient(from -90deg, #ffe37b ${Math.min(100, (hud.charge / CHARGE_MAX) * 100)}%, rgba(255,255,255,.2) 0)` }} />
             <span className={styles.championCore} aria-hidden="true">★</span>
             <span className={styles.championLabel}>{battleEnded ? "ENDED" : hud.charge >= CHARGE_MAX ? "GO!" : "CHARGE"}</span>

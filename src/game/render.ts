@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, cannonBarrelPositions, championShieldAim, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
+import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, cannonBarrelPositions, championShieldAim, shieldBracePressure, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
 import { createGuardGeometry, createHordeGeometry, createMobGeometry, createSiegeCannon, createWarden } from "./assaultArt";
 
 // The simulation uses a moving local battlefield. The long road and bridges
@@ -489,6 +489,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const markerTexture = texture(new THREE.CanvasTexture(markerCanvas)); markerTexture.colorSpace = THREE.SRGBColorSpace;
   const shieldMarkers = new THREE.InstancedMesh(geo(new THREE.PlaneGeometry(1.45, 2.15)), basic(0xffffff, { map: markerTexture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false }), 16);
   shieldMarkers.instanceMatrix.setUsage(THREE.DynamicDrawUsage); shieldMarkers.frustumCulled = false; shieldMarkers.renderOrder = 9; stage.add(shieldMarkers);
+  const shieldPressure = new THREE.InstancedMesh(cube, basic(0x8cffe2, { depthTest: false, depthWrite: false }), 16 * 12);
+  shieldPressure.instanceMatrix.setUsage(THREE.DynamicDrawUsage); shieldPressure.frustumCulled = false; shieldPressure.renderOrder = 8; stage.add(shieldPressure);
   const championSightMaterial = basic(0xffdc64, { transparent: true, opacity: 0.8, depthTest: false, depthWrite: false });
   const championSight = new THREE.InstancedMesh(cube, championSightMaterial, 20);
   championSight.instanceMatrix.setUsage(THREE.DynamicDrawUsage); championSight.frustumCulled = false; championSight.renderOrder = 4; stage.add(championSight);
@@ -689,10 +691,16 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     ringMatrixArray[matrixOffset + 12] = x; ringMatrixArray[matrixOffset + 13] = 0.045; ringMatrixArray[matrixOffset + 14] = z;
     ringColorDirty = true;
   }
-  const tags = Array.from({ length: 10 }, () => { const value = makeLabel("", 3.1, 1.1, "#ffffff", 96); stage.add(value.sprite); return { ...value, age: 2, y: 0 }; });
+  const shieldShards = new THREE.InstancedMesh(geo(new THREE.TetrahedronGeometry(1, 0)), standard(0xffd465, { metalness: 0.15, roughness: 0.3 }), 72);
+  shieldShards.frustumCulled = false; shieldShards.instanceMatrix.setUsage(THREE.DynamicDrawUsage); stage.add(shieldShards);
+  const shardStates: Array<{ x: number; z: number; travel: number; angle: number; age: number; speed: number }> = [];
+  const tags = Array.from({ length: 10 }, () => { const value = makeLabel("", 3.1, 1.1, "#ffffff", 96); stage.add(value.sprite); return { ...value, age: 2, y: 0, duration: 0.85, strong: false }; });
   let tagCursor = 0;
-  function tag(text: string, x: number, z: number, fill: string) {
-    const value = tags[tagCursor++ % tags.length]; value.write(text, fill); value.age = 0; value.y = 2.8; value.sprite.position.set(x, value.y, z);
+  function tag(text: string, x: number, z: number, fill: string, strong = false) {
+    const value = tags[tagCursor++ % tags.length]; value.write(text, fill); value.age = 0;
+    value.strong = strong; value.duration = strong ? 1.1 : 0.85; value.y = strong ? 5.3 : 2.8;
+    value.sprite.scale.set(strong ? 6.6 : 3.1, strong ? 1.8 : 1.1, 1);
+    value.sprite.renderOrder = strong ? 12 : 5; value.sprite.position.set(x, value.y, z);
   }
   const seenPops = new WeakSet<object>();
   let currentGame: Game | null = null, shot = 0, shake = 0, previousTier = 1, previousWeapon = 1, winAt = -1, lostAt = -1, reserveInitialized = 0, previousTravel = -1;
@@ -819,7 +827,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       fortress.position.set(0, 0, -35); fortress.rotation.set(0, 0, 0); previousBreaches = 0;
       previousPulse = 0; wasRushing = false;
       previousPhase = game.assault?.phase ?? "battle"; previousWave = game.assault?.wave ?? 0; previousWaveLane = game.assault?.waveLane ?? 0; counterattackAt = -99; retreatCount = 0; reserveAnchor = NaN;
-      particleList.length = 0; fallen.length = previousUnits.length = 0;
+      particleList.length = shardStates.length = 0; fallen.length = previousUnits.length = 0;
       bosses.forEach((boss) => { boss.hp = -1; boss.deadAt = -99; boss.damageAt = -99; });
       gates.forEach((value) => { value.group.visible = false; value.nextBurst = 0; value.brokenAt = -1; });
       tags.forEach((value) => { value.age = 2; }); ringAge.fill(2); ringActive.fill(0); ringAlpha.array.fill(0); ringAlpha.needsUpdate = true;
@@ -1087,6 +1095,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     shieldHalo.count = Math.min(bracedUnits.length, shieldHalo.instanceMatrix.count);
     const shieldAim = championShieldAim(game);
     shieldMarkers.count = game.status === "playing" && shieldAim ? 1 : 0;
+    shieldPressure.count = 0;
     for (let index = 0; index < shieldHalo.count; index++) {
       const unit = bracedUnits[index], z = wz(unit.y) - entry;
       dummy.position.set(wx(unit.x) + curve(z), 0.06, z); dummy.rotation.set(0, 0, 0);
@@ -1096,15 +1105,23 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         dummy.quaternion.copy(camera.quaternion); dummy.scale.setScalar(1.1);
         dummy.updateMatrix(); shieldMarkers.setMatrixAt(0, dummy.matrix);
       }
+      const pressure = shieldBracePressure(game, unit);
+      for (let segment = 0; segment < Math.floor(pressure * 12); segment++) {
+        const angle = segment / 12 * Math.PI * 2;
+        dummy.position.set(wx(unit.x) + curve(z) + Math.sin(angle) * 1.35, 0.09, z + Math.cos(angle) * 1.35);
+        dummy.rotation.set(0, angle, 0); dummy.scale.set(0.36, 0.035, 0.16); dummy.updateMatrix();
+        shieldPressure.setMatrixAt(shieldPressure.count++, dummy.matrix);
+      }
     }
     if (shieldHalo.count > 0) shieldHalo.instanceMatrix.needsUpdate = true;
     if (shieldMarkers.count > 0) shieldMarkers.instanceMatrix.needsUpdate = true;
+    if (shieldPressure.count > 0) shieldPressure.instanceMatrix.needsUpdate = true;
     shieldLabel.sprite.visible = bracedUnits.length > 0 && game.status === "playing";
     championSight.visible = !!shieldAim && game.status === "playing";
     if (shieldAim && shieldLabel.sprite.visible) {
       const frontGuard = shieldAim.target, z = wz(frontGuard.y) - entry;
       const aligned = shieldAim.direction === "aligned";
-      const caption = aligned ? "ALIGNED" : "SHIELD";
+      const caption = shieldBracePressure(game, frontGuard) > 0.08 ? "CRACKING" : aligned ? "ALIGNED" : "SHIELD";
       if (caption !== shieldCaption) { shieldLabel.write(caption, aligned ? "#b8fff1" : "#ffe5a0"); shieldCaption = caption; }
       shieldLabel.sprite.position.set(wx(frontGuard.x) + curve(z), 5.6, z);
       championSightMaterial.color.setHex(aligned ? 0x8cffe2 : 0xffdc64);
@@ -1190,7 +1207,11 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       }
       if (view.hp !== base.hp) { view.label.write(game.level.assault?.practice ? "PRACTICE" : `${Math.max(0, Math.ceil(base.hp))}`); view.hp = base.hp; }
       const death = base.hp <= 0 ? Math.min(1, (frameTime - view.deadAt) / 0.85) : 0;
-      view.art.group.visible = ((active || i === encounter + 1) && base.hp > 0) || death < 1 && base.hp <= 0;
+      // During the counterattack, the remaining guards are the whole objective.
+      // Reveal the next guardian when travel starts so it cannot read as a
+      // defeated leader still standing on the cleared road.
+      const previewing = i === encounter + 1 && !counterattack;
+      view.art.group.visible = ((active || previewing) && base.hp > 0) || death < 1 && base.hp <= 0;
       view.label.sprite.visible = view.bar.visible = active && base.hp > 0;
       const hit = base.hp > 0 ? Math.max(base.hitFlash * 0.18, 1 - (game.t - view.damageAt) / 0.22, 0) : 0;
       const impact = Math.max(0, 1 - (game.t - view.damageAt) / 0.17);
@@ -1211,6 +1232,16 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       if (seenPops.has(pop)) continue; seenPops.add(pop);
       const z = wz(pop.y), x = wx(pop.x) + curve(z);
       if (pop.text?.includes("UPGRADE")) continue;
+      if (pop.text === "SHIELD BREAK") {
+        ring(x, z, 0x8cffe2, 5.2); ring(x, z, 0xffdc64, 3.4);
+        burst(x, 1.8, z, 0xffed98, 28, 1.6); burst(x, 1.5, z, 0xffffff, 14, 1.15);
+        for (let piece = 0; piece < 9; piece++) {
+          if (shardStates.length >= 72) shardStates.shift();
+          shardStates.push({ x, z, travel, angle: piece * Math.PI * 2 / 9 + random() * 0.25, age: 0, speed: 3.5 + random() * 2.5 });
+        }
+        tag("SHATTERED!", x, z, "#b9fff1", true); shake = Math.max(shake, 0.85);
+        continue;
+      }
       burst(x, 0.5, z, [0xf4fbff, 0xe9edee, 0xff426a][pop.color] ?? 0xffffff, pop.text ? 9 : 4, pop.text ? 0.65 : 0.9);
       // Direction is already carried by the HUD warning and the lane arrows.
       // A second floating wave label covers the shield guard at its spawn.
@@ -1244,6 +1275,18 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       particles.setColorAt(particleCount++, tint);
     }
     particles.count = particleCount; particles.instanceMatrix.needsUpdate = true; if (particles.instanceColor) particles.instanceColor.needsUpdate = true;
+    for (let i = shardStates.length - 1; i >= 0; i--) {
+      shardStates[i].age += dt;
+      if (shardStates[i].age > 0.75) shardStates.splice(i, 1);
+    }
+    shardStates.forEach((piece, index) => {
+      const t = piece.age, fade = Math.min(1, (0.75 - t) / 0.18);
+      dummy.position.set(piece.x + Math.sin(piece.angle) * t * piece.speed, Math.max(0.08, 1.6 + t * 5 - t * t * 10), piece.z + travel - piece.travel + Math.cos(piece.angle) * t * piece.speed);
+      dummy.rotation.set(piece.angle + t * 8, t * 7, piece.angle - t * 6); dummy.scale.set(0.38 * fade, 0.65 * fade, 0.16 * fade); dummy.updateMatrix();
+      shieldShards.setMatrixAt(index, dummy.matrix);
+    });
+    shieldShards.count = shardStates.length;
+    if (shieldShards.count > 0) shieldShards.instanceMatrix.needsUpdate = true;
     for (let i = fallen.length - 1; i >= 0; i--) {
       const body = fallen[i]; body.life += dt;
       if (body.life > 0.55) { fallen.splice(i, 1); continue; }
@@ -1278,7 +1321,19 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     if (ringMatrixDirty) ringMesh.instanceMatrix.needsUpdate = true;
     if (ringAlphaDirty) ringAlpha.needsUpdate = true;
     if (ringColorDirty) { ringColors.needsUpdate = true; ringColorDirty = false; }
-    tags.forEach((value) => { value.age += dt; value.sprite.visible = value.age < 0.85; value.sprite.position.y = value.y + value.age * 2; value.sprite.material.opacity = Math.max(0, 1 - value.age / 0.85); });
+    tags.forEach((value) => {
+      value.age += dt; value.sprite.visible = value.age < value.duration;
+      value.sprite.position.y = value.y + value.age * (value.strong ? 1 : 2);
+      value.sprite.material.opacity = value.strong ? Math.min(1, Math.max(0, (value.duration - value.age) / 0.35)) : Math.max(0, 1 - value.age / value.duration);
+      if (value.strong && value.sprite.visible) {
+        // Keep the wide confirmation on-screen for guards at either road edge.
+        projected.copy(value.sprite.position); projected.z -= travel; projected.applyMatrix4(camera.matrixWorldInverse);
+        const halfWidth = value.sprite.scale.x * camera.projectionMatrix.elements[0] / (-2 * projected.z);
+        projected.applyMatrix4(camera.projectionMatrix);
+        const clampedX = Math.max(-0.94 + halfWidth, Math.min(0.94 - halfWidth, projected.x));
+        if (clampedX !== projected.x) { projected.x = clampedX; projected.unproject(camera); value.sprite.position.x = projected.x; }
+      }
+    });
     // Crowds use inexpensive soft contact shadows. The slower-moving scenery
     // shadow map can be refreshed at 15 Hz without repeating its draw calls
     // for every animation frame on a phone.
