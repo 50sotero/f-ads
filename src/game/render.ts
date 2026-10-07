@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, bossBrace, bossSlamRecoil, cannonBarrelPositions, championBossAim, championShieldAim, counterattackSideEntry, counterattackWaveRole, shieldBracePressure, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
+import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, bossBrace, bossBreakthrough, bossSlamRecoil, cannonBarrelPositions, championBossAim, championShieldAim, counterattackSideEntry, counterattackWaveRole, shieldBracePressure, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
 import { createGuardGeometry, createHordeGeometry, createMobGeometry, createRaiderGeometry, createSiegeCannon, createWarden } from "./assaultArt";
 
 // The simulation uses a moving local battlefield. The long road and bridges
@@ -936,6 +936,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     if (travel !== previousTravel) { bendGeometry(stageBends, -travel); previousTravel = travel; }
     const entry = (assault?.advance ?? 0) * 25;
     const brace = bossBrace(game);
+    const breakthrough = bossBreakthrough(game);
     const winding = brace?.phase === "winding";
     const stagger = brace?.phase === "staggered" ? 1 - brace.progress : 0;
     const warning = winding ? 0.35 + brace.progress * 0.65 : assault?.bossWarning ?? 0, pulse = assault?.bossPulse ?? 0;
@@ -1402,7 +1403,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       view.art.group.position.set(x, -death * 2, z);
       view.art.group.scale.setScalar((active ? 1.2 - approaching * 0.18 : 1.02) * (1 - death * 0.65));
       view.art.group.rotation.z = death * -1.3;
-      if (view.art.group.visible) view.art.animate(game.t + i * 2.3, hit, active ? warning : 0, active ? pulse : 0, active ? stagger : 0);
+      if (view.art.group.visible) view.art.animate(game.t + i * 2.3, hit, active ? warning : 0, active ? pulse : 0, active ? stagger : 0, active && breakthrough ? Math.min(1, breakthrough.advance / 8) : 0);
       view.label.sprite.position.set(x, 6.05, z); view.label.sprite.scale.set(active && (winding || stagger > 0) ? 5.3 : 3.5, 1.15, 1);
       view.bar.position.set(x, 5.6, z); view.bar.scale.set(0.86, 0.65, 1);
       view.charge.position.set(x, 5.15, z);
@@ -1428,7 +1429,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       burst(x, 0.5, z, [0xf4fbff, 0xe9edee, 0xff426a][pop.color] ?? 0xffffff, pop.text ? 9 : 4, pop.text ? 0.65 : 0.9);
       // Direction is already carried by the HUD warning and the lane arrows.
       // A second floating wave label covers the shield guard at its spawn.
-      if (pop.text && !pop.text.startsWith("×") && !["KO", "DOWN", "DOWN!", "COUNTERATTACK", "LEFT WAVE", "RIGHT WAVE", "CENTER WAVE", "GIANT WINDING UP", "BRACE IMPACT", "STAGGERED"].includes(pop.text)) tag(pop.text, x, z, "#fff3b4");
+      if (pop.text && !pop.text.startsWith("×") && !["KO", "DOWN", "DOWN!", "COUNTERATTACK", "LEFT WAVE", "RIGHT WAVE", "CENTER WAVE", "GIANT WINDING UP", "BRACE IMPACT", "BREAKTHROUGH", "STAGGERED"].includes(pop.text)) tag(pop.text, x, z, "#fff3b4");
     }
     if (game.status === "won" && previousStatus !== "won") {
       winAt = frameTime; shake = 0.75;

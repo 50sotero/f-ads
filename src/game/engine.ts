@@ -518,6 +518,8 @@ const bossBreakthroughStates = new WeakMap<Game, BossBreakthroughState>();
 const SHIELD_BRACE_FATIGUE_SECONDS = 1.25;
 const ASSAULT_BOSS_SLAM_DURATION = 0.35;
 const ASSAULT_BOSS_SLAM_DECAY = 8;
+const ASSAULT_BOSS_SLAM_END_ENVELOPE = Math.exp(-ASSAULT_BOSS_SLAM_DECAY * ASSAULT_BOSS_SLAM_DURATION);
+const ASSAULT_BOSS_SLAM_DECAY_NORMALIZER = 1 - ASSAULT_BOSS_SLAM_END_ENVELOPE;
 const ASSAULT_BOSS_SLAM_INITIAL_KICK = 10;
 const ASSAULT_BOSS_SLAM_RUNNER_EXTRA = 26;
 const ASSAULT_BOSS_SLAM_CHAMPION_EXTRA = 2;
@@ -599,7 +601,6 @@ function applyShieldBraceFatigue(game: Game, guards: Set<Unit>, dt: number) {
 function activeBossSlamRecoilState(game: Game, unit: Unit) {
   const assault = game.assault;
   const config = game.level.assault;
-  const state = bossSlamRecoilStates.get(unit);
   if (
     !assault
     || !config
@@ -607,7 +608,10 @@ function activeBossSlamRecoilState(game: Game, unit: Unit) {
     || !config.slamEvery
     || game.status !== "playing"
     || unit.dead
-    || !state
+  ) return null;
+  const state = bossSlamRecoilStates.get(unit);
+  if (
+    !state
     || state.owner !== game
     || state.assault !== assault
     || state.encounter !== assault.encounter
@@ -3036,8 +3040,8 @@ function applyAssaultBossSlamImpact(g: Game, active: Base, reactive = false) {
       extra: longRunner ? ASSAULT_BOSS_REACTIVE_SLAM_RUNNER_EXTRA : u.big ? ASSAULT_BOSS_SLAM_CHAMPION_EXTRA : ASSAULT_BOSS_SLAM_RUNNER_EXTRA,
       duration,
       decay,
-      endEnvelope: Math.exp(-decay * duration),
-      decayNormalizer: 1 - Math.exp(-decay * duration),
+      endEnvelope: longRunner ? ASSAULT_BOSS_REACTIVE_SLAM_END_ENVELOPE : ASSAULT_BOSS_SLAM_END_ENVELOPE,
+      decayNormalizer: longRunner ? ASSAULT_BOSS_REACTIVE_SLAM_DECAY_NORMALIZER : ASSAULT_BOSS_SLAM_DECAY_NORMALIZER,
       initialKick: longRunner ? ASSAULT_BOSS_REACTIVE_SLAM_INITIAL_KICK : ASSAULT_BOSS_SLAM_INITIAL_KICK,
       reactive,
     });
