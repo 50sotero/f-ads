@@ -1,8 +1,34 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { newGame, step } from "../src/game/engine.ts";
+import { launchChampion, newGame, step } from "../src/game/engine.ts";
 import { levels } from "../src/game/levels.ts";
-import { advanceTutorial, newTutorialProgress, tutorialLessons, tutorialLevel } from "../src/game/tutorial.ts";
+import {
+  advanceTutorial,
+  newTutorialProgress,
+  TUTORIAL_SHIELD_GUARD_X,
+  TUTORIAL_SHIELD_GUARD_Y,
+  tutorialLessons,
+  tutorialLevel,
+} from "../src/game/tutorial.ts";
+
+function reachShieldLesson() {
+  const progress = newTutorialProgress();
+  const game = newGame(tutorialLevel);
+
+  game.stats.fired = 8;
+  game.cannonX = 260;
+  assert.equal(advanceTutorial(progress, game), true);
+  game.stats.multiplied = 8;
+  game.cannonX = game.gates[0].cx;
+  assert.equal(advanceTutorial(progress, game), true);
+  game.assault.pickupsCollected = 1;
+  assert.equal(advanceTutorial(progress, game), true);
+  game.assault.weaponLevel = 2;
+  assert.equal(advanceTutorial(progress, game), true);
+  assert.equal(progress.step, 4);
+  assert.ok(progress.shieldTarget);
+  return { progress, game, target: progress.shieldTarget };
+}
 
 test("tutorial requires firing AND steering before teaching multipliers", () => {
   const progress = newTutorialProgress();
@@ -44,13 +70,15 @@ test("tutorial checks new actions for each lesson and completes once", () => {
   assert.equal(progress.step, 4);
   assert.equal(progress.championsAtStart, 0);
   assert.equal(game.charge, 30, "weapon training should prime the practice champion");
+  assert.equal(game.red.length, 1, "the final lesson should stage a real shield guard");
+  assert.equal(game.red[0].braced, true);
   assert.equal(progress.completedAt, Infinity);
   assert.equal(advanceTutorial(progress, game), false, "a full charge must not launch the champion automatically");
   game.stats.champions++;
   game.t = 16;
-  assert.equal(advanceTutorial(progress, game), true);
-  assert.equal(progress.step, 5);
-  assert.equal(progress.completedAt, 16);
+  assert.equal(advanceTutorial(progress, game), false, "launch stats alone must not complete the shield lesson");
+  assert.equal(progress.step, 4);
+  assert.equal(progress.completedAt, Infinity);
   assert.equal(advanceTutorial(progress, game), false);
 });
 
@@ -84,8 +112,57 @@ test("a champion launched before the final lesson does not auto-complete it", ()
   assert.equal(game.charge, 30);
   assert.equal(advanceTutorial(progress, game), false);
   game.stats.champions = 2;
-  assert.equal(advanceTutorial(progress, game), true);
+  assert.equal(advanceTutorial(progress, game), false);
+  assert.equal(progress.step, 4);
+});
+
+test("ordinary runners are consumed by the staged brace and cannot complete the final lesson", () => {
+  const { progress, game, target } = reachShieldLesson();
+  game.blue.push({ x: target.x, y: target.y, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false });
+
+  step(game, 1 / 60);
+
+  assert.equal(target.braced, true, "ordinary contact must leave the shield raised");
+  assert.equal(target.dead, false);
+  assert.equal(progress.step, 4);
+  assert.equal(advanceTutorial(progress, game), false);
+  assert.equal(progress.step, 4);
+});
+
+test("a missed champion leaves the guard intact and earns one bounded retry refill", () => {
+  const { progress, game, target } = reachShieldLesson();
+  game.cannonX = 80;
+  game.targetX = 80;
+  assert.equal(launchChampion(game), true);
+  assert.equal(advanceTutorial(progress, game), false);
+  for (let frame = 0; frame < 600 && progress.step === 4; frame++) {
+    step(game, 1 / 60);
+    advanceTutorial(progress, game);
+  }
+
+  assert.equal(target.braced, true, "a champion launched in the opposite lane must miss the guard");
+  assert.equal(target.dead, false);
+  assert.equal(game.charge, 30, "a missed champion should get a bounded retry charge");
+  assert.equal(progress.step, 4);
+});
+
+test("only champion contact breaks and completes the staged shield lesson", () => {
+  const { progress, game, target } = reachShieldLesson();
+  assert.equal(target.x, TUTORIAL_SHIELD_GUARD_X);
+  assert.equal(target.y, TUTORIAL_SHIELD_GUARD_Y);
+  game.cannonX = TUTORIAL_SHIELD_GUARD_X;
+  game.targetX = TUTORIAL_SHIELD_GUARD_X;
+  assert.equal(launchChampion(game), true);
+
+  for (let frame = 0; frame < 600 && progress.step === 4; frame++) {
+    step(game, 1 / 60);
+    advanceTutorial(progress, game);
+  }
+
+  assert.equal(target.braced, false, "the champion must make contact with the shield");
+  assert.equal(target.dead, true, "the champion must defeat the guard after breaking its brace");
   assert.equal(progress.step, 5);
+  assert.ok(Number.isFinite(progress.completedAt));
 });
 
 test("a fully upgraded battery can still complete the pickup lesson", () => {
@@ -108,7 +185,7 @@ test("a fully upgraded battery can still complete the pickup lesson", () => {
 
 test("tutorial is a three gate assault practice route", () => {
   assert.equal(tutorialLessons.length, 5);
-  assert.match(tutorialLessons[4].text, /fill.*star.*press Space.*champions.*shields.*defense line/i);
+  assert.match(tutorialLessons[4].text, /fill.*star.*aim.*shield guard.*press Space.*champions.*shields.*defense line/i);
   assert.deepEqual(tutorialLevel.assault, { horde: 0, reserve: 0, speed: 0, theme: "fork", practice: true });
   assert.deepEqual(
     tutorialLevel.gates.map(({ x, y, w, n }) => ({ x, y, w, n })),
