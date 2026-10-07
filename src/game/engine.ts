@@ -1493,6 +1493,10 @@ let assaultMotionForward = new Float32Array(MAX_UNITS);
 let assaultMotionLateral = new Float32Array(MAX_UNITS);
 let assaultMotionUnitRows = new Int16Array(MAX_UNITS);
 let assaultMotionUnitCols = new Int16Array(MAX_UNITS);
+let assaultMotionUnitX = new Float64Array(MAX_UNITS);
+let assaultMotionUnitY = new Float64Array(MAX_UNITS);
+let assaultMotionUnitR = new Float64Array(MAX_UNITS);
+let assaultMotionUnitLive = new Uint8Array(MAX_UNITS);
 // Intent refreshes at 30 Hz, while movement, collision, and combat still run
 // every 60 Hz. WeakMap identity keys keep eligibility stable across array
 // compaction and make a newly created unit refresh on its first observation.
@@ -1785,6 +1789,10 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1, owner: Ass
     assaultMotionLateral = new Float32Array(size);
     assaultMotionUnitRows = new Int16Array(size);
     assaultMotionUnitCols = new Int16Array(size);
+    assaultMotionUnitX = new Float64Array(size);
+    assaultMotionUnitY = new Float64Array(size);
+    assaultMotionUnitR = new Float64Array(size);
+    assaultMotionUnitLive = new Uint8Array(size);
   }
   const frame = owner.motionFrame;
   let refresh = false;
@@ -1813,7 +1821,14 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1, owner: Ass
 
   for (let i = 0; i < units.length; i++) {
     const unit = units[i];
-    if (unit.dead) continue;
+    if (unit.dead) {
+      assaultMotionUnitLive[i] = 0;
+      continue;
+    }
+    assaultMotionUnitX[i] = unit.x;
+    assaultMotionUnitY[i] = unit.y;
+    assaultMotionUnitR[i] = unit.r;
+    assaultMotionUnitLive[i] = 1;
     const col = Math.max(0, Math.min(ASSAULT_MOTION_COLS - 1, Math.floor(unit.x / ASSAULT_MOTION_CELL)));
     const row = Math.max(0, Math.min(ASSAULT_MOTION_ROWS - 1, Math.floor((unit.y + ASSAULT_MOTION_CELL) / ASSAULT_MOTION_CELL)));
     const cellIndex = row * motionCols + col;
@@ -1846,9 +1861,9 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1, owner: Ass
       assaultMotionLateral[i] = cachedIntent.lateral;
       continue;
     }
-    const unitX = unit.x;
-    const unitY = unit.y;
-    const unitRadius = unit.r;
+    const unitX = assaultMotionUnitX[i];
+    const unitY = assaultMotionUnitY[i];
+    const unitRadius = assaultMotionUnitR[i];
     const col = assaultMotionUnitCols[i];
     const row = assaultMotionUnitRows[i];
     const baseCellIndex = row * motionCols + col;
@@ -1882,15 +1897,14 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1, owner: Ass
         const sampleIndex = sampleStart + sampleOffset;
         const otherIndex = cell[sampleIndex < cellLength ? sampleIndex : sampleIndex - cellLength];
         if (otherIndex === i) continue;
-        const other = units[otherIndex];
-        if (!other || other.dead) continue;
-        const signedDx = unitX - other.x;
-        const verticalGap = unitY - other.y;
-        const lateralReach = unitRadius + other.r + 12;
+        if (!assaultMotionUnitLive[otherIndex]) continue;
+        const signedDx = unitX - assaultMotionUnitX[otherIndex];
+        const verticalGap = unitY - assaultMotionUnitY[otherIndex];
+        const lateralReach = unitRadius + assaultMotionUnitR[otherIndex] + 12;
         const absDx = Math.abs(signedDx);
         const absDy = Math.abs(verticalGap);
         if (absDx > lateralReach || absDy > verticalReach) continue;
-        const forwardGap = (other.y - unitY) * direction;
+        const forwardGap = (assaultMotionUnitY[otherIndex] - unitY) * direction;
         const lateralRatio = absDx / lateralReach;
         const verticalRatio = absDy / verticalReach;
         const distance = Math.sqrt(lateralRatio * lateralRatio + verticalRatio * verticalRatio);
