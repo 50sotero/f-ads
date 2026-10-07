@@ -1657,7 +1657,10 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1, owner: Ass
       for (let sample = 0; sample < sampleCount; sample++) {
         if (inspected >= ASSAULT_MAX_NEIGHBOURS) break neighbourSearch;
         inspected++;
-        const sampleIndex = sampleStart + assaultMotionSampleOffsets[cellLength * ASSAULT_MOTION_SAMPLE_STRIDE + sample];
+        const sampleOffset = cellLength <= MAX_UNITS
+          ? assaultMotionSampleOffsets[cellLength * ASSAULT_MOTION_SAMPLE_STRIDE + sample]
+          : Math.floor(sample * cellLength / sampleCount);
+        const sampleIndex = sampleStart + sampleOffset;
         const otherIndex = cell[sampleIndex < cellLength ? sampleIndex : sampleIndex - cellLength];
         if (otherIndex === i) continue;
         const other = units[otherIndex];
