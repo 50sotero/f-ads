@@ -289,6 +289,43 @@ test("an aligned counterattack target ahead releases the staging cap", () => {
   assert.ok(survivor.y <= 450, "closing toward an aligned target moved the survivor backward");
 });
 
+test("final cleanup pursues a selected ordinary enemy without waiting for it to cross the staging gap", () => {
+  const survivor = counterattackUnit(180, 350);
+  const target = counterattackUnit(180, 240, { used: 0 });
+  const game = counterattackGame({ blue: [survivor], red: [target] });
+  game.assault.wave = game.assault.waves;
+
+  step(game, 1 / 60);
+  assert.ok(survivor.y < 349, "the selected enemy left its aligned pursuer parked");
+  assert.equal(target.hp, 1, "pursuit must not damage an enemy remotely");
+  assert.equal(target.dead, false);
+
+  for (let frame = 0; frame < 120 && !target.dead; frame++) step(game, 1 / 60);
+  assert.equal(target.dead, true, "the pursuer did not reach physical contact");
+  assert.equal(game.stats.kills, 1);
+  assert.equal(game.status, "won");
+});
+
+test("cleanup pursuit preserves staging before the final wave and outside its local engagement bounds", () => {
+  for (const scenario of [
+    { name: "pending wave", pending: true },
+    { name: "seven remaining enemies", count: 7 },
+    { name: "target outside the query", depth: 121 },
+    { name: "target outside alignment", offset: 37 },
+    { name: "practice", practice: true },
+  ]) {
+    const survivor = counterattackUnit(180, 350);
+    const target = counterattackUnit(180 + (scenario.offset ?? 0), 350 - (scenario.depth ?? 110), { used: 0 });
+    const extras = Array.from({ length: (scenario.count ?? 1) - 1 }, (_, index) => counterattackUnit(20, 20 + index * 12, { used: 0 }));
+    const game = counterattackGame({ blue: [survivor], red: [target, ...extras] });
+    game.assault.wave = scenario.pending ? 0 : game.assault.waves;
+    game.level.assault.practice = scenario.practice ?? false;
+    step(game, 1 / 60);
+    assert.equal(survivor.y, 350, `${scenario.name} released the staging line`);
+    assert.equal(target.hp, 1, `${scenario.name} damaged an enemy remotely`);
+  }
+});
+
 test("a full survivor cap still clears a counterattack while firing", () => {
   const blue = [];
   for (let index = 0; index < 900; index++) {

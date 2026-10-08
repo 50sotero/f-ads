@@ -2850,6 +2850,12 @@ function updateAssaultBlue(g: Game, dt: number) {
   }
   const trackedGateCount = Math.min(30, g.gates.length);
   const allGatesMask = trackedGateCount > 0 ? (1 << trackedGateCount) - 1 : 0;
+  // Once the last wave is down to its final few enemies, pursue an aligned
+  // target as soon as the existing local query can see it. Otherwise a staged
+  // runner watches a selected enemy cross the gap between the two ranges.
+  const counterForwardReleaseDepth = isShieldCleanup(g)
+    ? ASSAULT_COUNTER_TARGET_DEPTH
+    : ASSAULT_COUNTER_FORWARD_RELEASE_DEPTH;
   for (let blueIndex = 0; blueIndex < g.blue.length; blueIndex++) {
     const u = g.blue[blueIndex];
     if (u.dead) continue;
@@ -2994,7 +3000,7 @@ function updateAssaultBlue(g: Game, dt: number) {
       const targetAligned = target !== null
         && Math.abs(target.x - u.x) <= ASSAULT_COUNTER_TARGET_ALIGN;
       const targetCanReverse = targetAligned && targetDepth > 0 && targetDepth <= ASSAULT_COUNTER_REVERSE_DEPTH;
-      const targetCanAdvance = targetAligned && targetDepth <= 0 && targetDepth >= -ASSAULT_COUNTER_FORWARD_RELEASE_DEPTH;
+      const targetCanAdvance = targetAligned && targetDepth <= 0 && targetDepth >= -counterForwardReleaseDepth;
       if (targetCanReverse) {
         // A nearby red that has already passed the survivor is behind it in
         // logical road space. Turn back at a low bounded speed. This is a
