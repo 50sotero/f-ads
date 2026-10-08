@@ -534,6 +534,7 @@ const ASSAULT_BOSS_BRACE_STAGGER = 0.6;
 const ASSAULT_BOSS_BRACE_IMPACT = 0.3;
 const ASSAULT_BOSS_CONTACT_BATCH = 12;
 const ASSAULT_BOSS_BRACE_CONTACT_LIMIT = 4;
+const ASSAULT_BOSS_CONTACT_TOLERANCE = 0.5;
 const ASSAULT_BOSS_BRACE_CHAMPION_FORWARD_FLOOR = 0.9;
 const ASSAULT_BOSS_BRACE_CHAMPION_SPEED_MULTIPLIER = 1.35;
 const ASSAULT_BOSS_BREAKTHROUGH_DURATION = 2.25;
@@ -836,8 +837,8 @@ function bossBraceContactCount(game: Game, active: Base) {
 
 function bossContacting(active: Base, unit: Unit) {
   return Math.abs(unit.x - active.x) <= active.w / 2 + unit.r
-    && unit.y <= active.y + active.h / 2 + unit.r + 0.5
-    && unit.y >= active.y - active.h / 2 - unit.r - 0.5;
+    && unit.y <= active.y + active.h / 2 + unit.r + ASSAULT_BOSS_CONTACT_TOLERANCE
+    && unit.y >= active.y - active.h / 2 - unit.r - ASSAULT_BOSS_CONTACT_TOLERANCE;
 }
 
 function maybeBeginBossBrace(game: Game, active: Base) {
@@ -2285,11 +2286,35 @@ function applyAssaultCorridorPressure(u: Unit, centerX: number, dt: number, corr
   u.vx += towardCenter * Math.min(10000, penetration * 180) * dt;
 }
 
-/** Pushes only the blue units occupying the giant's advancing collision lane. */
+function bossBreakthroughWallLimit(g: Game, unit: Unit, displacement: number) {
+  let safe = displacement;
+  for (const wall of g.walls) {
+    if (unit.x <= wall.x - unit.r || unit.x >= wall.x + wall.w + unit.r) continue;
+    const wallTop = wall.y - unit.r;
+    // A custom fixture may already place a probe inside a wall. It cannot be
+    // repaired by this carry step, so only a wall the unit would newly enter
+    // constrains the giant's movement.
+    // Keep an exactly tangent circle in the constraint set: `move` rejects
+    // the next positive step as soon as its center enters the wall. Probes
+    // strictly past the tangent line are already embedded and cannot be
+    // repaired by this carry step, so retain the legacy fixture behavior for
+    // those units.
+    if (unit.y > wallTop + 1e-6) continue;
+    safe = Math.min(safe, Math.max(0, wallTop - unit.y - 1e-6));
+  }
+  return safe;
+}
+
+/**
+ * Carries only the blue circles swept by the giant's real forward step.
+ * Returns the step that was safe for every carried circle so an authored wall
+ * constrains the giant as well as the unit instead of leaving the unit behind.
+ */
 function applyAssaultBossBreakthroughPush(g: Game, active: Base, previousFront: number, nextFront: number) {
-  const displacement = nextFront - previousFront;
-  if (displacement <= 0) return;
+  const requested = nextFront - previousFront;
+  if (requested <= 0) return 0;
   const previousRear = previousFront - active.h;
+  let displacement = requested;
   for (const unit of g.blue) {
     if (
       unit.dead
@@ -2297,14 +2322,26 @@ function applyAssaultBossBreakthroughPush(g: Game, active: Base, previousFront: 
       // A blue unit only joins the swept collision cohort when its circle
       // overlaps the giant's body during this step. Units behind the old rear
       // edge and units still ahead of the new front keep their own path.
-      || unit.y + unit.r < previousRear
+      || unit.y + unit.r + ASSAULT_BOSS_CONTACT_TOLERANCE < previousRear
       || unit.y - unit.r > nextFront
+    ) continue;
+    displacement = Math.min(displacement, bossBreakthroughWallLimit(g, unit, displacement));
+    if (displacement <= 0) return 0;
+  }
+  const actualFront = previousFront + displacement;
+  for (const unit of g.blue) {
+    if (
+      unit.dead
+      || Math.abs(unit.x - active.x) > active.w / 2 + unit.r
+      || unit.y + unit.r + ASSAULT_BOSS_CONTACT_TOLERANCE < previousRear
+      || unit.y - unit.r > actualFront
     ) continue;
     // Preserve each unit's offset from the advancing body. The shove is
     // bounded by the giant's actual movement in this step; the normal mover
     // still owns authored walls and field bounds.
     move(g, unit, displacement, 0);
   }
+  return displacement;
 }
 
 function updateAssaultBossPressure(g: Game, dt: number) {
@@ -2319,23 +2356,26 @@ function updateAssaultBossPressure(g: Game, dt: number) {
     const slice = Math.min(Math.max(0, dt), available);
     const previousY = active.y;
     const limit = assault.bossOriginY + ASSAULT_BOSS_PRESSURE_TRAVEL;
-    active.y = Math.min(limit, active.y + ASSAULT_BOSS_BREAKTHROUGH_SPEED * slice);
-    const displacement = active.y - previousY;
+    const requestedY = Math.min(limit, active.y + ASSAULT_BOSS_BREAKTHROUGH_SPEED * slice);
+    const displacement = applyAssaultBossBreakthroughPush(g, active, previousY + active.h / 2, requestedY + active.h / 2);
+    active.y = previousY + displacement;
     breakthrough.elapsed += Math.max(0, dt);
     breakthrough.advance += displacement;
-    applyAssaultBossBreakthroughPush(g, active, previousY + active.h / 2, active.y + active.h / 2);
     if (breakthrough.elapsed >= ASSAULT_BOSS_BREAKTHROUGH_DURATION - 1e-9) bossBreakthroughStates.delete(g);
     return;
   }
   if (assault.bossTime <= ASSAULT_BOSS_PRESSURE_DELAY) return;
-  // A live front holds the giant in place. Advancing through engaged runners
-  // leaves them stranded behind their target and makes the battle slide.
-  if (g.blue.some((u) => !u.dead
-    && Math.abs(u.x - active.x) <= active.w / 2 + u.r
-    && u.y >= active.y - active.h / 2 - u.r - 0.5
-    && u.y <= active.y + active.h / 2 + u.r + 0.5)) return;
+  const brace = bossBraceRuntime(g);
+  // A champion's stagger is the explicit interruption window. Hold the giant
+  // in place for that short phase before ordinary pressure resumes.
+  if (brace?.phase === "staggered") return;
+  const canCarryContact = bossBraceEncounterEligible(g, assault);
+  if (!canCarryContact && g.blue.some((u) => !u.dead && bossContacting(active, u))) return;
   const limit = assault.bossOriginY + ASSAULT_BOSS_PRESSURE_TRAVEL;
-  active.y = Math.min(limit, active.y + ASSAULT_BOSS_PRESSURE_SPEED * dt);
+  const previousY = active.y;
+  const requestedY = Math.min(limit, active.y + ASSAULT_BOSS_PRESSURE_SPEED * dt);
+  const displacement = applyAssaultBossBreakthroughPush(g, active, previousY + active.h / 2, requestedY + active.h / 2);
+  active.y = previousY + displacement;
 }
 
 /**
