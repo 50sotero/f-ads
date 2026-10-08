@@ -569,6 +569,21 @@ export function CrowdCannon() {
       keysRef.current.clear();
       if (gameRef.current) gameRef.current.firing = false;
     };
+    const pauseWhenAway = () => {
+      pointerRef.current = null;
+      keysRef.current.clear();
+      const game = gameRef.current;
+      if (game) game.firing = false;
+      // Keep the held gesture until its release so it cannot click Resume.
+      // Returning to the game requires an explicit resume and a fresh press.
+      if (screenRef.current === "playing" && game?.status === "playing") {
+        screenRef.current = "paused";
+        setScreen("paused");
+      }
+    };
+    const visibilityChanged = () => {
+      if (document.hidden) pauseWhenAway();
+    };
     const down = (event: PointerEvent) => {
       const game = gameRef.current;
       if (!game || screenRef.current !== "playing") return;
@@ -647,7 +662,8 @@ export function CrowdCannon() {
     document.addEventListener("click", consumeFiringClick, true);
     window.addEventListener("keydown", keydown);
     window.addEventListener("keyup", keyup);
-    window.addEventListener("blur", reset);
+    window.addEventListener("blur", pauseWhenAway);
+    document.addEventListener("visibilitychange", visibilityChanged);
     return () => {
       canvas.removeEventListener("pointerdown", down);
       canvas.removeEventListener("pointermove", move);
@@ -658,7 +674,8 @@ export function CrowdCannon() {
       document.removeEventListener("click", consumeFiringClick, true);
       window.removeEventListener("keydown", keydown);
       window.removeEventListener("keyup", keyup);
-      window.removeEventListener("blur", reset);
+      window.removeEventListener("blur", pauseWhenAway);
+      document.removeEventListener("visibilitychange", visibilityChanged);
       reset();
     };
   }, [rendererNonce]);
@@ -670,17 +687,6 @@ export function CrowdCannon() {
       if (gameRef.current) gameRef.current.firing = false;
     }
   }, [screen]);
-
-  useEffect(() => {
-    const onVisibilityChange = () => {
-      if (document.hidden && screenRef.current === "playing") {
-        screenRef.current = "paused";
-        setScreen("paused");
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, []);
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
