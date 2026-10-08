@@ -2371,6 +2371,7 @@ const ASSAULT_BOSS_PRESSURE_RAMP_START_FRONT = 447;
 const ASSAULT_BOSS_PRESSURE_RAMP_DURATION = 0.5;
 const ASSAULT_COUNTER_TARGET_LATERAL = 90;
 const ASSAULT_COUNTER_TARGET_DEPTH = 120;
+const ASSAULT_COUNTER_APPROACH_DEPTH = 180;
 const ASSAULT_COUNTER_TARGET_ALIGN = 36;
 const ASSAULT_COUNTER_FORWARD_RELEASE_DEPTH = 96;
 const ASSAULT_COUNTER_REVERSE_DEPTH = ASSAULT_COUNTER_TARGET_DEPTH;
@@ -2392,7 +2393,7 @@ const ASSAULT_COUNTER_TARGET_ROWS = ROWS;
 const assaultCounterTargetCells: Array<Unit[] | undefined> = new Array(ASSAULT_COUNTER_TARGET_COLS * ASSAULT_COUNTER_TARGET_ROWS);
 const assaultCounterTargetCellGeneration = new Uint32Array(ASSAULT_COUNTER_TARGET_COLS * ASSAULT_COUNTER_TARGET_ROWS);
 const assaultCounterTargetOffsetEntries: Array<{ dr: number; dc: number }> = [];
-for (let dr = -Math.ceil(ASSAULT_COUNTER_TARGET_DEPTH / CELL); dr <= Math.ceil(ASSAULT_COUNTER_TARGET_DEPTH / CELL); dr++) {
+for (let dr = -Math.ceil(ASSAULT_COUNTER_APPROACH_DEPTH / CELL); dr <= Math.ceil(ASSAULT_COUNTER_TARGET_DEPTH / CELL); dr++) {
   for (let dc = -Math.ceil(ASSAULT_COUNTER_TARGET_LATERAL / CELL); dc <= Math.ceil(ASSAULT_COUNTER_TARGET_LATERAL / CELL); dc++) {
     assaultCounterTargetOffsetEntries.push({ dr, dc });
   }
@@ -2403,7 +2404,7 @@ assaultCounterTargetOffsetEntries.sort((a, b) => {
   return distanceA - distanceB || a.dr - b.dr || a.dc - b.dc;
 });
 // Keep the exact nearest-cell order above, but use flat typed arrays in the
-// hot query. This removes object property accesses from each of the 99
+// hot query. This removes object property accesses from each of the bounded
 // candidate cells examined by a survivor.
 const assaultCounterTargetOffsetRows = new Int8Array(assaultCounterTargetOffsetEntries.length);
 const assaultCounterTargetOffsetCols = new Int8Array(assaultCounterTargetOffsetEntries.length);
@@ -2466,7 +2467,7 @@ function prepareAssaultCounterattackTargets(units: Unit[]) {
   }
 }
 
-function nearestAssaultCounterattackTarget(unit: Unit) {
+function nearestAssaultCounterattackTarget(unit: Unit, approach = false) {
   if (assaultCounterTargetCount === 0) return null;
   const unitX = unit.x;
   const unitY = unit.y;
@@ -2475,7 +2476,7 @@ function nearestAssaultCounterattackTarget(unit: Unit) {
   const baseCellIndex = row * ASSAULT_COUNTER_TARGET_COLS + col;
   // Survivors in the same grid cell share the occupied neighbour cells for
   // this red pass. Preserve the exact offset order and per-unit samples, but
-  // avoid probing the same 99 mostly empty cells for every nearby runner.
+  // avoid probing the same mostly empty cells for every nearby runner.
   let occupied = assaultCounterOccupiedOffsets[baseCellIndex];
   if (!occupied || assaultCounterOccupiedGeneration[baseCellIndex] !== assaultCounterTargetGeneration) {
     if (!occupied) occupied = assaultCounterOccupiedOffsets[baseCellIndex] = [];
@@ -2520,7 +2521,12 @@ function nearestAssaultCounterattackTarget(unit: Unit) {
       if (!target || target.dead) continue;
       const dx = target.x - unitX;
       const dy = target.y - unitY;
-      if (Math.abs(dx) > ASSAULT_COUNTER_TARGET_LATERAL || Math.abs(dy) > ASSAULT_COUNTER_TARGET_DEPTH) continue;
+      if (Math.abs(dx) > ASSAULT_COUNTER_TARGET_LATERAL || dy > ASSAULT_COUNTER_TARGET_DEPTH) continue;
+      // Beyond close engagement, only an enemy straight ahead can release
+      // an ordinary survivor. This is a physical approach along its lane,
+      // not a wider sideways homing window or pursuit of a global front.
+      if (dy < -ASSAULT_COUNTER_TARGET_DEPTH
+        && (!approach || dy < -ASSAULT_COUNTER_APPROACH_DEPTH || Math.abs(dx) > ASSAULT_COUNTER_TARGET_ALIGN)) continue;
       const distance = dx * dx + dy * dy;
       if (distance < bestDistance) {
         bestDistance = distance;
@@ -3245,13 +3251,17 @@ function updateAssaultBlue(g: Game, dt: number) {
       // A red outside the global expanded bounding box cannot be a local
       // target. This exact rejection avoids the 99-cell query for staged
       // survivors that are still far from the incoming wave.
+      const canApproach = !u.big && !g.level.assault?.practice;
+      const forwardDepth = canApproach ? ASSAULT_COUNTER_APPROACH_DEPTH : ASSAULT_COUNTER_TARGET_DEPTH;
       const hasNearbyRed = assaultCounterTargetCount > 0
         && u.x >= assaultCounterTargetMinX - ASSAULT_COUNTER_TARGET_LATERAL
         && u.x <= assaultCounterTargetMaxX + ASSAULT_COUNTER_TARGET_LATERAL
         && u.y >= assaultCounterTargetMinY - ASSAULT_COUNTER_TARGET_DEPTH
-        && u.y <= assaultCounterTargetMaxY + ASSAULT_COUNTER_TARGET_DEPTH;
-      const target = guidedChampion ? championTarget : hasNearbyRed ? nearestAssaultCounterattackTarget(u) : null;
-      if (target && !guidedChampion) applyAssaultCounterattackGuidance(u, target, dt);
+        && u.y <= assaultCounterTargetMaxY + forwardDepth;
+      const target = guidedChampion ? championTarget : hasNearbyRed ? nearestAssaultCounterattackTarget(u, canApproach) : null;
+      if (target && !guidedChampion && Math.abs(target.y - u.y) <= ASSAULT_COUNTER_TARGET_DEPTH) {
+        applyAssaultCounterattackGuidance(u, target, dt);
+      }
 
       const targetDepth = target ? target.y - u.y : 0;
 
@@ -3260,6 +3270,8 @@ function updateAssaultBlue(g: Game, dt: number) {
       // never repositioned backward unless a bounded, aligned red target asks
       // them to turn and meet a nearby unit behind them. A close target ahead
       // also releases the line so the survivor can close the engagement.
+      // Ordinary survivors may approach an actual aligned enemy farther
+      // ahead instead of watching it walk across an otherwise empty gap.
       // Stable personal arrival depths keep a waiting crowd from snapping into
       // one ruler-straight row. Existing pace variation survives gate copies.
       const arrivalOffset = Math.max(-1, Math.min(1, ((u.pace ?? 1) - 1) / 0.1)) * 18;
@@ -3267,7 +3279,8 @@ function updateAssaultBlue(g: Game, dt: number) {
       const targetAligned = target !== null
         && Math.abs(target.x - u.x) <= ASSAULT_COUNTER_TARGET_ALIGN;
       const targetCanReverse = targetAligned && targetDepth > 0 && targetDepth <= ASSAULT_COUNTER_REVERSE_DEPTH;
-      const targetCanAdvance = targetAligned && targetDepth <= 0 && targetDepth >= -counterForwardReleaseDepth;
+      const releaseDepth = canApproach ? ASSAULT_COUNTER_APPROACH_DEPTH : counterForwardReleaseDepth;
+      const targetCanAdvance = targetAligned && targetDepth <= 0 && targetDepth >= -releaseDepth;
       if (targetCanReverse) {
         // A nearby red that has already passed the survivor is behind it in
         // logical road space. Turn back at a low bounded speed. This is a

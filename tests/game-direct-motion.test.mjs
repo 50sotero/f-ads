@@ -306,15 +306,31 @@ test("final cleanup pursues a selected ordinary enemy without waiting for it to 
   assert.equal(game.status, "won");
 });
 
-test("cleanup pursuit preserves staging before the final wave and outside its local engagement bounds", () => {
-  for (const scenario of [
-    { name: "pending wave", pending: true },
-    { name: "seven remaining enemies", count: 7 },
-    { name: "target outside the query", depth: 121 },
-    { name: "target outside alignment", offset: 37 },
-    { name: "practice", practice: true },
-  ]) {
+test("counterattack approach releases aligned actual enemies while waves remain", () => {
+  for (const depth of [110, 150, 180]) {
     const survivor = counterattackUnit(180, 350);
+    const target = counterattackUnit(180, 350 - depth, { used: 0 });
+    const game = counterattackGame({ blue: [survivor], red: [target] });
+    step(game, 1 / 60);
+    assert.ok(survivor.y < 349, `enemy ${depth}px ahead left the survivor parked`);
+    assert.equal(survivor.x, 180, "forward approach changed the chosen lane");
+    assert.equal(target.hp, 1, "approach damaged a distant target");
+    assert.equal(target.dead, false);
+    for (let frame = 0; frame < 240 && !target.dead; frame++) step(game, 1 / 60);
+    assert.equal(target.dead, true, "approach never reached physical contact");
+    assert.equal(game.stats.kills, 1);
+  }
+});
+
+test("counterattack approach retains staging outside its forward lane and in practice", () => {
+  for (const scenario of [
+    { name: "target outside approach", depth: 181 },
+    { name: "target outside alignment", offset: 37 },
+    { name: "distant sideways target", offset: 37, depth: 150 },
+    { name: "practice", practice: true },
+    { name: "champion retains close engagement", big: true, pending: true },
+  ]) {
+    const survivor = counterattackUnit(180, 350, { big: scenario.big ?? false });
     const target = counterattackUnit(180 + (scenario.offset ?? 0), 350 - (scenario.depth ?? 110), { used: 0 });
     const extras = Array.from({ length: (scenario.count ?? 1) - 1 }, (_, index) => counterattackUnit(20, 20 + index * 12, { used: 0 }));
     const game = counterattackGame({ blue: [survivor], red: [target, ...extras] });
@@ -324,6 +340,20 @@ test("cleanup pursuit preserves staging before the final wave and outside its lo
     assert.equal(survivor.y, 350, `${scenario.name} released the staging line`);
     assert.equal(target.hp, 1, `${scenario.name} damaged an enemy remotely`);
   }
+});
+
+test("forward approach does not steer sideways before close engagement", () => {
+  const survivor = counterattackUnit(180, 350);
+  const target = counterattackUnit(215, 185, { used: 0 });
+  const game = counterattackGame({ blue: [survivor], red: [target] });
+  for (let frame = 0; frame < 12; frame++) step(game, 1 / 60);
+  assert.ok(survivor.y < 335, "the aligned incoming enemy did not release forward travel");
+  assert.equal(survivor.x, 180, "a distant enemy pulled the survivor sideways");
+  assert.equal(survivor.vx, 0);
+  target.dead = true;
+  const stoppedAt = survivor.y;
+  for (let frame = 0; frame < 30; frame++) step(game, 1 / 60);
+  assert.equal(survivor.y, stoppedAt, "survivor kept pursuing after the real enemy disappeared");
 });
 
 test("a full survivor cap still clears a counterattack while firing", () => {
