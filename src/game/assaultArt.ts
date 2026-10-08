@@ -324,23 +324,23 @@ export function createWarden(variant = 0): WardenArt {
     const strike = Math.pow(THREE.MathUtils.clamp(impact || 0, 0, 1), 0.65);
     // Incoming hits still flash, but cannot disguise the two-handed attack.
     const flash = THREE.MathUtils.clamp(hit || 0, 0, 1);
-    const damage = flash * 0.28 * (1 - Math.max(windup, strike));
+    const damage = flash * (1 - windup * 0.55) * (1 - strike);
     const drive = THREE.MathUtils.clamp(advance, 0, 1);
     const stride = Math.sin(t * (drive > 0 ? 8.8 : 4.2)) * (1 - Math.max(windup, strike));
-    upper.position.y = 1.43 + Math.abs(stride) * (0.07 + drive * 0.04) + windup * 0.12 - strike * 0.3;
-    upper.position.z = -damage * 0.55 - windup * 0.16 + strike * 0.5;
-    upper.rotation.x = 0.13 - damage * 0.62 - windup * 0.12 + strike * 0.32 - stagger * 0.48 + drive * 0.12;
-    upper.rotation.z = stride * 0.028 + Math.sin(t * 36) * damage * 0.025 + Math.sin(t * 18) * stagger * 0.07;
-    head.rotation.x = -0.15 - damage * 0.45 + windup * 0.18 - strike * 0.13 + stagger * 0.35;
+    upper.position.y = 1.43 + Math.abs(stride) * (0.07 + drive * 0.04) + windup * 0.22 + damage * 0.1 - strike * 0.3;
+    upper.position.z = -damage * 0.48 - windup * 0.22 + strike * 0.64;
+    upper.rotation.x = 0.13 - damage * 0.22 - windup * 0.2 + strike * 0.38 - stagger * 0.48 + drive * 0.12;
+    upper.rotation.z = stride * 0.028 + Math.sin(t * 17) * damage * 0.065 + Math.sin(t * 18) * stagger * 0.07;
+    head.rotation.x = -0.15 - damage * 0.18 + windup * 0.2 - strike * 0.13 + stagger * 0.35;
     arms.forEach((arm, i) => {
-      arm.rotation.x = -0.26 + stride * (i ? -0.19 : 0.19) - windup * 1.75 + strike * 0.62 + damage * 0.85;
+      arm.rotation.x = -0.26 + stride * (i ? -0.19 : 0.19) - windup * 1.75 + strike * 0.62 + damage * (i ? 0.3 : 0.42);
       arm.rotation.z = (i ? 1 : -1) * (0.11 + windup * 0.16 + strike * 0.07);
     });
     feet.forEach((leg, i) => { leg.rotation.x = stride * (i ? -1 : 1) * (0.18 + drive * 0.36); });
-    body.color.copy(bodyColor).lerp(hitColor, damage * 0.65);
-    armor.color.copy(armorColor).lerp(hitColor, damage * 1.6);
-    body.emissive.setHex(0xfff9e8); body.emissiveIntensity = damage * 0.15;
-    armor.emissive.setHex(0xfff9e8); armor.emissiveIntensity = damage * 0.3;
+    body.color.copy(bodyColor).lerp(hitColor, flash * 0.78);
+    armor.color.copy(armorColor).lerp(hitColor, flash * 0.86);
+    body.emissive.setHex(0xfff9e8); body.emissiveIntensity = flash * 0.12;
+    armor.emissive.setHex(0xfff9e8); armor.emissiveIntensity = flash * 0.18;
   }
   animate(0, 0);
   return { group, animate, dispose() { group.clear(); owned.dispose(); } };

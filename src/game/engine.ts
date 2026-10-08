@@ -472,6 +472,7 @@ export function championShieldAim(game: Game): { target: Unit; direction: "left"
 const championTargets = new WeakMap<Unit, Unit>();
 const counterCommitments = new WeakMap<Unit, { owner: AssaultState; encounter: number }>();
 const shieldBraceFatigue = new WeakMap<Unit, { owner: Game; seconds: number }>();
+const shieldBlockImpacts = new WeakMap<Unit, { owner: Game; at: number }>();
 type CounterattackRunnerBreakawayState = {
   owner: AssaultState;
   encounter: number;
@@ -595,6 +596,13 @@ export function isShieldCleanup(game: Game) {
     if (!unit.dead && ++livingRed > 6) return false;
   }
   return true;
+}
+
+/** Cosmetic response to an actual blocked contact; this never damages a guard. */
+export function shieldBlockImpact(game: Game, unit: Unit) {
+  if (unit.dead || !unit.braced) return 0;
+  const impact = shieldBlockImpacts.get(unit);
+  return impact?.owner === game ? Math.max(0, 1 - (game.t - impact.at) / 0.18) : 0;
 }
 
 /** Returns the current 0..1 ordinary-contact fatigue on a braced guard. */
@@ -908,7 +916,7 @@ function bossBraceContactCount(game: Game, active: Base) {
   return ordinary;
 }
 
-function bossContacting(active: Base, unit: Unit) {
+export function bossContacting(active: Base, unit: Unit) {
   return Math.abs(unit.x - active.x) <= active.w / 2 + unit.r
     && unit.y <= active.y + active.h / 2 + unit.r + ASSAULT_BOSS_CONTACT_TOLERANCE
     && unit.y >= active.y - active.h / 2 - unit.r - ASSAULT_BOSS_CONTACT_TOLERANCE;
@@ -3217,6 +3225,9 @@ function resolveAssaultFights(g: Game, dt: number) {
             // complete collision pass so a dense same-frame pileup cannot
             // multiply its fatigue.
             braceContacts?.add(e);
+            const impact = shieldBlockImpacts.get(e);
+            if (impact?.owner !== g) shieldBlockImpacts.set(e, { owner: g, at: g.t });
+            else if (g.t - impact.at >= 0.24) impact.at = g.t;
             u.dead = true;
             pop(g, u.x, u.y, 0);
             break;

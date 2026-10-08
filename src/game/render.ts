@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, bossBrace, bossBreakthrough, bossSlamRecoil, cannonBarrelPositions, championBossAim, championShieldAim, counterattackSideEntry, counterattackWaveRole, shieldBracePressure, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
+import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, bossBrace, bossBreakthrough, bossContacting, bossSlamRecoil, cannonBarrelPositions, championBossAim, championShieldAim, counterattackSideEntry, counterattackWaveRole, isShieldCleanup, shieldBlockImpact, shieldBracePressure, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
 import { createGuardGeometry, createHordeGeometry, createMobGeometry, createRaiderGeometry, createSiegeCannon, createWarden } from "./assaultArt";
 
 // The simulation uses a moving local battlefield. The long road and bridges
@@ -458,18 +458,29 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         float runPhase = runMotion.w < -0.5 ? runTime * 17.0 + runMotion.x : runMotion.x;
         float stride = sin(runPhase) * runMotion.y;
         float limbAngle = stride * sign(stridePart) * (abs(stridePart) > 1.5 ? 0.95 : -0.8);
-        if (abs(stridePart) > 0.5 && abs(stridePart) < 1.5) limbAngle += runMotion.z * (0.8 + sin(runTime * 14.0 + runMotion.x + stridePart * 1.57) * 0.55);
+        float torsoCos = 1.0, torsoSin = 0.0;
+        if (runMotion.z > 0.001 && abs(stridePart) < 1.5) {
+          float strikePhase = runTime * 10.0 + runMotion.x;
+          float twist = sin(strikePhase) * runMotion.z * 0.11;
+          torsoCos = cos(twist); torsoSin = sin(twist);
+          if (abs(stridePart) > 0.5) {
+            float strike = max(0.0, sin(strikePhase + stridePart * 1.57));
+            limbAngle = mix(limbAngle, 0.72 + strike * strike * 0.95, runMotion.z);
+          }
+        }
         float limbCos = cos(limbAngle), limbSin = sin(limbAngle);
         objectNormal.yz = mat2(limbCos, limbSin, -limbSin, limbCos) * objectNormal.yz;
+        objectNormal.xz = mat2(torsoCos, torsoSin, -torsoSin, torsoCos) * objectNormal.xz;
       `).replace("#include <begin_vertex>", `
         #include <begin_vertex>
         vFaceMask = faceMask;
-        vGateGlow = max(0.0, runMotion.w);
+        vGateGlow = runMotion.z < 0.0 ? runMotion.z : max(0.0, runMotion.w);
         if (abs(stridePart) > 0.5) {
-          float pivot = abs(stridePart) > 1.5 ? 0.36 : 0.75;
+          float pivot = abs(stridePart) > 1.5 ? 0.36 : 0.79;
           transformed.yz = mat2(limbCos, limbSin, -limbSin, limbCos) * vec2(position.y - pivot, position.z);
           transformed.y += pivot;
         }
+        transformed.xz = mat2(torsoCos, torsoSin, -torsoSin, torsoCos) * transformed.xz;
         transformed.y += abs(stride) * 0.075;
         transformed.y += (0.5 + 0.5 * sin(runTime * 3.0 + runMotion.x)) * 0.02 * (1.0 - runMotion.y);
         transformed.x += stride * 0.02 * position.y;
@@ -491,11 +502,12 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       `).replace("#include <opaque_fragment>", `
         float rim = pow(1.0 - max(0.0, dot(normal, normalize(vViewPosition))), 1.6);
         outgoingLight *= 1.0 - rim * 0.2;
-        outgoingLight += vec3(0.18, 0.9, 1.5) * vGateGlow * (0.3 + rim * 1.8);
+        if (vGateGlow < 0.0) outgoingLight = mix(outgoingLight, vec3(1.45, 1.05, 0.35), -vGateGlow * 0.65);
+        else outgoingLight += vec3(0.18, 0.9, 1.5) * vGateGlow * (0.3 + rim * 1.8);
         #include <opaque_fragment>
       `);
     };
-    material.customProgramCacheKey = () => "arena-speed-stride-v11"; return material;
+    material.customProgramCacheKey = () => "arena-contact-response-v13"; return material;
   }
   const mobGeometry = geo(createMobGeometry()), reserveGeometry = geo(createHordeGeometry());
   const friendMaterial = crowdMaterial(BLUE), enemyMaterial = crowdMaterial(0xffffff);
@@ -520,6 +532,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const regularUnits: Unit[] = [], guardUnits: Unit[] = [], bracedUnits: Unit[] = [];
   const shieldLabel = makeLabel("SHIELD", 4.3, 1.45, "#ffe5a0", 127, true);
   stage.add(shieldLabel.sprite); shieldLabel.sprite.visible = false; shieldLabel.sprite.renderOrder = 10;
+  const shieldMeter = new THREE.Group(); stage.add(shieldMeter); shieldMeter.visible = false;
+  box(shieldMeter, basic(0x26324b, { depthTest: false, depthWrite: false }), 0, 0, 0, 3.8, 0.22, 0.12).renderOrder = 9;
+  const shieldMeterFill = box(shieldMeter, basic(0xffd45b, { depthTest: false, depthWrite: false }), 0, 0, 0.08, 3.6, 0.13, 0.1); shieldMeterFill.renderOrder = 10;
   const shieldHalo = new THREE.InstancedMesh(geo(new THREE.RingGeometry(0.72, 1, 24).rotateX(-Math.PI / 2)), basic(0xffd66c, { transparent: true, opacity: 0.8, depthTest: false, depthWrite: false }), 16);
   shieldHalo.instanceMatrix.setUsage(THREE.DynamicDrawUsage); shieldHalo.frustumCulled = false; shieldHalo.renderOrder = 7; stage.add(shieldHalo);
   // Small halos keep every shield visible; one arrow identifies the selected
@@ -614,7 +629,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     let colorStart = count, colorEnd = -1;
     const time = currentGame?.t ?? 0;
     const boss = currentGame?.bases[currentGame.assault?.encounter ?? 0];
-    const front = currentGame?.assault?.frontline ?? boss?.y ?? 300;
+    const contactBoss = !enemy && currentGame?.assault?.phase === "battle" && boss && boss.hp > 0 ? boss : null;
     for (let i = 0; i < count; i++) {
       const unit = units[i];
       const recoil = !enemy && currentGame ? bossSlamRecoil(currentGame, unit) : 0;
@@ -636,6 +651,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       // Position-based arcs left queued runners hovering above the muzzle.
       const flight = Math.max(0, Math.min(1, (time - state.launchedAt) / 0.34));
       const shotFlight = flight < 1 ? (1 - flight) * 0.7 + Math.sin(flight * Math.PI) * 0.65 : 0;
+      // Only the row touching the giant fights. A slow waiting rank or a
+      // distant flank defender does not establish an opposing contact.
+      const engaged = recoil === 0 && shotFlight === 0 && contactBoss !== null && bossContacting(contactBoss, unit);
       const elapsed = time - state.time;
       state.glow = Math.max(0, state.glow - elapsed * 4);
       state.used = unit.used;
@@ -644,11 +662,17 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         const dx = (unit.x - state.x) * SX + unitCurve - curve(stateWorldZ);
         const dz = unitWorldZ - stateWorldZ - (travel - state.travel);
         const speed = Math.sqrt(dx * dx + dz * dz) / elapsed;
-        if (speed > 0.8 && recoil === 0) {
-          const target = Math.atan2(-dx, -dz);
+        if ((speed > 0.8 || engaged) && recoil === 0) {
+          let target = Math.atan2(-dx, -dz);
+          if (engaged) {
+            const contactX = Math.max(contactBoss.x - contactBoss.w / 2, Math.min(contactBoss.x + contactBoss.w / 2, unit.x));
+            const contactZ = wz(contactBoss.y + contactBoss.h / 2);
+            target = Math.atan2(-((contactX - unit.x) * SX + curve(contactZ) - unitCurve), -(contactZ - unitWorldZ));
+          }
           let delta = target - state.angle;
           delta -= Math.floor((delta + Math.PI) / (Math.PI * 2)) * Math.PI * 2;
-          state.angle += delta * Math.min(1, elapsed * 14);
+          state.angle += engaged ? Math.max(-elapsed * 7, Math.min(elapsed * 7, delta * Math.min(1, elapsed * 18)))
+            : delta * Math.min(1, elapsed * 14);
         }
         state.run += (Math.min(1, speed / (enemy ? 1.8 : 7)) - state.run) * Math.min(1, elapsed * 12);
         // Integrate stride from actual ground speed. Multiplying absolute time
@@ -656,14 +680,15 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         state.phase += elapsed * (9 + Math.min(14, speed) * 2) * Math.max(0.15, state.run);
       }
       state.x = unit.x; state.y = unit.y; state.travel = travel; state.time = time;
-      const fighting = recoil === 0 && shotFlight === 0 && state.run < 0.55 && (Math.abs(unit.y - front) < 32 || !!boss && Math.abs(unit.y - boss.y - boss.h / 2) < 25) ? (0.55 - state.run) / 0.55 : 0;
+      const fighting = engaged ? 1 - state.run : 0;
+      const blocked = unit.braced && currentGame ? shieldBlockImpact(currentGame, unit) : 0;
       const motionOffset = i * 4;
       runMotionArray[motionOffset] = state.phase; runMotionArray[motionOffset + 1] = shotFlight > 0 || recoil > 0 ? 0.15 : state.run;
-      runMotionArray[motionOffset + 2] = fighting; runMotionArray[motionOffset + 3] = state.glow * (1 - crowdFullness * 0.6);
+      runMotionArray[motionOffset + 2] = blocked > 0 ? -blocked : fighting; runMotionArray[motionOffset + 3] = state.glow * (1 - crowdFullness * 0.6);
       const landing = flight >= 1 ? Math.max(0, 1 - (time - state.launchedAt - 0.34) / 0.12) : 0;
-      const contactLean = fighting > 0 ? fighting * (0.065 + Math.sin(time * 11 + state.phase * 1.7) * 0.035) : 0;
+      const contactLean = fighting * 0.13;
       const pitch = recoil > 0 ? recoilHop * 0.48 : shotFlight > 0 ? -0.42 * Math.sin(flight * Math.PI)
-        : (runner ? -0.26 : -0.14) * state.run - contactLean;
+        : (runner ? -0.26 : -0.14) * state.run - contactLean + blocked * 0.085;
       const cy = Math.cos(state.angle), sy = Math.sin(state.angle), cp = Math.cos(pitch), sp = Math.sin(pitch);
       const popScale = 1 + Math.sin(state.glow * Math.PI) * (0.18 - crowdFullness * 0.14);
       const footprint = unit.big ? 1 : crowdFootprint;
@@ -722,12 +747,13 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   }
   impactContext.closePath(); impactContext.fill(); impactContext.stroke();
   const impactTexture = texture(new THREE.CanvasTexture(impactCanvas)); impactTexture.colorSpace = THREE.SRGBColorSpace;
-  type BossView = { art: ReturnType<typeof createWarden>; label: Label; caption: string; bar: THREE.Group; fill: THREE.Mesh; charge: THREE.Group; chargeFill: THREE.Mesh; impact: THREE.Sprite; hitX: number; hp: number; deadAt: number; damageAt: number; deathX: number; deathZ: number; deathTravel: number };
+  type BossView = { art: ReturnType<typeof createWarden>; label: Label; caption: string; nextLabelAt: number; cue: Label; cueCaption: string; bar: THREE.Group; fill: THREE.Mesh; charge: THREE.Group; chargeFill: THREE.Mesh; impact: THREE.Sprite; hitX: number; hp: number; deadAt: number; damageAt: number; deathX: number; deathZ: number; deathTravel: number };
   const bosses: BossView[] = [];
   function ensureBosses(count: number) {
     while (bosses.length < count) {
       const art = createWarden(bosses.length); bakeArt(art.group); stage.add(art.group);
       const label = makeLabel("500", 5.8, 1.9, "#ffffff", 144); stage.add(label.sprite);
+      const cue = makeLabel("", 4.5, 1.05, "#ffe19b", 116); stage.add(cue.sprite); cue.sprite.visible = false;
       const bar = new THREE.Group(); stage.add(bar);
       box(bar, dark, 0, 0, 0, 5.4, 0.65, 0.18);
       const fill = box(bar, standard(0xff294e, { emissive: 0xff1734, emissiveIntensity: 0.3 }), 0, 0, 0.11, 5.15, 0.46, 0.1);
@@ -736,7 +762,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const chargeFill = box(charge, basic(0xffcc49), 0, 0, 0.11, 4.15, 0.17, 0.1);
       const impact = new THREE.Sprite(mat(new THREE.SpriteMaterial({ map: impactTexture, transparent: true, opacity: 0, depthWrite: false, depthTest: false })));
       impact.renderOrder = 4; impact.visible = false; stage.add(impact);
-      bosses.push({ art, label, caption: "500", bar, fill, charge, chargeFill, impact, hitX: 0, hp: -1, deadAt: -99, damageAt: -99, deathX: 0, deathZ: 0, deathTravel: 0 });
+      bosses.push({ art, label, caption: "500", nextLabelAt: 0, cue, cueCaption: "", bar, fill, charge, chargeFill, impact, hitX: 0, hp: -1, deadAt: -99, damageAt: -99, deathX: 0, deathZ: 0, deathTravel: 0 });
     }
   }
   const particleList: Particle[] = [];
@@ -860,6 +886,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       // fitting the live front must never depend on the decorative reserve.
       frameBox(bossView.art.group, -4.2, -0.6, -2.9, 4.2, 6.4, 4.2);
       frameLabel(bossView.label.sprite);
+      frameLabel(bossView.cue.sprite);
     } else if (active && currentGame) {
       const combatY = currentGame.assault?.frontline ?? active.y;
       framePoint(wx(active.x), 2.8, wz(combatY));
@@ -901,7 +928,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       previousPulse = 0; wasRushing = false;
       previousPhase = game.assault?.phase ?? "battle"; previousWave = game.assault?.wave ?? 0; previousWaveLane = game.assault?.waveLane ?? 0; counterattackAt = -99; retreatCount = 0; reserveAnchor = NaN;
       particleList.length = shardStates.length = 0; fallen.length = previousUnits.length = 0;
-      bosses.forEach((boss) => { boss.hp = -1; boss.deadAt = -99; boss.damageAt = -99; });
+      bosses.forEach((boss) => { boss.hp = -1; boss.deadAt = -99; boss.damageAt = -99; boss.nextLabelAt = 0; });
       gates.forEach((value) => { value.group.visible = false; value.nextBurst = 0; value.brokenAt = -1; });
       tags.forEach((value) => { value.age = 2; }); ringAge.fill(2); ringActive.fill(0); ringAlpha.array.fill(0); ringAlpha.needsUpdate = true;
     }
@@ -1260,6 +1287,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     if (shieldMarkers.count > 0) shieldMarkers.instanceMatrix.needsUpdate = true;
     if (shieldPressure.count > 0) shieldPressure.instanceMatrix.needsUpdate = true;
     shieldLabel.sprite.visible = bracedUnits.length > 0 && game.status === "playing" && !sideDanger;
+    shieldMeter.visible = !!shieldAim && shieldLabel.sprite.visible;
     const bossAim = championBossAim(game);
     const abilityAim = shieldAim ?? bossAim;
     championSight.visible = !!abilityAim && game.status === "playing" && !sideDanger;
@@ -1272,9 +1300,14 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     if (shieldAim && shieldLabel.sprite.visible) {
       const frontGuard = shieldAim.target, z = wz(frontGuard.y) - entry;
       const aligned = shieldAim.direction === "aligned";
-      const caption = shieldBracePressure(game, frontGuard) > 0.08 ? "CRACKING" : aligned ? "ALIGNED" : "SHIELD";
+      const cleanup = isShieldCleanup(game), ready = game.charge >= CHARGE_MAX;
+      const caption = cleanup ? "KEEP FIRING" : !ready ? "CHARGE ★" : aligned ? "TAP ★" : shieldAim.direction === "left" ? "← AIM" : "AIM →";
       if (caption !== shieldCaption) { shieldLabel.write(caption, aligned ? "#b8fff1" : "#ffe5a0"); shieldCaption = caption; }
-      shieldLabel.sprite.position.set(wx(frontGuard.x) + curve(z), 6.45, z);
+      shieldLabel.sprite.position.set(wx(frontGuard.x) + curve(z), 6.75, z);
+      shieldMeter.position.set(shieldLabel.sprite.position.x, 5.92, z);
+      const fraction = cleanup ? shieldBracePressure(game, frontGuard) : Math.min(1, game.charge / CHARGE_MAX);
+      shieldMeterFill.scale.x = 3.6 * fraction; shieldMeterFill.position.x = -1.8 * (1 - fraction);
+      (shieldMeterFill.material as THREE.MeshBasicMaterial).color.setHex(cleanup || ready ? 0x8cffe2 : 0xffd45b);
     }
     if (abilityAim && championSight.visible) {
       const aligned = abilityAim.direction === "aligned";
@@ -1336,7 +1369,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     ensureBosses(game.bases.length);
     bosses.forEach((view, i) => {
       const base = game.bases[i];
-      if (!base) { view.art.group.visible = view.label.sprite.visible = view.bar.visible = view.charge.visible = false; return; }
+      if (!base) { view.art.group.visible = view.label.sprite.visible = view.cue.sprite.visible = view.bar.visible = view.charge.visible = false; return; }
       const active = i === encounter;
       const approaching = active ? assault?.advance ?? 0 : 0;
       // The next guardian is a visible destination. During travel, preserve
@@ -1361,8 +1394,14 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         ring(x, z, 0xffd34c, 8); ring(x, z + 0.5, 0xfff7cb, 5);
         tag("BOSS DOWN", x, z, "#ffe570"); shake = 1.7;
       }
-      const caption = game.level.assault?.practice ? "PRACTICE" : active && winding ? `SLAM ${Math.ceil(brace.seconds)}s` : active && stagger > 0 ? "STAGGERED" : `${Math.max(0, Math.ceil(base.hp))}`;
-      if (view.caption !== caption) { view.label.write(caption, active && winding ? "#ffe19b" : active && stagger > 0 ? "#a9ffe4" : "#ffffff"); view.caption = caption; }
+      const caption = game.level.assault?.practice ? "PRACTICE" : `${Math.max(0, Math.ceil(base.hp))}`;
+      // Numbers need readable samples, not a canvas upload for every lost HP.
+      // The bar and damage reaction below still follow every rendered frame.
+      if (view.caption !== caption && (game.t >= view.nextLabelAt || view.hp < 0 || base.hp <= 0)) {
+        view.label.write(caption, "#ffffff"); view.caption = caption; view.nextLabelAt = game.t + 0.1;
+      }
+      const cueCaption = active && winding ? `SLAM ${Math.ceil(brace.seconds)}s` : active && stagger > 0 ? "STAGGERED" : "";
+      if (view.cueCaption !== cueCaption) { view.cue.write(cueCaption, winding ? "#ffe19b" : "#a9ffe4"); view.cueCaption = cueCaption; }
       view.hp = base.hp;
       const death = base.hp <= 0 ? Math.min(1, (frameTime - view.deadAt) / 0.85) : 0;
       // During the counterattack, the remaining guards are the whole objective.
@@ -1371,6 +1410,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const previewing = i === encounter + 1 && !counterattack;
       view.art.group.visible = ((active || previewing) && base.hp > 0) || death < 1 && base.hp <= 0;
       view.label.sprite.visible = view.bar.visible = active && base.hp > 0;
+      view.cue.sprite.visible = active && base.hp > 0 && cueCaption !== "";
       view.charge.visible = active && base.hp > 0 && winding;
       const hit = base.hp > 0 ? Math.max(1 - (game.t - view.damageAt) / 0.13, 0) : 0;
       const impact = Math.max(0, 1 - (game.t - view.damageAt) / 0.08);
@@ -1382,7 +1422,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       view.art.group.scale.setScalar((active ? 1.2 - approaching * 0.18 : 1.02) * (1 - death * 0.65));
       view.art.group.rotation.z = death * -1.3;
       if (view.art.group.visible) view.art.animate(game.t + i * 2.3, hit, active ? warning : 0, active ? pulse : 0, active ? stagger : 0, active && breakthrough ? Math.min(1, breakthrough.advance / 8) : 0);
-      view.label.sprite.position.set(x, 6.05, z); view.label.sprite.scale.set(active && (winding || stagger > 0) ? 5.3 : 3.5, 1.15, 1);
+      view.label.sprite.position.set(x, 6.05, z); view.label.sprite.scale.set(3.5, 1.15, 1);
+      view.cue.sprite.position.set(x, 7.05, z); view.cue.sprite.scale.set(stagger > 0 ? 5.3 : 4.5, 1.05, 1);
       view.bar.position.set(x, 5.6, z); view.bar.scale.set(0.86, 0.65, 1);
       view.charge.position.set(x, 5.15, z);
       const chargeFraction = winding ? brace.progress : 0;
