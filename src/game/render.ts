@@ -9,7 +9,7 @@ const SX = 0.052, SZ = 0.115;
 const wx = (x: number) => (x - W / 2) * SX;
 // The long approach separates the multiplier decisions from the battlefront.
 const wz = (y: number) => (y - CANNON_Y) * SZ;
-const BLUE = 0x00a7ff, RED = 0xf00c2d;
+const BLUE = 0x00b5ff, RED = 0xf00c2d;
 type Particle = { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; size: number; color: number };
 type Label = { sprite: THREE.Sprite; write: (text: string, fill?: string, plateFill?: string) => void };
 type GateView = { group: THREE.Group; panel: THREE.Mesh; material: THREE.MeshStandardMaterial; frame: THREE.MeshStandardMaterial; sweep: THREE.Mesh; sweepMaterial: THREE.MeshBasicMaterial; hazard: THREE.Group; label: Label; value: string; selected: boolean; nextBurst: number; brokenAt: number };
@@ -451,8 +451,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   }
 
   const animationTime = { value: 0 }, reserveRout = { value: 0 };
-  function crowdMaterial(color: number) {
-    const material = standard(color, { roughness: 0.32, vertexColors: true });
+  function crowdMaterial(color: number, friendly = false) {
+    const material = standard(color, { roughness: 0.43, vertexColors: true,
+      emissive: friendly ? color : 0x000000, emissiveIntensity: friendly ? 0.13 : 0 });
     material.onBeforeCompile = (shader) => {
       shader.uniforms.runTime = animationTime;
       shader.uniforms.reserveRout = reserveRout;
@@ -461,7 +462,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         float runPhase = runMotion.w < -0.5 ? runTime * 17.0 + runMotion.x : runMotion.x;
         float stride = sin(runPhase) * runMotion.y;
         float limbAngle = stride * sign(stridePart) * (abs(stridePart) > 1.5 ? 0.95 : -0.8);
-        float torsoCos = 1.0, torsoSin = 0.0;
+        float torsoTwist = stride * 0.065;
+        float torsoCos = cos(torsoTwist), torsoSin = sin(torsoTwist);
         if (runMotion.z > 0.001 && abs(stridePart) < 1.5) {
           float strikePhase = runTime * 10.0 + runMotion.x;
           float twist = sin(strikePhase) * runMotion.z * 0.11;
@@ -504,16 +506,16 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         diffuseColor.rgb = mix(diffuseColor.rgb, vColor.rgb, vFaceMask);
       `).replace("#include <opaque_fragment>", `
         float rim = pow(1.0 - max(0.0, dot(normal, normalize(vViewPosition))), 1.6);
-        outgoingLight *= 1.0 - rim * 0.2;
+        ${friendly ? "outgoingLight += vec3(0.025, 0.17, 0.23) * rim * (1.0 - vFaceMask);" : "outgoingLight *= 1.0 - rim * 0.12;"}
         if (vGateGlow < 0.0) outgoingLight = mix(outgoingLight, vec3(1.45, 1.05, 0.35), -vGateGlow * 0.65);
         else outgoingLight += vec3(0.18, 0.9, 1.5) * vGateGlow * (0.3 + rim * 1.8);
         #include <opaque_fragment>
       `);
     };
-    material.customProgramCacheKey = () => "arena-contact-response-v13"; return material;
+    material.customProgramCacheKey = () => `arena-toy-figures-v14-${friendly}`; return material;
   }
   const mobGeometry = geo(createMobGeometry()), reserveGeometry = geo(createHordeGeometry());
-  const friendMaterial = crowdMaterial(BLUE), enemyMaterial = crowdMaterial(0xffffff);
+  const friendMaterial = crowdMaterial(BLUE, true), enemyMaterial = crowdMaterial(0xffffff);
   const friends = new THREE.InstancedMesh(geo(mobGeometry.clone()), friendMaterial, MAX_UNITS + 32);
   const enemies = new THREE.InstancedMesh(geo(mobGeometry.clone()), enemyMaterial, 1600);
   const raiders = new THREE.InstancedMesh(geo(createRaiderGeometry()), crowdMaterial(0xf52d4a), 1600);
@@ -616,7 +618,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   // including the decorative horde behind the active giant.
   const crowdBounds = new Float32Array(64 * 6);
   const crowdBoundsActive = new Uint8Array(64);
-  function drawUnits(units: Unit[], object: THREE.InstancedMesh, enemy: boolean, entry: number, colorKeys: Int8Array, matrixRange: UploadRange, motionRange: UploadRange, colorRange: UploadRange) {
+  function drawUnits(units: Unit[], object: THREE.InstancedMesh, enemy: boolean, entry: number, colorKeys: Int8Array, matrixRange: UploadRange, motionRange: UploadRange, colorRange: UploadRange, priority: Unit | null = null) {
     const count = Math.min(units.length, object.instanceMatrix.count); object.count = count;
     // At the crowd cap, slightly smaller ordinary runners keep the spaces
     // between heads readable. Champions and opponents retain their silhouette.
@@ -659,7 +661,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       // distant flank defender does not establish an opposing contact.
       const engaged = recoil === 0 && shotFlight === 0 && contactBoss !== null && bossContacting(contactBoss, unit);
       const elapsed = time - state.time;
-      state.glow = Math.max(0, state.glow - elapsed * 4);
+      state.glow = Math.max(0, state.glow - elapsed * 7);
       state.used = unit.used;
       if (elapsed > 0) {
         const stateWorldZ = wz(state.y);
@@ -706,7 +708,10 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       matrices[offset + 8] = sy * cp * sx; matrices[offset + 9] = -sp * sx; matrices[offset + 10] = cy * cp * sx; matrices[offset + 11] = 0;
       const hatchRise = unit.sideEntry ? Math.max(0, 1 - (time - state.bornAt) / 0.18) * 0.55 : 0;
       matrices[offset + 12] = x; matrices[offset + 13] = 0.025 + shotFlight + recoilHop * (unit.big ? 0.16 : 0.68) - hatchRise; matrices[offset + 14] = z; matrices[offset + 15] = 1;
-      if (!unit.dead && (!enemy || currentGame?.assault?.phase === "counterattack" || unit.sideEntry || unit.braced || !!boss && unit.y >= boss.y - boss.h / 2 - 32)) {
+      // The active front sets crowd framing in every phase. Distant live
+      // reserves and blue survivors must not shrink the player when a giant
+      // falls. Side raids and the selected shield remain explicit priorities.
+      if (!unit.dead && (unit === priority || unit.sideEntry || !boss || unit.y >= boss.y - boss.h / 2 - 32)) {
         const bin = Math.max(0, Math.min(63, Math.floor((z + 160) / 4))), base = bin * 6;
         const radius = Math.max(sx, syScale) * 1.08, bottom = matrices[offset + 13] - size * 0.15, top = matrices[offset + 13] + syScale * 1.9;
         if (!crowdBoundsActive[bin]) {
@@ -1266,13 +1271,13 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     regularUnits.length = guardUnits.length = bracedUnits.length = 0;
     for (const unit of game.red) if (!unit.sideEntry) (unit.braced ? bracedUnits : unit.kind === "guard" ? guardUnits : regularUnits).push(unit);
     shadowCount = 0; crowdBoundsActive.fill(0);
+    const shieldAim = championShieldAim(game);
     drawUnits(game.blue, friends, false, 0, friendColorKeys, friendMatrixRange, friendMotionRange, friendColorRange);
     drawUnits(regularUnits, enemies, true, entry, enemyColorKeys, enemyMatrixRange, enemyMotionRange, enemyColorRange);
     drawUnits(sideRaidUnits, raiders, true, entry, raiderColorKeys, raiderMatrixRange, raiderMotionRange, raiderColorRange);
     drawUnits(guardUnits, guards, true, entry, guardColorKeys, guardMatrixRange, guardMotionRange, guardColorRange);
-    drawUnits(bracedUnits, bracedGuards, true, entry, bracedColorKeys, bracedMatrixRange, bracedMotionRange, bracedColorRange);
+    drawUnits(bracedUnits, bracedGuards, true, entry, bracedColorKeys, bracedMatrixRange, bracedMotionRange, bracedColorRange, shieldAim?.target);
     shieldHalo.count = Math.min(bracedUnits.length, shieldHalo.instanceMatrix.count);
-    const shieldAim = championShieldAim(game);
     const selectedGuardIndex = shieldAim ? bracedUnits.indexOf(shieldAim.target) : -1;
     guardReveal.count = selectedGuardIndex >= 0 && game.status === "playing" ? 1 : 0;
     if (guardReveal.count) {

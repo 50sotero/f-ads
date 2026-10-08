@@ -81,16 +81,19 @@ function stridePart(geometry: THREE.BufferGeometry, part: number): THREE.BufferG
 /** Feet at zero, face toward -Z. Shoulders and separate feet read from behind. */
 export function createMobGeometry(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
-  parts.push(tint(form([[0.26, 0.03, 0.02], [0.39, 0.2, 0.15], [0.61, 0.245, 0.18], [0.79, 0.315, 0.19], [0.89, 0.17, 0.13], [0.94, 0.03, 0.03]], 10, 8, 2.3), 0xb9d0e3));
-  parts.push(tint(placed(new THREE.CylinderGeometry(0.095, 0.12, 0.18, 8), 0, 0.96, -0.025), 0x9db6ca));
-  parts.push(placed(new THREE.SphereGeometry(0.245, 10, 6), 0, 1.16, -0.035, 0.96, 1.04, 0.96));
+  // A single plump torso carries the silhouette; the head must not swallow
+  // it when viewed from above. Keep the overall height and collision scale.
+  parts.push(tint(form([[0.28, 0.04, 0.035], [0.4, 0.23, 0.19], [0.65, 0.285, 0.225], [0.82, 0.32, 0.225], [0.94, 0.19, 0.15], [0.98, 0.045, 0.035]], 10, 8, 2.3), 0xe4f5ff));
+  parts.push(tint(placed(new THREE.CylinderGeometry(0.11, 0.13, 0.14, 8), 0, 1.0, -0.025), 0xd9efff));
+  parts.push(placed(new THREE.SphereGeometry(0.224, 10, 6), 0, 1.18, -0.035, 0.98, 1.03, 0.98));
   for (const side of [-1, 1]) {
-    const arm = new THREE.CapsuleGeometry(0.09, 0.29, 2, 6);
-    arm.rotateZ(side * 0.1); parts.push(stridePart(placed(arm, side * 0.265, 0.61, -0.025), side));
-    parts.push(stridePart(tint(placed(new THREE.CapsuleGeometry(0.105, 0.23, 2, 6), side * 0.145, 0.205, -0.025, 1, 1, 1.2), 0x8ca6bd), side * 2));
-    // Bright toes and darker legs retain two distinct steps at phone size.
-    parts.push(stridePart(tint(placed(new THREE.SphereGeometry(0.12, 6, 4), side * 0.145, 0.07, -0.085, 1, 0.45, 1.65), 0xd5eafa), side * 2));
-    parts.push(tint(placed(new THREE.SphereGeometry(0.029, 5, 3), side * 0.079, 1.18, -0.268, 0.75, 1.4, 0.28), 0x09274f, true));
+    const arm = new THREE.CapsuleGeometry(0.105, 0.27, 2, 6);
+    arm.rotateZ(side * 0.12); parts.push(stridePart(placed(arm, side * 0.29, 0.65, -0.025), side));
+    parts.push(stridePart(tint(placed(new THREE.CapsuleGeometry(0.11, 0.23, 2, 6), side * 0.145, 0.22, -0.025, 1, 1, 1.15), 0xc6e5f8), side * 2));
+    // Short rounded shoes expose the alternating contact, without adding
+    // a separate dark joint to every tiny figure in a dense rank.
+    parts.push(stridePart(tint(placed(new THREE.SphereGeometry(0.125, 6, 4), side * 0.145, 0.075, -0.11, 1, 0.55, 1.7), 0xe4f5ff), side * 2));
+    parts.push(tint(placed(new THREE.SphereGeometry(0.029, 5, 3), side * 0.074, 1.2, -0.25, 0.75, 1.4, 0.28), 0x09274f, true));
   }
   return crowdMesh(parts);
 }
@@ -320,7 +323,7 @@ export function createWarden(variant = 0): WardenArt {
   });
   function animate(time: number, hit: number, attack = 0, impact = 0, stagger = 0, advance = 0) {
     const t = Number.isFinite(time) ? time : 0;
-    const windup = THREE.MathUtils.clamp(attack || 0, 0, 1);
+    const windup = Math.pow(THREE.MathUtils.clamp(attack || 0, 0, 1), 0.7);
     const strike = Math.pow(THREE.MathUtils.clamp(impact || 0, 0, 1), 0.65);
     // Incoming hits still flash, but cannot disguise the two-handed attack.
     const flash = THREE.MathUtils.clamp(hit || 0, 0, 1);
@@ -328,13 +331,15 @@ export function createWarden(variant = 0): WardenArt {
     const drive = THREE.MathUtils.clamp(advance, 0, 1);
     const stride = Math.sin(t * (drive > 0 ? 8.8 : 4.2)) * (1 - Math.max(windup, strike));
     upper.position.y = 1.43 + Math.abs(stride) * (0.07 + drive * 0.04) + windup * 0.22 + damage * 0.1 - strike * 0.3;
-    upper.position.z = -damage * 0.48 - windup * 0.22 + strike * 0.64;
-    upper.rotation.x = 0.13 - damage * 0.22 - windup * 0.2 + strike * 0.38 - stagger * 0.48 + drive * 0.12;
+    upper.position.z = -damage * 0.48 - windup * 0.36 + strike * 0.78;
+    upper.rotation.x = 0.13 - damage * 0.22 - windup * 0.28 + strike * 0.38 - stagger * 0.48 + drive * 0.12;
     upper.rotation.z = stride * 0.028 + Math.sin(t * 17) * damage * 0.065 + Math.sin(t * 18) * stagger * 0.07;
     head.rotation.x = -0.15 - damage * 0.18 + windup * 0.2 - strike * 0.13 + stagger * 0.35;
     arms.forEach((arm, i) => {
-      arm.rotation.x = -0.26 + stride * (i ? -0.19 : 0.19) - windup * 1.75 + strike * 0.62 + damage * (i ? 0.3 : 0.42);
-      arm.rotation.z = (i ? 1 : -1) * (0.11 + windup * 0.16 + strike * 0.07);
+      // Hands reach into the crowd on contact. A positive strike rotation
+      // swept them behind the torso and robbed the slam of visible weight.
+      arm.rotation.x = -0.26 + stride * (i ? -0.19 : 0.19) - windup * 1.9 - strike * 0.3 + damage * (i ? 0.3 : 0.42);
+      arm.rotation.z = (i ? 1 : -1) * (0.11 + windup * 0.24 + strike * 0.04);
     });
     feet.forEach((leg, i) => { leg.rotation.x = stride * (i ? -1 : 1) * (0.18 + drive * 0.36); });
     body.color.copy(bodyColor).lerp(hitColor, flash * 0.78);
