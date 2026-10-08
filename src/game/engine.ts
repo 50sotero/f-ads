@@ -3126,6 +3126,16 @@ function updateAssaultBlue(g: Game, dt: number) {
   }
   const trackedGateCount = Math.min(30, g.gates.length);
   const allGatesMask = trackedGateCount > 0 ? (1 << trackedGateCount) - 1 : 0;
+  // Panels at one height are alternative routes through the same row. Keep
+  // physical crossing bits separate, but guide a runner beyond a completed
+  // row even when it did not cross the unchosen branch beside that panel.
+  const gateRowMasks = g.gates.map(gate => {
+    let mask = 0;
+    for (let index = 0; index < g.gates.length; index++) {
+      if (Math.abs(g.gates[index].y - gate.y) <= 0.001) mask |= 1 << index;
+    }
+    return mask;
+  });
   // Once the last wave is down to its final few enemies, pursue an aligned
   // target as soon as the existing local query can see it. Otherwise a staged
   // runner watches a selected enemy cross the gap between the two ranges.
@@ -3168,7 +3178,7 @@ function updateAssaultBlue(g: Game, dt: number) {
       let nextDistance = Infinity;
       for (let gateIndex = 0; gateIndex < g.gates.length; gateIndex++) {
         const gate = g.gates[gateIndex];
-        if (u.used & (1 << gateIndex) || gate.kind !== "x" || gate.overrun) continue;
+        if (u.used & gateRowMasks[gateIndex] || gate.kind !== "x" || gate.overrun) continue;
         if (gate.y >= u.y - GATE_H * 0.5) continue;
         if (gate.y > nextRowY + 0.001) {
           nextGate = gate;
@@ -3184,7 +3194,7 @@ function updateAssaultBlue(g: Game, dt: number) {
       }
       if (nextGate) {
         applyAssaultGateGuidance(u, nextGate.cx, nextGate.w, dt);
-      } else if (g.gates.every((gate, gateIndex) => (u.used & (1 << gateIndex)) !== 0)) {
+      } else if (gateRowMasks.every(mask => (u.used & mask) !== 0)) {
         // Once a runner has cleared the authored route, the living boss is
         // the visible destination. A restrained footprint pull keeps the
         // broad center route cohesive without steering between panels.
