@@ -1818,7 +1818,7 @@ export function cannonBarrelOffsets(tier: number) {
 
 function makeWeaponTarget(weaponLevel: number): WeaponTarget {
   const hp = weaponLevel === 1 ? 14 : 24;
-  return { x: 307, y: 510, w: 62, h: 36, hp, maxHp: hp, hitFlash: 0 };
+  return { x: 307, y: 550, w: 62, h: 36, hp, maxHp: hp, hitFlash: 0 };
 }
 
 function makeCannonTarget(): WeaponTarget {

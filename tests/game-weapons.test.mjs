@@ -40,6 +40,33 @@ test("the gold target needs hits, upgrades every barrel, and has a finite final 
   assert.equal(game.assault.weaponLevel, 3);
 });
 
+test("the weapon lock sits below the first multiplier row but remains directly aimable", () => {
+  const placementLevel = {
+    ...level,
+    gates: [{ x: 240, y: 510, w: 78, kind: "x", n: 4 }],
+  };
+  const makeUnit = (y) => ({ x: 307, y, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false });
+
+  const passingRow = newGame(placementLevel, 5);
+  passingRow.gates = [];
+  passingRow.assault.weaponTargetsEnabled = false;
+  passingRow.assault.weaponTarget.hp = 1;
+  passingRow.blue = [makeUnit(510)];
+  step(passingRow, 1 / 60);
+  assert.ok(passingRow.assault.weaponTarget.y - passingRow.assault.weaponTarget.h / 2 > placementLevel.gates[0].y);
+  assert.equal(passingRow.assault.weaponLevel, 1, "a first-row runner should not buy the weapon incidentally");
+  assert.equal(passingRow.blue.length, 1);
+
+  const deliberate = newGame(placementLevel, 5);
+  deliberate.gates = [];
+  deliberate.assault.weaponTargetsEnabled = false;
+  deliberate.assault.weaponTarget.hp = 1;
+  deliberate.blue = [makeUnit(550)];
+  step(deliberate, 1 / 60);
+  assert.equal(deliberate.assault.weaponLevel, 2, "a runner deliberately aimed at the lock should still buy it");
+  assert.equal(deliberate.blue.length, 0);
+});
+
 test("weapon levels change real shot cadence and releasing fire cancels a burst", () => {
   const counts = [], gaps = [];
   for (const weaponLevel of [1, 2, 3]) {
