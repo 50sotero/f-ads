@@ -511,10 +511,17 @@ type BossBreakthroughState = {
   elapsed: number;
   advance: number;
 };
+type BossPressureDeadlineState = {
+  owner: Game;
+  assault: AssaultState;
+  encounter: number;
+  rampElapsed: number;
+};
 const bossBraceStates = new WeakMap<Game, BossBraceRuntime>();
 const bossBraceChampionDrives = new WeakMap<Unit, BossBraceChampionDrive>();
 const bossBraceRedDrives = new WeakMap<Unit, BossBraceRedDrive>();
 const bossBreakthroughStates = new WeakMap<Game, BossBreakthroughState>();
+const bossPressureDeadlineStates = new WeakMap<Game, BossPressureDeadlineState>();
 const SHIELD_BRACE_FATIGUE_SECONDS = 1.25;
 const ASSAULT_BOSS_SLAM_DURATION = 0.35;
 const ASSAULT_BOSS_SLAM_DECAY = 8;
@@ -2050,6 +2057,8 @@ const ASSAULT_BOSS_FLANK_BUFFER = 80;
 const ASSAULT_BOSS_PRESSURE_DELAY = 3;
 const ASSAULT_BOSS_PRESSURE_SPEED = 12;
 const ASSAULT_BOSS_PRESSURE_TRAVEL = 120;
+const ASSAULT_BOSS_PRESSURE_RAMP_START_FRONT = 447;
+const ASSAULT_BOSS_PRESSURE_RAMP_DURATION = 0.5;
 const ASSAULT_COUNTER_TARGET_LATERAL = 90;
 const ASSAULT_COUNTER_TARGET_DEPTH = 120;
 const ASSAULT_COUNTER_TARGET_ALIGN = 36;
@@ -2287,7 +2296,7 @@ function applyAssaultCorridorPressure(u: Unit, centerX: number, dt: number, corr
 }
 
 function bossBreakthroughWallLimit(g: Game, unit: Unit, displacement: number) {
-  let safe = displacement;
+  let safe = Math.min(displacement, Math.max(0, CANNON_Y - unit.r - 2 - unit.y));
   for (const wall of g.walls) {
     if (unit.x <= wall.x - unit.r || unit.x >= wall.x + wall.w + unit.r) continue;
     const wallTop = wall.y - unit.r;
@@ -2303,6 +2312,62 @@ function bossBreakthroughWallLimit(g: Game, unit: Unit, displacement: number) {
     safe = Math.min(safe, Math.max(0, wallTop - unit.y - 1e-6));
   }
   return safe;
+}
+
+function bossPressureDeadlineState(game: Game, assault: AssaultState, create = false) {
+  const previous = bossPressureDeadlineStates.get(game);
+  if (
+    previous
+    && previous.owner === game
+    && previous.assault === assault
+    && previous.encounter === assault.encounter
+    && game.status === "playing"
+    && assault.phase === "battle"
+  ) return previous;
+  if (previous) bossPressureDeadlineStates.delete(game);
+  if (!create) return null;
+  const state: BossPressureDeadlineState = {
+    owner: game,
+    assault,
+    encounter: assault.encounter,
+    rampElapsed: 0,
+  };
+  bossPressureDeadlineStates.set(game, state);
+  return state;
+}
+
+/** Integrates the late boss's bounded 12-to-36px/s pressure ramp. */
+function bossPressureDistance(active: Base, state: BossPressureDeadlineState, dt: number) {
+  let remaining = Math.max(0, dt);
+  if (remaining <= 0) return 0;
+  let distance = 0;
+  let front = active.y + active.h / 2;
+  if (front < ASSAULT_BOSS_PRESSURE_RAMP_START_FRONT - 1e-9) {
+    state.rampElapsed = 0;
+    const toStart = ASSAULT_BOSS_PRESSURE_RAMP_START_FRONT - front;
+    const normalTime = Math.min(remaining, toStart / ASSAULT_BOSS_PRESSURE_SPEED);
+    distance += normalTime * ASSAULT_BOSS_PRESSURE_SPEED;
+    remaining -= normalTime;
+    front += normalTime * ASSAULT_BOSS_PRESSURE_SPEED;
+    if (remaining <= 1e-9) return distance;
+  }
+
+  const before = state.rampElapsed;
+  const after = Math.min(ASSAULT_BOSS_PRESSURE_RAMP_DURATION, before + remaining);
+  const rampTime = after - before;
+  distance += ASSAULT_BOSS_PRESSURE_SPEED * rampTime;
+  distance += (ASSAULT_BOSS_BREAKTHROUGH_SPEED - ASSAULT_BOSS_PRESSURE_SPEED)
+    * (after * after - before * before)
+    / (2 * ASSAULT_BOSS_PRESSURE_RAMP_DURATION);
+  state.rampElapsed = after;
+  distance += ASSAULT_BOSS_BREAKTHROUGH_SPEED * Math.max(0, remaining - rampTime);
+  return distance;
+}
+
+function bossPressureCenterLimit(g: Game, active: Base, assault: AssaultState) {
+  return bossBraceEncounterEligible(g, assault)
+    ? DEFENSE_Y - active.h / 2
+    : assault.bossOriginY + ASSAULT_BOSS_PRESSURE_TRAVEL;
 }
 
 /**
@@ -2355,7 +2420,7 @@ function updateAssaultBossPressure(g: Game, dt: number) {
     const available = Math.max(0, ASSAULT_BOSS_BREAKTHROUGH_DURATION - breakthrough.elapsed);
     const slice = Math.min(Math.max(0, dt), available);
     const previousY = active.y;
-    const limit = assault.bossOriginY + ASSAULT_BOSS_PRESSURE_TRAVEL;
+    const limit = bossPressureCenterLimit(g, active, assault);
     const requestedY = Math.min(limit, active.y + ASSAULT_BOSS_BREAKTHROUGH_SPEED * slice);
     const displacement = applyAssaultBossBreakthroughPush(g, active, previousY + active.h / 2, requestedY + active.h / 2);
     active.y = previousY + displacement;
@@ -2371,9 +2436,13 @@ function updateAssaultBossPressure(g: Game, dt: number) {
   if (brace?.phase === "staggered") return;
   const canCarryContact = bossBraceEncounterEligible(g, assault);
   if (!canCarryContact && g.blue.some((u) => !u.dead && bossContacting(active, u))) return;
-  const limit = assault.bossOriginY + ASSAULT_BOSS_PRESSURE_TRAVEL;
+  const deadline = canCarryContact ? bossPressureDeadlineState(g, assault, true) : null;
+  const limit = bossPressureCenterLimit(g, active, assault);
   const previousY = active.y;
-  const requestedY = Math.min(limit, active.y + ASSAULT_BOSS_PRESSURE_SPEED * dt);
+  const distance = deadline
+    ? bossPressureDistance(active, deadline, dt)
+    : ASSAULT_BOSS_PRESSURE_SPEED * Math.max(0, dt);
+  const requestedY = Math.min(limit, active.y + distance);
   const displacement = applyAssaultBossBreakthroughPush(g, active, previousY + active.h / 2, requestedY + active.h / 2);
   active.y = previousY + displacement;
 }
@@ -3239,6 +3308,7 @@ function finishAssaultEncounter(g: Game) {
   if (breakthrough && breakthrough.assault === assault && breakthrough.encounter === assault.encounter) {
     bossBreakthroughStates.delete(g);
   }
+  bossPressureDeadlineStates.delete(g);
   const brace = bossBraceStates.get(g);
   if (brace && brace.assault === assault && brace.encounter === assault.encounter) {
     brace.phase = null;
@@ -3359,6 +3429,18 @@ function stepAssault(g: Game, dt: number) {
         }
       }
       if (g.status === "playing" && active && active.hp <= 0) finishAssaultEncounter(g);
+      if (
+        g.status === "playing"
+        && assault.phase === "battle"
+        && active
+        && active.hp > 0
+        && bossBraceEncounterEligible(g, assault)
+        && active.y + active.h / 2 >= DEFENSE_Y - 1e-9
+      ) {
+        assault.breachFlash = 1;
+        g.status = "lost";
+        pop(g, active.x, DEFENSE_Y, 1, "GIANT BREACH");
+      }
     }
   }
 
