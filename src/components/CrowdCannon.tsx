@@ -6,7 +6,7 @@ import "@fontsource/fredoka/700.css";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 
-import { applyStartingLoadout, bossBrace, bossBraceChampionIncoming, bossBreakthrough, bossDefenseDeadline, cannonBarrelPositions, championBossAim, championShieldAim, CHARGE_MAX, counterattackSideEntry, counterattackWaveRole, isShieldCleanup, launchChampion, newGame, stars, step, W, weaponForLevel, type CounterattackWaveRole, type Game } from "@/game/engine";
+import { applyStartingLoadout, assaultEarlyRaid, bossBrace, bossBraceChampionIncoming, bossBreakthrough, bossDefenseDeadline, cannonBarrelPositions, championBossAim, championShieldAim, CHARGE_MAX, counterattackSideEntry, counterattackWaveRole, isShieldCleanup, launchChampion, newGame, stars, step, W, weaponForLevel, type CounterattackWaveRole, type Game } from "@/game/engine";
 import { levels } from "@/game/levels";
 import { createRenderer } from "@/game/render";
 import { advanceTutorial, newTutorialProgress, tutorialLessons, tutorialLevel, type TutorialProgress } from "@/game/tutorial";
@@ -109,7 +109,12 @@ const defaultAssault = (): AssaultHud => ({
 
 function assaultHud(game: Game): AssaultHud {
   const assault = game.assault;
-  const entry = counterattackSideEntry(game);
+  const earlyRaid = assaultEarlyRaid(game);
+  const earlyEntry = earlyRaid && earlyRaid.spawned < earlyRaid.reserved
+    ? { ...earlyRaid.entry, count: earlyRaid.reserved - earlyRaid.spawned }
+    : null;
+  const entry = earlyEntry ?? counterattackSideEntry(game);
+  const entryTimer = earlyEntry ? earlyRaid!.seconds : assault?.waveTimer ?? 0;
   const bossAim = championBossAim(game);
   const deadline = bossDefenseDeadline(game);
   let raidLane: -1 | 0 | 1 = 0, raidY = -Infinity, raidX = 0, leftRaid = 0, rightRaid = 0;
@@ -146,7 +151,7 @@ function assaultHud(game: Game): AssaultHud {
     waveRole: counterattackWaveRole(game, assault?.wave ?? 0),
     entryLane: entry?.lane ?? 0,
     entryCount: entry?.count ?? 0,
-    entrySeconds: (assault?.waveTimer ?? 0) > 0.3 ? Math.ceil(assault!.waveTimer) : 0,
+    entrySeconds: entryTimer > 0.3 ? Math.ceil(entryTimer) : 0,
     raidLane,
     raidCount: raidLane < 0 ? leftRaid : rightRaid,
     raidAim: raidLane ? Math.abs(raidOffset) <= 10 ? "aligned" : raidOffset < 0 ? "left" : "right" : null,
@@ -732,9 +737,17 @@ export function CrowdCannon() {
   const shieldAction = assault.shieldCleanup ? "KEEP FIRING" : hud.charge < CHARGE_MAX ? "CHARGE ★" : assault.shieldAim === "aligned" ? "TAP ★" : assault.shieldAim === "left" ? "← AIM LEFT" : "AIM RIGHT →";
   const incomingWave = assault.phase === "counterattack" && assault.waveWarning > 0 && !battleEnded;
   const incomingLane = assault.waveLane < 0 ? "← LEFT" : assault.waveLane > 0 ? "RIGHT →" : "CENTER";
-  const sideDanger = !battleEnded && assault.phase === "counterattack" && (assault.raidCount > 0 || assault.entryCount > 0);
+  const sideThreat = !battleEnded && (assault.raidCount > 0 || assault.entryCount > 0);
+  // While the hatch is only telegraphing, keep the interrupt action primary.
+  // Live runners take priority without concealing the giant's slam countdown.
+  const sideDanger = sideThreat && (!giantWinding || assault.raidCount > 0);
+  const overlappingThreats = giantWinding && sideThreat;
   const sideLane = assault.raidCount > 0 ? assault.raidLane : assault.entryLane;
   const sideLabel = `${sideLane < 0 ? "← LEFT" : "RIGHT →"} SIDE RAID`;
+  const parallelThreat = overlappingThreats
+    ? sideDanger ? `SLAM ${Math.ceil(assault.brace!.seconds)}s`
+      : `${sideLane < 0 ? "←" : "→"} RAID ${assault.entrySeconds > 0 ? `${assault.entrySeconds}s` : "READY"}`
+    : null;
   const otherRaidLabel = `${sideLane < 0 ? "RIGHT →" : "← LEFT"} · ${assault.otherRaidCount} LIVE ${assault.otherRaidCount === 1 ? "RAIDER" : "RAIDERS"}`;
   const sideAction = assault.raidCount > 0
     ? assault.raidAim === "left" ? "← Move farther left. Fire at the red rings!"
@@ -783,6 +796,11 @@ export function CrowdCannon() {
     if (!game || screenRef.current !== "playing") return;
     launchChampion(game);
   };
+  const pause = () => {
+    if (screenRef.current !== "playing") return;
+    screenRef.current = "paused";
+    setScreen("paused");
+  };
 
   return (
     <div className={styles.gameShell} data-testid="crowd-cannon-game" data-screen={screen} data-level={levelIndex + 1} data-tutorial={tutorialStep ?? undefined} aria-label="Crowd Cannon arcade game">
@@ -819,7 +837,13 @@ export function CrowdCannon() {
       {screen === "playing" && (
         <>
           <div className={styles.hud}>
-            <button type="button" className={styles.pauseButton} data-testid="pause-game" onClick={() => { screenRef.current = "paused"; setScreen("paused"); }} aria-label="Pause game"><span aria-hidden="true">Ⅱ</span></button>
+            <button type="button" className={styles.pauseButton} data-testid="pause-game" onClick={pause} onPointerDown={(event) => {
+              // As with the champion, a second thumb has no synthetic click.
+              if (event.pointerType === "touch" && !event.isPrimary) {
+                event.preventDefault();
+                pause();
+              }
+            }} aria-label="Pause game"><span aria-hidden="true">Ⅱ</span></button>
             <div className={styles.levelPill} data-testid="assault-hud"><strong>CROWD<br /><em>CANNON</em></strong><span>{tutorialStep !== null ? `TRAINING ${Math.min(tutorialLessons.length, tutorialStep + 1)} / ${tutorialLessons.length}` : `LEVEL ${levelIndex + 1}`}</span></div>
             <div className={styles.encounterProgress} data-testid="encounter-progress" role="progressbar" aria-label="Assault stage progress" aria-valuemin={1} aria-valuemax={assault.encounters} aria-valuenow={Math.min(assault.encounters, assault.encounter + 1)}>
               <span className={styles.encounterLabel}>STAGE {Math.min(assault.encounters, assault.encounter + 1)} / {assault.encounters}</span>
@@ -828,7 +852,7 @@ export function CrowdCannon() {
           </div>
           {battleObjectiveVisible && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-warning={incomingWave} data-wave-role={assault.waveRole} data-side-raid={sideDanger} data-brace={giantWinding ? "winding" : giantStaggered ? "staggered" : giantAdvancing ? "breaking" : undefined} data-deadline={giantDeadline ? "moving" : undefined} data-breached={lineBroken} data-cleared={roadCleared} data-shield={!battleEnded && !sideDanger && !giantDeadline && assault.shields > 0} data-cleanup={!battleEnded && !sideDanger && !giantDeadline && assault.shields > 0 && assault.shieldCleanup} data-compact={!battleEnded && !sideDanger && !giantWinding && !giantStaggered && !giantAdvancing && assault.shields === 0 && (assault.phase === "counterattack" || assault.phase === "battle" && hud.time > 4)}>
             <span className={styles.objectiveIcon} aria-hidden="true">{roadCleared ? "★" : lineBroken || assault.phase === "counterattack" ? "!" : assault.phase === "advance" ? "»" : giantDeadline ? "!" : "⚑"}</span>
-            <div><strong>{lineBroken ? "LINE BREACHED" : roadCleared ? "ROAD CLEAR" : sideDanger ? sideLabel : giantWinding ? "GIANT WINDING UP" : giantStaggered ? "SLAM INTERRUPTED!" : giantAdvancing ? "GIANT ADVANCING" : giantDeadline ? "GIANT CLOSING IN" : assault.shields > 0 ? shieldAction : assault.phase === "counterattack" ? incomingWave ? incomingLabel : `${assault.remaining} DEFENDERS LEFT` : assault.phase === "advance" ? remixedGates ? "LANES SWITCHED" : "STAGE CLEARED" : "BREAK THEIR LEADER"}</strong>
+            <div><strong>{lineBroken ? "LINE BREACHED" : roadCleared ? "ROAD CLEAR" : sideDanger ? sideLabel : giantWinding ? "GIANT WINDING UP" : giantStaggered ? "SLAM INTERRUPTED!" : giantAdvancing ? "GIANT ADVANCING" : giantDeadline ? "GIANT CLOSING IN" : assault.shields > 0 ? shieldAction : assault.phase === "counterattack" ? incomingWave ? incomingLabel : `${assault.remaining} DEFENDERS LEFT` : assault.phase === "advance" ? remixedGates ? "LANES SWITCHED" : "STAGE CLEARED" : "BREAK THEIR LEADER"}{parallelThreat && <span className={styles.parallelThreat} data-testid="parallel-threat">{parallelThreat}</span>}</strong>
               <span>{lineBroken ? "Your cannon defense is gone." : roadCleared ? "All defenders cleared." : sideDanger ? sideAction : giantWinding ? assault.braceChampion ? "Champion charging! Keep firing." : !assault.bossCanInterrupt ? "Slam incoming. Keep firing to rebuild the front!" : hud.charge >= CHARGE_MAX ? assault.bossAim === "aligned" ? "Aligned! Tap ★ to interrupt the slam." : `${bossInstruction} to line up the gold sight, then tap ★.` : "Keep firing to charge ★. Brace for the slam!" : giantStaggered ? "Keep firing! Their leader is exposed." : giantAdvancing ? "Hold the line! Rebuild your crowd through the gates." : giantDeadline ? "Stop the giant before it reaches your defense line." : assault.shields > 0 ? assault.shieldCleanup ? "Your crowd is cracking the last shields." : hud.charge >= CHARGE_MAX ? assault.shieldAim === "aligned" ? "Break the gold shield." : "Line up the gold sight with the shield." : assault.shieldAim === "aligned" ? "Keep firing. Your champion breaks the shield." : `${shieldInstruction}. Keep firing to charge.`
                 : assault.phase === "counterattack"
                 ? incomingWave ? incomingAction : `${assault.remaining} enemies left · wave ${assault.wave} / ${assault.waves}`

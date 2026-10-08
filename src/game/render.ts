@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, bossBrace, bossBreakthrough, bossContacting, bossSlamRecoil, cannonBarrelPositions, championBossAim, championShieldAim, counterattackSideEntry, counterattackWaveRole, isShieldCleanup, shieldBlockImpact, shieldBracePressure, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
+import { CANNON_Y, CHARGE_MAX, DEFENSE_Y, MAX_UNITS, W, assaultEarlyRaid, bossBrace, bossBreakthrough, bossContacting, bossSlamRecoil, cannonBarrelPositions, championBossAim, championShieldAim, counterattackSideEntry, counterattackWaveRole, isShieldCleanup, shieldBlockImpact, shieldBracePressure, surgeActive, trapActive, weaponForLevel, type Game, type Unit } from "./engine";
 import { createGuardGeometry, createHordeGeometry, createMobGeometry, createRaiderGeometry, createSiegeCannon, createWarden } from "./assaultArt";
 
 // The simulation uses a moving local battlefield. The long road and bridges
@@ -1015,14 +1015,19 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     previousPhase = assault?.phase ?? "battle";
     const waveWarning = assault?.waveWarning ?? 0;
     const incomingRole = counterattackWaveRole(game, assault?.wave ?? 0);
-    const sideEntry = counterattackSideEntry(game);
+    const earlyRaid = assaultEarlyRaid(game);
+    const earlyEntry = earlyRaid && earlyRaid.spawned < earlyRaid.reserved
+      ? { ...earlyRaid.entry, count: earlyRaid.reserved - earlyRaid.spawned }
+      : null;
+    const sideEntry = earlyEntry ?? counterattackSideEntry(game);
+    const entryTimer = earlyEntry ? earlyRaid!.seconds : assault?.waveTimer ?? 0;
     sideRaidUnits.length = 0;
     for (const unit of game.red) if (!unit.dead && unit.sideEntry) sideRaidUnits.push(unit);
     for (const hatch of sideHatches) {
       const pending = sideEntry?.lane === hatch.lane ? sideEntry : null;
       const living = sideRaidUnits.reduce((count, unit) => count + (unit.sideEntry === hatch.lane ? 1 : 0), 0);
       if (pending) { hatch.x = pending.x; hatch.y = pending.y; hatch.placed = true; }
-      hatch.group.visible = counterattack && game.status === "playing" && hatch.placed && (!!pending || living > 0 || hatch.opening > 0.02);
+      hatch.group.visible = assault?.phase !== "advance" && game.status === "playing" && hatch.placed && (!!pending || living > 0 || hatch.opening > 0.02);
       hatch.group.position.set(wx(hatch.x) + curve(wz(hatch.y)), 0.02, wz(hatch.y));
       hatch.opening += ((living > 0 ? 1 : pending ? 0.12 : 0) - hatch.opening) * Math.min(1, dt * 9);
       hatch.lid.rotation.x = -hatch.opening * 1.65;
@@ -1030,7 +1035,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       hatch.zoneMaterial.color.setHex(living > 0 ? 0xff554b : 0xffb84c);
       hatch.zoneMaterial.opacity = pending || living > 0 ? 0.48 + Math.sin(game.t * 9) * 0.18 : 0;
       hatch.label.sprite.visible = !!pending;
-      const caption = pending ? (assault?.waveTimer ?? 0) > 0.3 ? `RAID ${Math.ceil(assault!.waveTimer)}s` : "RAID READY" : "";
+      const caption = pending ? entryTimer > 0.3 ? `RAID ${Math.ceil(entryTimer)}s` : "RAID READY" : "";
       if (caption !== hatch.caption) { hatch.label.write(caption, "#ffe49d", "#663028ef"); hatch.caption = caption; }
       if (living > hatch.living && hatch.placed) burst(wx(hatch.x) + curve(wz(hatch.y)), 0.4, wz(hatch.y), 0xffae5e, 12, 0.75);
       hatch.living = living;
@@ -1043,7 +1048,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     if (sideRaidRings.count > 0) sideRaidRings.instanceMatrix.needsUpdate = true;
     const sideDanger = !!sideEntry || sideRaidUnits.length > 0;
     const waveColor = incomingRole === "shield" ? 0xffd45a : 0xff713d;
-    laneGuide.visible = laneBeacon.visible = counterattack && (game.red.length > 0 || sideDanger) && game.status === "playing";
+    laneGuide.visible = laneBeacon.visible = (counterattack || sideDanger) && (game.red.length > 0 || sideDanger) && game.status === "playing";
     if (laneGuide.visible) {
       let nearest = game.red[0];
       for (const unit of game.red) if (unit.y > nearest.y) nearest = unit;
@@ -1304,7 +1309,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     shieldMeter.visible = !!shieldAim && shieldLabel.sprite.visible;
     const bossAim = championBossAim(game);
     const abilityAim = shieldAim ?? bossAim;
-    championSight.visible = !!abilityAim && game.status === "playing" && !sideDanger;
+    championSight.visible = !!abilityAim && game.status === "playing" && (!sideDanger || !!bossAim);
     bossAimRing.visible = !!bossAim && game.status === "playing";
     if (bossAim) {
       const aimZ = wz(bossAim.target.y + bossAim.target.h / 2 + 12);
