@@ -32,9 +32,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   renderer.shadowMap.autoUpdate = false;
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(41, 390 / 844, 0.2, 380);
-  const cameraHome = new THREE.Vector3(7.5, 40, 20);
-  const cameraTarget = new THREE.Vector3(0, 0, -18);
-  let combatFocus = 0, framingFov = 43, cameraFollow = 0, combatLookZ = -18, displayedFov = 43;
+  const cameraHome = new THREE.Vector3(15, 56, 64);
+  const cameraTarget = new THREE.Vector3(0, 0, -14);
+  let cameraFollow = 0, combatLookZ = -14, displayedTan = Math.tan(THREE.MathUtils.degToRad(16));
   const stage = new THREE.Group(); scene.add(stage);
   let theme = "fork", travel = 0;
   const worldCurve = (z: number) => theme === "bend" ? Math.sin(z * 0.018) * 1.3 : 0;
@@ -590,6 +590,11 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   let unitSequence = 0;
   let shadowCount = 0;
   let hasRenderedUnits = false;
+  // Reuse the positions already composed for rendering. Four-world-unit
+  // depth slices fit the live fight without projecting every runner or
+  // including the decorative horde behind the active giant.
+  const crowdBounds = new Float32Array(64 * 6);
+  const crowdBoundsActive = new Uint8Array(64);
   function drawUnits(units: Unit[], object: THREE.InstancedMesh, enemy: boolean, entry: number, colorKeys: Int8Array, matrixRange: UploadRange, motionRange: UploadRange, colorRange: UploadRange) {
     const count = Math.min(units.length, object.instanceMatrix.count); object.count = count;
     // At the crowd cap, slightly smaller ordinary runners keep the spaces
@@ -666,6 +671,18 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       matrices[offset + 8] = sy * cp * sx; matrices[offset + 9] = -sp * sx; matrices[offset + 10] = cy * cp * sx; matrices[offset + 11] = 0;
       const hatchRise = unit.sideEntry ? Math.max(0, 1 - (time - state.bornAt) / 0.18) * 0.55 : 0;
       matrices[offset + 12] = x; matrices[offset + 13] = 0.025 + shotFlight + recoilHop * (unit.big ? 0.16 : 0.68) - hatchRise; matrices[offset + 14] = z; matrices[offset + 15] = 1;
+      if (!unit.dead && (!enemy || currentGame?.assault?.phase === "counterattack" || unit.sideEntry || unit.braced || !!boss && unit.y >= boss.y - boss.h / 2 - 32)) {
+        const bin = Math.max(0, Math.min(63, Math.floor((z + 160) / 4))), base = bin * 6;
+        const radius = Math.max(sx, syScale) * 1.05, bottom = matrices[offset + 13] - size * 0.15, top = matrices[offset + 13] + syScale * 1.85;
+        if (!crowdBoundsActive[bin]) {
+          crowdBoundsActive[bin] = 1;
+          crowdBounds[base] = x - radius; crowdBounds[base + 1] = bottom; crowdBounds[base + 2] = z - radius;
+          crowdBounds[base + 3] = x + radius; crowdBounds[base + 4] = top; crowdBounds[base + 5] = z + radius;
+        } else {
+          crowdBounds[base] = Math.min(crowdBounds[base], x - radius); crowdBounds[base + 1] = Math.min(crowdBounds[base + 1], bottom); crowdBounds[base + 2] = Math.min(crowdBounds[base + 2], z - radius);
+          crowdBounds[base + 3] = Math.max(crowdBounds[base + 3], x + radius); crowdBounds[base + 4] = Math.max(crowdBounds[base + 4], top); crowdBounds[base + 5] = Math.max(crowdBounds[base + 5], z + radius);
+        }
+      }
       const tintKey = enemy ? unit.sideEntry ? 7 : unit.big ? 1 : runner ? 2 : guard ? 3 : 4 : unit.big ? 5 : 6;
       if (colorKeys[i] !== tintKey) {
         const tint = enemy ? unit.sideEntry ? unitWhite : unit.big ? redBrute : runner ? redRunner : guard ? unitWhite : redSoldier : unit.big ? blueChampion : unitWhite;
@@ -761,148 +778,102 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   let reserveAnchor = NaN;
   const projected = new THREE.Vector3();
   function updateCamera(dt = 1) {
-    const followX = cameraFollow;
     const portrait = camera.aspect < 0.85;
     camera.clearViewOffset();
-    camera.position.copy(cameraHome); camera.position.z -= travel;
-    camera.position.y -= combatFocus * 5;
-    camera.position.z -= combatFocus * 2;
-    camera.fov = framingFov - combatFocus * 2; camera.updateProjectionMatrix();
-    camera.position.x += curve(0) + followX;
+    camera.position.copy(cameraHome);
+    camera.position.z += combatLookZ - cameraTarget.z - travel;
+    camera.position.x += curve(combatLookZ) + cameraFollow;
     camera.position.x += Math.sin(frameTime * 57) * shake * 0.09;
     camera.position.y += Math.cos(frameTime * 43) * shake * 0.06;
-    camera.lookAt(cameraTarget.x + curve(combatLookZ) + followX, cameraTarget.y, combatLookZ - travel); camera.updateMatrixWorld();
-    // Frame the actual battery and actionable panels. Fitting both empty
-    // cannon extremes at once kept the camera too far from every collision.
-    let framingScale = 1, minX = Infinity, maxX = -Infinity, topY = -Infinity;
-    const framePoint = (x: number, y: number, z: number, bottom = 0.86) => {
-      projected.set(x + curve(z), y, z - travel).project(camera);
-      minX = Math.min(minX, projected.x); maxX = Math.max(maxX, projected.x);
-      topY = Math.max(topY, projected.y);
-      if (!portrait) framingScale = Math.max(framingScale, Math.abs(projected.x) / 0.93, Math.max(0, -projected.y) / bottom);
+    camera.lookAt(curve(combatLookZ) + cameraFollow, 0, combatLookZ - travel);
+    camera.updateMatrixWorld();
+
+    // Fit complete actionable objects in camera space. A longer lens keeps
+    // the distant fighters closer in size to the battery, while the lower
+    // viewing angle exposes their torsos and the cannon's weapon silhouette.
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    const include = (x: number, y: number, halfWidth = 0, halfHeight = 0) => {
+      minX = Math.min(minX, x - halfWidth); maxX = Math.max(maxX, x + halfWidth);
+      minY = Math.min(minY, y - halfHeight); maxY = Math.max(maxY, y + halfHeight);
     };
-    const frameLabel = (x: number, y: number, z: number, width: number, height: number) => {
+    const framePoint = (x: number, y: number, z: number) => {
       projected.set(x + curve(z), y, z - travel).applyMatrix4(camera.matrixWorldInverse);
-      const halfWidth = width * camera.projectionMatrix.elements[0] / (-2 * projected.z);
-      const halfHeight = height * camera.projectionMatrix.elements[5] / (-2 * projected.z);
-      projected.applyMatrix4(camera.projectionMatrix);
-      minX = Math.min(minX, projected.x - halfWidth); maxX = Math.max(maxX, projected.x + halfWidth);
-      topY = Math.max(topY, projected.y + halfHeight);
-      if (!portrait) framingScale = Math.max(framingScale, (Math.abs(projected.x) + halfWidth) / 0.93,
-        (projected.y + halfHeight) / 0.68, Math.max(0, halfHeight - projected.y) / 0.86);
+      include(projected.x / (-projected.z * camera.aspect), projected.y / -projected.z);
     };
-    const cannonX = wx(currentGame?.cannonX ?? W / 2);
-    const batteryHalf = currentGame ? Math.max(...cannonBarrelPositions(currentGame.assault?.tier ?? 1).map((barrel) => Math.abs(barrel.x) * SX)) + 1.2 : 1.2;
-    framePoint(cannonX - batteryHalf, 0.4, 0.8);
-    framePoint(cannonX + batteryHalf, 0.4, 0.8);
-    projected.set(cannonX + curve(0.8), 0.4, 0.8 - travel).project(camera);
-    const cannonY = projected.y;
-    for (const gate of currentGame?.gates ?? []) {
-      if (gate.overrun) continue;
-      framePoint(wx(gate.cx - gate.w / 2) - 0.2, 1.5, wz(gate.y));
-      framePoint(wx(gate.cx + gate.w / 2) + 0.2, 1.5, wz(gate.y));
-      frameLabel(wx(gate.cx), 2.1, wz(gate.y) + 0.13, 5.6, 2.2);
+    const frameBox = (group: THREE.Object3D, left: number, bottom: number, rear: number, right: number, top: number, front: number) => {
+      group.updateWorldMatrix(true, false);
+      for (const x of [left, right]) for (const y of [bottom, top]) for (const z of [rear, front]) {
+        projected.set(x, y, z).applyMatrix4(group.matrixWorld).applyMatrix4(camera.matrixWorldInverse);
+        include(projected.x / (-projected.z * camera.aspect), projected.y / -projected.z);
+      }
+    };
+    const frameLabel = (sprite: THREE.Sprite) => {
+      if (!sprite.visible) return;
+      sprite.updateWorldMatrix(true, false);
+      const e = sprite.matrixWorld.elements;
+      const width = Math.hypot(e[0], e[1], e[2]), height = Math.hypot(e[4], e[5], e[6]);
+      projected.setFromMatrixPosition(sprite.matrixWorld).applyMatrix4(camera.matrixWorldInverse);
+      include(projected.x / (-projected.z * camera.aspect), projected.y / -projected.z,
+        width / (-2 * projected.z * camera.aspect), height / (-2 * projected.z));
+    };
+    for (const value of cannon) if (value.group.visible) frameBox(value.group, -0.79, 0, -1.23, 0.79, 1.35, 0.86);
+    for (let i = 0; i < gates.length; i++) {
+      const view = gates[i];
+      if (!view.group.visible || currentGame?.gates[i]?.overrun) continue;
+      frameBox(view.group, -0.524, 0, -0.24, 0.524, 2.72, 0.24);
+      frameLabel(view.label.sprite);
     }
-    for (const pickup of currentGame?.assault?.pickups ?? []) {
-      if (pickup.y > CANNON_Y) continue;
-      framePoint(wx(pickup.x - pickup.w / 2) - 0.2, 1.5, wz(pickup.y));
-      framePoint(wx(pickup.x + pickup.w / 2) + 0.2, 1.5, wz(pickup.y));
-      // Portrait pickup text is kept inside the final view below. Its wide
-      // billboard must not zoom the whole battle out as a side panel nears us.
-      if (!portrait) frameLabel(wx(pickup.x), 2.1, wz(pickup.y) + 0.13, 5.6, 2.2);
+    for (const view of pickups) {
+      if (!view.group.visible) continue;
+      frameBox(view.group, -0.524, 0, -0.24, 0.524, 2.72, 0.24);
+      frameLabel(view.label.sprite);
     }
-    for (const lock of [currentGame?.assault?.cannonTarget, currentGame?.assault?.weaponTarget]) {
-      if (!lock) continue;
-      framePoint(wx(lock.x) - 2.65, 3.1, wz(lock.y));
-      framePoint(wx(lock.x) + 2.65, 3.1, wz(lock.y));
+    for (const chest of [cannonChest, weaponChest]) {
+      if (!chest.group.visible) continue;
+      frameBox(chest.group, -1.72, 0, -1.4, 1.72, 2.85, 1.4);
+      for (const child of chest.group.children) if (child instanceof THREE.Sprite) frameLabel(child);
     }
-    const selectedGuard = portrait && currentGame ? championShieldAim(currentGame)?.target : null;
-    for (const unit of currentGame?.red ?? []) {
-      if (unit.dead || !unit.braced) continue;
-      if (portrait && unit !== selectedGuard) continue;
-      // The shield cue can sit above the crowd's leading edge. Keep its
-      // complete label below the HUD, including the first incoming guard.
-      frameLabel(wx(unit.x), 6.45, wz(unit.y), 4.5, 1.7);
-    }
-    const active = currentGame?.bases[currentGame.assault?.encounter ?? 0];
-    const assault = currentGame?.assault;
+    if (weaponCrate.visible) frameBox(prize.group, -0.79, 0, -1.23, 0.79, 1.35, 0.86);
+    frameLabel(shieldLabel.sprite);
     for (const hatch of sideHatches) {
       if (!hatch.group.visible) continue;
-      framePoint(wx(hatch.x) - 1.7, 0.3, wz(hatch.y));
-      framePoint(wx(hatch.x) + 1.7, 0.3, wz(hatch.y));
-      if (hatch.label.sprite.visible) frameLabel(wx(hatch.x), 2.45, wz(hatch.y), 3.9, 1.25);
+      frameBox(hatch.group, -2, 0, -1.6, 2, 2.5, 1.6);
+      frameLabel(hatch.label.sprite);
     }
-    for (const unit of sideRaidUnits) framePoint(wx(unit.x), 1.8, wz(unit.y));
-    if (portrait && assault?.phase === "counterattack" && assault.waveWarning > 0 && active) {
-      // The next rush is actionable before it reaches the current front.
-      // Keep its ellipse and chevrons visible without fitting empty road edges.
-      const x = wx(active.x + assault.waveLane * 105);
-      const z = wz(active.y - active.h / 2 - 42);
-      for (const side of [-1, 1]) {
-        framePoint(x + side * 2.5, 0.1, z - 1.5);
-        framePoint(x + side * 2.5, 0.1, z + 1.5);
-        framePoint(x + side * 0.8, 0.1, z + 6.4);
-      }
+    for (let bin = 0; bin < crowdBoundsActive.length; bin++) {
+      if (!crowdBoundsActive[bin]) continue;
+      const base = bin * 6;
+      frameBox(stage, crowdBounds[base], crowdBounds[base + 1], crowdBounds[base + 2], crowdBounds[base + 3], crowdBounds[base + 4], crowdBounds[base + 5]);
     }
-    if (active) {
-      const combatY = currentGame?.assault?.phase === "counterattack" ? currentGame.assault.frontline : active.y;
-      const combatZ = wz(combatY), height = active.hp > 0 ? 6.2 : 2.8;
-      projected.set(wx(active.x) + curve(combatZ), height, combatZ - travel).project(camera);
-      // Reserve ranks may extend beyond the horizon; the actual collision
-      // front must stay below the HUD even when a counterattack moves uphill.
-      topY = Math.max(topY, projected.y);
-      if (!portrait) framingScale = Math.max(framingScale, projected.y / 0.68);
-      if (!portrait) {
-        for (const x of [-8.8, 8.8]) framePoint(x, 1.5, combatZ);
-      } else if (active.hp > 0) {
-        // Fit the guardian and its health display, not both empty road edges
-        // at this distant depth combined with nearby side pickups.
-        const half = Math.max(4.6, active.w * SX / 2);
-        framePoint(wx(active.x) - half, 1.5, combatZ);
-        framePoint(wx(active.x) + half, 1.5, combatZ);
-        frameLabel(wx(active.x), 6.05, combatZ, currentGame && bossBrace(currentGame) ? 5.3 : 3.5, 1.15);
-      } else {
-        // A real flank reaching the front still needs room. Keep its physical
-        // extent visible without treating the entire road as a target.
-        let left = active.x, right = active.x;
-        for (const unit of currentGame?.red ?? []) {
-          if (unit.dead || unit.y < combatY - 90) continue;
-          left = Math.min(left, unit.x - unit.r - 6);
-          right = Math.max(right, unit.x + unit.r + 6);
-        }
-        framePoint(wx(left), 2.8, combatZ);
-        framePoint(wx(right), 2.8, combatZ);
-      }
+    if (flankWarning.visible) frameBox(flankWarning, -2.5, 0, -1.5, 2.5, 0.2, 6.4);
+    const active = currentGame?.bases[currentGame.assault?.encounter ?? 0];
+    const bossView = bosses[currentGame?.assault?.encounter ?? 0];
+    if (active && active.hp > 0 && bossView) {
+      // Conservative bounds cover the giant's animated hands and feet;
+      // fitting the live front must never depend on the decorative reserve.
+      frameBox(bossView.art.group, -4.2, -0.6, -2.9, 4.2, 6.4, 4.2);
+      frameLabel(bossView.label.sprite);
+    } else if (active && currentGame) {
+      const combatY = currentGame.assault?.frontline ?? active.y;
+      framePoint(wx(active.x), 2.8, wz(combatY));
     }
-    if (portrait) {
-      // Fit the useful road between the battery and battlefront, then place
-      // that composition lower in the screen. A centered lens left a large
-      // empty foreground whenever an edge battery forced a wider view.
-      framingScale = Math.max(1, (maxX - minX) / 1.86, (topY - cannonY) / 1.32);
-    }
-    const baseFov = camera.fov;
-    if (framingScale > 1) {
-      camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * framingScale));
-      camera.updateProjectionMatrix();
-    }
-    // Open immediately when a control needs space, then return to the closer
-    // composition smoothly when an offscreen pickup expires or a wave ends.
-    displayedFov = Math.max(camera.fov, displayedFov + (camera.fov - displayedFov) * Math.min(1, dt * 2.5));
-    camera.fov = displayedFov;
+    const safeLeft = -0.94, safeRight = 0.94, safeBottom = -0.78, safeTop = portrait ? 0.68 : 0.78;
+    const desiredTan = Math.max(Math.tan(THREE.MathUtils.degToRad(8)),
+      (maxX - minX) / (safeRight - safeLeft), (maxY - minY) / (safeTop - safeBottom));
+    // Open immediately for a new threat, close smoothly when it leaves.
+    displayedTan = Math.max(desiredTan, displayedTan + (desiredTan - displayedTan) * Math.min(1, dt * 2.5));
+    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(displayedTan));
     camera.updateProjectionMatrix();
-    if (portrait) {
-      const scale = Math.tan(THREE.MathUtils.degToRad(baseFov / 2)) / Math.tan(THREE.MathUtils.degToRad(displayedFov / 2));
-      const centerX = (minX + maxX) * 0.5 * scale;
-      const centerY = cannonY * scale + 0.64;
-      camera.setViewOffset(camera.aspect * 1000, 1000, centerX * camera.aspect * 500, -centerY * 500, camera.aspect * 1000, 1000);
-    }
+    const centerX = (minX + maxX) / (2 * displayedTan) - (safeLeft + safeRight) / 2;
+    const centerY = minY / displayedTan - safeBottom;
+    camera.setViewOffset(camera.aspect * 1000, 1000, centerX * camera.aspect * 500, -centerY * 500, camera.aspect * 1000, 1000);
     sun.position.set(-25, 45, -12 - travel); sun.target.position.set(0, 0, -20 - travel);
   }
   function render(game: Game, dt: number) {
     dt = Math.min(dt, 0.05); frameTime += dt;
     if (currentGame !== game) {
       currentGame = game; shot = game.stats.fired; previousTier = game.assault?.tier ?? 1;
-      hasRenderedUnits = false; combatFocus = 0; cameraFollow = 0; combatLookZ = -18; displayedFov = framingFov;
+      hasRenderedUnits = false; cameraFollow = 0; combatLookZ = cameraTarget.z; displayedTan = Math.tan(THREE.MathUtils.degToRad(16));
       previousWeapon = game.assault?.weaponLevel ?? 1; crateHp = crateMax = cannonLockHp = -1;
       cannon.forEach((value, i) => { value.shots = game.assault?.barrelShots[i] ?? 0; value.recoil = 0; });
       shadowAt = 0;
@@ -1107,7 +1078,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     cannon.forEach((value, i) => {
       value.group.visible = i < tier;
       value.setWeapon(weaponLevel);
-      value.recoil = Math.max(0, value.recoil - dt * 15);
+      value.recoil = Math.max(0, value.recoil - dt * 12);
       const shots = assault?.barrelShots[i] ?? game.stats.fired;
       const barrelFired = shots > value.shots;
       if (barrelFired) { value.recoil = 1; value.shots = shots; }
@@ -1117,11 +1088,11 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       value.group.rotation.set(wreck * 0.16, 0, (i % 2 ? -1 : 1) * wreck * 0.42);
       value.barrel.rotation.x = wreck * 0.6;
       const pop = assault?.upgradeFlash ? Math.sin(Math.min(1, assault.upgradeFlash) * Math.PI) * 0.1 : 0;
-      value.group.scale.set(1.22 + pop, 1.4 + pop, 1.62 + pop); value.barrel.position.z = -0.08 + value.recoil * 0.18;
+      value.group.scale.set(1.22 + pop, 1.4 + pop, 1.62 + pop); value.barrel.position.z = -0.08 + value.recoil * 0.27;
       value.barrel.rotation.y = Math.asin(THREE.MathUtils.clamp((curve(0) - curve(wz(CANNON_Y - 22))) / 1.3585, -0.4, 0.4));
       value.rotor.rotation.z += dt * (game.firing ? 22 : 2);
       value.muzzle.scale.setScalar(1 + value.recoil * 0.12);
-      if (barrelFired && i < tier) burst(wx(game.cannonX + offset) + curve(barrelZ - 2.1), 0.96, barrelZ - 2.1, weaponLevel === 2 ? 0xffe09d : 0xd9ffff, 3, 0.25);
+      if (barrelFired && i < tier) burst(wx(game.cannonX + offset) + curve(barrelZ - 2.1), 1.2, barrelZ - 2.1, weaponLevel === 2 ? 0xffe09d : 0xd9ffff, 4, 0.3);
     });
     batteryShadow.position.x = aimRing.position.x = wx(game.cannonX) + curve(0);
     batteryShadow.scale.x = 0.9 + tier * 0.6;
@@ -1241,7 +1212,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     previousUnits.push(...game.blue, ...game.red);
     regularUnits.length = guardUnits.length = bracedUnits.length = 0;
     for (const unit of game.red) if (!unit.sideEntry) (unit.braced ? bracedUnits : unit.kind === "guard" ? guardUnits : regularUnits).push(unit);
-    shadowCount = 0;
+    shadowCount = 0; crowdBoundsActive.fill(0);
     drawUnits(game.blue, friends, false, 0, friendColorKeys, friendMatrixRange, friendMotionRange, friendColorRange);
     drawUnits(regularUnits, enemies, true, entry, enemyColorKeys, enemyMatrixRange, enemyMotionRange, enemyColorRange);
     drawUnits(sideRaidUnits, raiders, true, entry, raiderColorKeys, raiderMatrixRange, raiderMotionRange, raiderColorRange);
@@ -1522,40 +1493,18 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     // shadow map can be refreshed at 15 Hz without repeating its draw calls
     // for every animation frame on a phone.
     if (frameTime >= shadowAt) { renderer.shadowMap.needsUpdate = true; shadowAt = frameTime + 1 / 15; }
-    // Close in gently as the front meets the giant, then open the view for
-    // flank warnings and travel. Keep the full cannon lane in frame throughout.
-    const inContact = assault?.phase === "counterattack" || assault?.phase === "battle" && !!activeBoss && activeBoss.hp < activeBoss.maxHp && activeBoss.hp > 0;
-    combatFocus += ((inContact ? 1 : 0) - combatFocus) * Math.min(1, dt * 1.6);
+    // Follow the fight without fitting the distant reserve ranks.
     cameraFollow += (wx(game.cannonX) * 0.18 - cameraFollow) * Math.min(1, dt * 4);
     const combatY = assault?.phase === "counterattack" ? assault.frontline : activeBoss?.y ?? 300;
     const desiredLookZ = assault?.phase === "advance" ? cameraTarget.z : Math.max(-30, Math.min(-14, wz(combatY) * 0.5));
     combatLookZ += (desiredLookZ - combatLookZ) * Math.min(1, dt * 2.5);
     updateCamera(dt);
-    if (camera.aspect < 0.85) {
-      for (const view of pickups) {
-        if (!view.group.visible) continue;
-        const label = view.label.sprite;
-        label.getWorldPosition(projected);
-        projected.applyMatrix4(camera.matrixWorldInverse);
-        const halfWidth = 5.4 * camera.projectionMatrix.elements[0] / (-2 * projected.z);
-        projected.applyMatrix4(camera.projectionMatrix);
-        const x = Math.max(-0.94 + halfWidth, Math.min(0.94 - halfWidth, projected.x));
-        if (x !== projected.x) {
-          projected.x = x;
-          projected.unproject(camera);
-          view.group.worldToLocal(projected);
-          label.position.copy(projected);
-        }
-      }
-    }
     renderer.render(scene, camera);
   }
   function resize(width: number, height: number) {
     camera.aspect = width / height;
-    // Preserve the full aiming lane on a phone without shrinking the fighters.
-    framingFov = Math.max(42, THREE.MathUtils.radToDeg(2 * Math.atan(8.2 / (cameraHome.length() * camera.aspect))));
-    camera.fov = framingFov;
-    camera.updateProjectionMatrix(); renderer.setSize(width, height, false); updateCamera();
+    cameraHome.set(...(camera.aspect < 0.85 ? [15, 56, 64] : [11.25, 42, 44.5]) as [number, number, number]);
+    renderer.setSize(width, height, false); updateCamera();
   }
   resize(canvas.clientWidth || 390, canvas.clientHeight || 844);
   return {

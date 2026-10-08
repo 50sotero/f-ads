@@ -78,18 +78,19 @@ function stridePart(geometry: THREE.BufferGeometry, part: number): THREE.BufferG
   return geometry;
 }
 
-/** Feet at zero, face toward -Z. Broad head, pear-shaped body, soft mitten limbs. */
+/** Feet at zero, face toward -Z. Shoulders and separate feet read from behind. */
 export function createMobGeometry(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
-  parts.push(form([[0.24, 0.03, 0.02], [0.36, 0.23, 0.17], [0.58, 0.285, 0.21], [0.78, 0.245, 0.18], [0.9, 0.13, 0.13], [0.92, 0.02, 0.02]], 10, 8, 2));
-  parts.push(placed(new THREE.SphereGeometry(0.27, 10, 7), 0, 1.08, -0.035, 0.96, 1.06, 0.96));
+  parts.push(tint(form([[0.26, 0.03, 0.02], [0.39, 0.2, 0.15], [0.61, 0.245, 0.18], [0.79, 0.315, 0.19], [0.89, 0.17, 0.13], [0.94, 0.03, 0.03]], 10, 8, 2.3), 0xb9d0e3));
+  parts.push(tint(placed(new THREE.CylinderGeometry(0.095, 0.12, 0.18, 8), 0, 0.96, -0.025), 0x9db6ca));
+  parts.push(placed(new THREE.SphereGeometry(0.245, 10, 6), 0, 1.16, -0.035, 0.96, 1.04, 0.96));
   for (const side of [-1, 1]) {
-    const arm = new THREE.CapsuleGeometry(0.115, 0.26, 2, 6);
-    arm.rotateZ(side * 0.2); parts.push(stridePart(placed(arm, side * 0.3, 0.59, -0.025), side));
-    parts.push(stridePart(placed(new THREE.CapsuleGeometry(0.12, 0.2, 2, 6), side * 0.14, 0.2, -0.035, 1, 1, 1.3), side * 2));
-    // A light sole separates the moving feet from the contact shadow at phone size.
-    parts.push(stridePart(tint(placed(new THREE.SphereGeometry(0.125, 6, 4), side * 0.14, 0.065, -0.07, 1, 0.36, 1.5), 0xe4f4ff, true), side * 2));
-    parts.push(tint(placed(new THREE.SphereGeometry(0.032, 5, 3), side * 0.087, 1.1, -0.288, 0.75, 1.4, 0.28), 0x09274f, true));
+    const arm = new THREE.CapsuleGeometry(0.105, 0.29, 2, 6);
+    arm.rotateZ(side * 0.27); parts.push(stridePart(placed(arm, side * 0.335, 0.61, -0.025), side));
+    parts.push(stridePart(tint(placed(new THREE.CapsuleGeometry(0.105, 0.23, 2, 6), side * 0.145, 0.205, -0.025, 1, 1, 1.2), 0x8ca6bd), side * 2));
+    // Bright toes and darker legs retain two distinct steps at phone size.
+    parts.push(stridePart(tint(placed(new THREE.SphereGeometry(0.12, 6, 4), side * 0.145, 0.07, -0.085, 1, 0.45, 1.65), 0xd5eafa), side * 2));
+    parts.push(tint(placed(new THREE.SphereGeometry(0.029, 5, 3), side * 0.079, 1.18, -0.268, 0.75, 1.4, 0.28), 0x09274f, true));
   }
   return crowdMesh(parts);
 }
@@ -97,7 +98,7 @@ export function createMobGeometry(): THREE.BufferGeometry {
 /** Armored defenders share the same animated body, with a steel cap and shield. */
 export function createGuardGeometry(braced = false): THREE.BufferGeometry {
   const parts = [createMobGeometry()];
-  parts.push(tint(placed(new THREE.SphereGeometry(0.29, 10, 4, 0, Math.PI * 2, 0, Math.PI * 0.57), 0, 1.095, -0.035, 1, 1, 0.98), 0x354768, true));
+  parts.push(tint(placed(new THREE.SphereGeometry(0.265, 10, 4, 0, Math.PI * 2, 0, Math.PI * 0.57), 0, 1.175, -0.035, 1, 1, 0.98), 0x354768, true));
   parts.push(tint(placed(new THREE.SphereGeometry(0.34, 8, 6), 0, braced ? 0.91 : 0.6, -0.3, braced ? 1.6 : 1, braced ? 2.5 : 1.13, 0.25), braced ? 0xffc13e : 0x344562, true));
   if (braced) {
     // A tall amber shield with a dark inset remains distinct from ordinary
@@ -188,7 +189,7 @@ export function createSiegeCannon(includeChassis = true): SiegeCannonArt {
       for (const z of [-0.3, 0.54]) { mesh(group, wheel, rubber, side * 0.65, 0.28, z); mesh(group, hub, cream, side * 0.655, 0.28, z); }
     }
   }
-  barrel.position.set(0, 0.58, -0.08); group.add(barrel);
+  barrel.position.set(0, 0.78, -0.08); group.add(barrel);
   const forms = [new THREE.Group(), new THREE.Group(), new THREE.Group()];
   barrel.add(...forms);
   // The profile doubles back inside the tube: no sphere or disk plugs its lip.
@@ -204,31 +205,31 @@ export function createSiegeCannon(includeChassis = true): SiegeCannonArt {
   muzzle.name = "muzzle-opening";
 
   // Repeater: a broad orange jacket, three charge rails and a gold muzzle.
-  mesh(forms[1], tube, orange, 0, 0, 0, 1.15, 1.15, 1);
-  mesh(forms[1], ring, gold, 0, 0, -1.045, 1.15, 1.15, 1);
-  mesh(forms[1], collar, dark, 0, 0, -0.25, 1.22, 1.22, 1);
-  mesh(forms[1], bore, rubber, 0, 0, -0.73, 1.15, 1.15, 1);
-  const rail = owned.geometry(new RoundedBoxGeometry(0.075, 0.085, 0.43, 2, 0.025));
-  for (const x of [-0.13, 0, 0.13]) mesh(forms[1], rail, cream, x, 0.29, -0.5);
-  const feed = owned.geometry(new RoundedBoxGeometry(0.15, 0.31, 0.34, 2, 0.06));
-  for (const side of [-1, 1]) mesh(forms[1], feed, gold, side * 0.32, -0.025, -0.28);
+  mesh(forms[1], tube, orange, 0, 0, 0, 1.35, 1.35, 1);
+  mesh(forms[1], ring, gold, 0, 0, -1.045, 1.35, 1.35, 1);
+  mesh(forms[1], collar, dark, 0, 0, -0.25, 1.45, 1.45, 1);
+  mesh(forms[1], bore, rubber, 0, 0, -0.73, 1.35, 1.35, 1);
+  const rail = owned.geometry(new RoundedBoxGeometry(0.095, 0.1, 0.6, 2, 0.03));
+  for (const x of [-0.19, 0, 0.19]) mesh(forms[1], rail, cream, x, 0.34, -0.52);
+  const feed = owned.geometry(new RoundedBoxGeometry(0.21, 0.4, 0.48, 2, 0.07));
+  for (const side of [-1, 1]) mesh(forms[1], feed, gold, side * 0.41, 0.015, -0.3);
 
   // Cyclone: one spinning six-chamber assembly, with a fixed violet shroud.
-  mesh(forms[2], owned.geometry(new THREE.CylinderGeometry(0.37, 0.34, 0.4, 16).rotateX(Math.PI / 2)), violet, 0, 0, -0.24);
-  mesh(forms[2], collar, gold, 0, 0, -0.16, 1.45, 1.45, 1);
+  mesh(forms[2], owned.geometry(new THREE.CylinderGeometry(0.46, 0.41, 0.54, 16).rotateX(Math.PI / 2)), violet, 0, 0.02, -0.26);
+  mesh(forms[2], collar, gold, 0, 0.02, -0.16, 1.7, 1.7, 1);
   const rotor = new THREE.Group(); forms[2].add(rotor);
-  const chamber = owned.geometry(new THREE.CylinderGeometry(0.087, 0.09, 0.76, 10).rotateX(Math.PI / 2));
-  const tip = owned.geometry(new THREE.TorusGeometry(0.078, 0.023, 5, 10));
-  const chamberBore = owned.geometry(new THREE.CircleGeometry(0.062, 10).rotateY(Math.PI));
+  const chamber = owned.geometry(new THREE.CylinderGeometry(0.105, 0.11, 0.76, 10).rotateX(Math.PI / 2));
+  const tip = owned.geometry(new THREE.TorusGeometry(0.095, 0.025, 5, 10));
+  const chamberBore = owned.geometry(new THREE.CircleGeometry(0.075, 10).rotateY(Math.PI));
   for (let i = 0; i < 6; i++) {
-    const a = i / 6 * Math.PI * 2, x = Math.cos(a) * 0.21, y = Math.sin(a) * 0.21;
+    const a = i / 6 * Math.PI * 2, x = Math.cos(a) * 0.285, y = Math.sin(a) * 0.285;
     mesh(rotor, chamber, dark, x, y, -0.62);
     mesh(rotor, tip, light, x, y, -1.015);
     mesh(rotor, chamberBore, rubber, x, y, -1.017);
   }
-  mesh(rotor, owned.geometry(new THREE.TorusGeometry(0.285, 0.05, 7, 20)), gold, 0, 0, -0.77);
-  const fins = owned.geometry(new RoundedBoxGeometry(0.06, 0.23, 0.4, 2, 0.025));
-  for (const side of [-1, 1]) mesh(forms[2], fins, light, side * 0.32, 0.15, -0.24);
+  mesh(rotor, owned.geometry(new THREE.TorusGeometry(0.365, 0.055, 7, 20)), gold, 0, 0, -0.77);
+  const fins = owned.geometry(new RoundedBoxGeometry(0.095, 0.32, 0.56, 2, 0.03));
+  for (const side of [-1, 1]) mesh(forms[2], fins, light, side * 0.42, 0.2, -0.26);
   function setWeapon(level: number) { forms.forEach((form, i) => { form.visible = i === Math.max(0, Math.min(2, level - 1)); }); }
   setWeapon(1);
   return { group, barrel, muzzle, rotor, setWeapon, dispose() { group.clear(); owned.dispose(); } };
