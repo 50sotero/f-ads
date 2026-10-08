@@ -54,6 +54,19 @@ export type BossBraceSnapshot = Readonly<{
   progress: number;
   seconds: number;
 }>;
+/** Read-only cue for the roadside runner raid pulled from a later flank wave. */
+export type AssaultEarlyRaidSnapshot = Readonly<{
+  phase: "warning" | "active";
+  /** Remaining warning time; zero once the hatch has opened. */
+  seconds: number;
+  /** The exact authored hatch used by the pending roadside slots. */
+  entry: Readonly<CounterattackSideEntry>;
+  /** Number of the reserved roadside slots already spawned. */
+  spawned: number;
+  /** Total slots pulled forward from the authored counterwave. */
+  reserved: number;
+  encounter: number;
+}>;
 /** Read-only snapshot of the short physical breakthrough after an ignored brace. */
 export type BossBreakthroughSnapshot = Readonly<{
   phase: "breaking";
@@ -538,11 +551,30 @@ type BossPressureDeadlineState = {
   lastSpeed: number;
   moving: boolean;
 };
+type AssaultEarlyRaidRuntime = {
+  owner: Game;
+  assault: AssaultState;
+  encounter: number;
+  waveIndex: number;
+  entry: CounterattackSideEntry;
+  warning: number;
+  startedFrame: number;
+  reserved: number;
+  spawned: number;
+  resolved: boolean;
+};
+type AssaultEarlyRaidRunnerState = {
+  owner: Game;
+  assault: AssaultState;
+  encounter: number;
+};
 const bossBraceStates = new WeakMap<Game, BossBraceRuntime>();
 const bossBraceChampionDrives = new WeakMap<Unit, BossBraceChampionDrive>();
 const bossBraceRedDrives = new WeakMap<Unit, BossBraceRedDrive>();
 const bossBreakthroughStates = new WeakMap<Game, BossBreakthroughState>();
 const bossPressureDeadlineStates = new WeakMap<Game, BossPressureDeadlineState>();
+const assaultEarlyRaidStates = new WeakMap<Game, AssaultEarlyRaidRuntime>();
+const assaultEarlyRaidRunners = new WeakMap<Unit, AssaultEarlyRaidRunnerState>();
 const SHIELD_BRACE_FATIGUE_SECONDS = 1.25;
 const ASSAULT_BOSS_SLAM_DURATION = 0.35;
 const ASSAULT_BOSS_SLAM_DECAY = 8;
@@ -570,6 +602,8 @@ const ASSAULT_BOSS_BREAKTHROUGH_SPEED = 36;
 const ASSAULT_BOSS_BREAKTHROUGH_RED_SPEED = 1.25;
 const ASSAULT_BOSS_BRACE_RED_LATERAL = 120;
 const ASSAULT_BOSS_BRACE_RED_DEPTH = 180;
+const ASSAULT_EARLY_RAID_WARNING = 2;
+const ASSAULT_EARLY_RAID_SLOTS = 2;
 
 /**
  * The final counterattack cleanup lets ordinary contact wear down a remaining
@@ -903,6 +937,7 @@ function beginBossBrace(game: Game, assault: AssaultState) {
   state.elapsed = 0;
   assault.bossWarning = 0;
   pop(game, game.bases[assault.encounter].x, game.bases[assault.encounter].y - game.bases[assault.encounter].h / 2 - 24, 1, "GIANT WINDING UP");
+  beginAssaultEarlyRaid(game, assault);
   return true;
 }
 
@@ -1302,7 +1337,8 @@ function counterattackWavePlan(
 function counterattackWaveSize(g: Game, waveIndex: number) {
   const config = g.level.assault?.counterattack;
   const plan = counterattackWavePlan(config, waveIndex, counterattackWaveRole(g, waveIndex));
-  return plan.runners + plan.guards + plan.brutes;
+  const total = plan.runners + plan.guards + plan.brutes;
+  return Math.max(0, total - earlyRaidWaveDebit(g, waveIndex));
 }
 
 const ASSAULT_SIDE_ENTRY_OFFSET_X = 126;
@@ -1327,20 +1363,25 @@ export type CounterattackSideEntry = {
  * Spawn code uses this same plan before constructing a runner, so the
  * renderer's warning marker cannot drift away from the actual entry point.
  */
-function counterattackSideEntryPlan(game: Game, waveIndex: number): CounterattackSideEntry | null {
+function counterattackSideEntryPlan(
+  game: Game,
+  waveIndex: number,
+  phase: "counterattack" | "battle" = "counterattack",
+): CounterattackSideEntry | null {
   const assault = game.assault;
   const config = game.level.assault;
   const counterattack = config?.counterattack;
   const index = Math.floor(waveIndex);
   if (
     !assault
-    || assault.phase !== "counterattack"
+    || assault.phase !== phase
     || !config
     || config.practice
     || !counterattack
     || assault.encounter <= 0
     || index < 0
-    || index !== assault.wave
+    || (phase === "counterattack" && index !== assault.wave)
+    || index >= assault.waves
   ) return null;
   const role = counterattackWaveRole(game, index);
   if (role !== "flank") return null;
@@ -1364,6 +1405,93 @@ function counterattackSideEntryPlan(game: Game, waveIndex: number): Counterattac
   };
 }
 
+function activeAssaultEarlyRaid(game: Game) {
+  const assault = game.assault;
+  const state = assaultEarlyRaidStates.get(game);
+  if (
+    !state
+    || !assault
+    || state.owner !== game
+    || state.assault !== assault
+    || state.encounter !== assault.encounter
+    || state.resolved
+    || state.spawned >= state.reserved
+    || game.status !== "playing"
+    || assault.phase !== "battle"
+  ) return null;
+  const active = game.bases[assault.encounter];
+  if (!active || active.hp <= 0) return null;
+  return state;
+}
+
+/** Returns the number of original runner slots already consumed by the raid. */
+function earlyRaidWaveDebit(game: Game, waveIndex: number) {
+  const assault = game.assault;
+  const state = assaultEarlyRaidStates.get(game);
+  if (
+    !state
+    || !assault
+    || state.owner !== game
+    || state.assault !== assault
+    || state.encounter !== assault.encounter
+    || state.waveIndex !== Math.floor(waveIndex)
+  ) return 0;
+  return Math.min(ASSAULT_EARLY_RAID_SLOTS, Math.max(0, state.spawned));
+}
+
+/** Returns the live roadside raid cue without exposing its private timers. */
+export function assaultEarlyRaid(game: Game): AssaultEarlyRaidSnapshot | null {
+  const state = activeAssaultEarlyRaid(game);
+  if (!state) return null;
+  return {
+    phase: state.warning > 0 ? "warning" : "active",
+    seconds: Math.max(0, state.warning),
+    entry: { ...state.entry, count: Math.max(0, state.reserved - state.spawned) },
+    spawned: state.spawned,
+    reserved: state.reserved,
+    encounter: state.encounter,
+  };
+}
+
+function beginAssaultEarlyRaid(game: Game, assault: AssaultState) {
+  const config = game.level.assault;
+  const counterattack = config?.counterattack;
+  if (
+    game.status !== "playing"
+    || assault.phase !== "battle"
+    || assault.encounter <= 0
+    || !config
+    || config.practice
+    || !config.slamEvery
+    || !counterattack
+    || assault.waves <= 1
+  ) return false;
+  const existing = assaultEarlyRaidStates.get(game);
+  if (existing && existing.owner === game && existing.assault === assault && existing.encounter === assault.encounter) return false;
+
+  for (let waveIndex = 0; waveIndex < assault.waves; waveIndex++) {
+    if (counterattackWaveRole(game, waveIndex) !== "flank") continue;
+    const plan = counterattackWavePlan(counterattack, waveIndex, "flank");
+    if (plan.runners < ASSAULT_EARLY_RAID_SLOTS) continue;
+    const entry = counterattackSideEntryPlan(game, waveIndex, "battle");
+    if (!entry || entry.count < ASSAULT_EARLY_RAID_SLOTS) continue;
+    assaultEarlyRaidStates.set(game, {
+      owner: game,
+      assault,
+      encounter: assault.encounter,
+      waveIndex,
+      entry,
+      warning: ASSAULT_EARLY_RAID_WARNING,
+      startedFrame: assault.motionFrame,
+      reserved: ASSAULT_EARLY_RAID_SLOTS,
+      spawned: 0,
+      resolved: false,
+    });
+    return true;
+  }
+  return false;
+}
+
 /**
  * Returns the pending roadside portion of an authored flank wave. Once both
  * side slots have spawned, the rest of a cap-delayed wave keeps its ordinary
@@ -1373,7 +1501,11 @@ export function counterattackSideEntry(game: Game, waveIndex = game.assault?.wav
   const entry = counterattackSideEntryPlan(game, waveIndex);
   const assault = game.assault;
   if (!entry || !assault) return null;
-  const pending = Math.max(0, entry.count - Math.min(entry.count, Math.max(0, assault.waveSpawned)));
+  const consumed = earlyRaidWaveDebit(game, waveIndex);
+  const pending = Math.max(
+    0,
+    entry.count - consumed - Math.min(Math.max(0, entry.count - consumed), Math.max(0, assault.waveSpawned)),
+  );
   return pending > 0 ? { ...entry, count: pending } : null;
 }
 
@@ -1417,8 +1549,80 @@ function refreshAssaultRemaining(g: Game) {
     }
   } else {
     remaining += Math.max(0, assault.reserve);
+    const earlyRaid = activeAssaultEarlyRaid(g);
+    if (earlyRaid) remaining += Math.max(0, earlyRaid.reserved - earlyRaid.spawned);
   }
   assault.remaining = remaining;
+}
+
+function spawnCounterattackUnit(
+  g: Game,
+  assault: AssaultState,
+  role: CounterattackWaveRole,
+  lane: -1 | 0 | 1,
+  plan: { runners: number; guards: number; brutes: number },
+  columns: number,
+  center: number,
+  spawnY: number,
+  roles: AssaultWaveKind[],
+  index: number,
+  sideEntry: CounterattackSideEntry | null,
+  earlyRaid = false,
+) {
+  const kind = roles[index];
+  const row = Math.floor(index / columns);
+  const column = index % columns;
+  // Consume the authored jitter even for a roadside slot so partial-cap
+  // retries preserve the same RNG stream as the ordinary formation.
+  const xJitter = g.rand();
+  const yJitter = g.rand();
+  const roadside = sideEntry && kind === "runner" && index < sideEntry.count ? sideEntry : null;
+  const x = roadside
+    ? counterattackSideEntrySlotX(roadside, index)
+    : Math.max(10, Math.min(W - 10, center - 29 + column * (columns > 1 ? 58 / (columns - 1) : 0) + (xJitter - 0.5) * 2.5));
+  const y = roadside ? roadside.y : spawnY - row * 8.5 - yJitter * 2.4;
+  const enemy = makeAssaultEnemy(
+    g,
+    x,
+    y,
+    kind === "brute",
+    lane * 2 + column - Math.floor(columns / 2),
+    kind,
+    roadside?.lane,
+  );
+  if (kind === "guard"
+    && index === plan.runners
+    && !g.level.assault?.practice
+    && assault.encounter > 0
+    && g.level.assault?.slamEvery !== undefined
+    && (assault.waves <= 1 || lane === 0)) {
+    enemy.braced = true;
+  }
+  if (kind === "runner" && !g.level.assault?.practice && assault.encounter > 0 && g.level.assault?.slamEvery !== undefined) {
+    const breakawayTargetX = counterattackBreakawayTarget(center, lane, x, index, roadside ? index : undefined);
+    enemy.breakawayTargetX = breakawayTargetX;
+    // Keep the authored wave role outside Unit. The existing target remains
+    // visible to renderers and focused movement fixtures, while this state
+    // lets only a true flank rush earn a later road-speed ramp.
+    counterattackRunnerBreakaways.set(enemy, {
+      owner: assault,
+      encounter: assault.encounter,
+      role,
+      startX: x,
+      startY: y,
+      targetX: breakawayTargetX,
+      roadSpeedScale: 1,
+    });
+    if (earlyRaid) {
+      assaultEarlyRaidRunners.set(enemy, {
+        owner: g,
+        assault,
+        encounter: assault.encounter,
+      });
+    }
+  }
+  g.red.push(enemy);
+  return enemy;
 }
 
 function spawnCounterattackWave(g: Game, waveIndex: number) {
@@ -1431,70 +1635,71 @@ function spawnCounterattackWave(g: Game, waveIndex: number) {
   const lane = counterattackLane(config, waveIndex, assault.encounter);
   const center = active.x + lane * 105;
   const total = plan.runners + plan.guards + plan.brutes;
-  if (total <= 0) return 0;
+  const consumed = earlyRaidWaveDebit(g, waveIndex);
+  const effectiveTotal = Math.max(0, total - consumed);
+  if (effectiveTotal <= 0) return 0;
   const columns = Math.min(8, Math.max(3, Math.ceil(Math.sqrt(total * 1.15))));
-  const spacing = columns > 1 ? 58 / (columns - 1) : 0;
   const spawnY = active.y - active.h / 2 - 42;
   const roles: AssaultWaveKind[] = [];
   for (let i = 0; i < plan.runners; i++) roles.push("runner");
   for (let i = 0; i < plan.guards; i++) roles.push("guard");
   for (let i = 0; i < plan.brutes; i++) roles.push("brute");
-  const start = Math.max(0, Math.min(roles.length, assault.waveSpawned));
+  const start = Math.max(0, Math.min(roles.length, consumed + assault.waveSpawned));
   const sideEntry = counterattackSideEntryPlan(g, waveIndex);
   let spawned = 0;
-  for (let i = start; i < roles.length && g.red.length < ASSAULT_RED_CAP; i++) {
-    const kind = roles[i];
-    const row = Math.floor(i / columns);
-    const column = i % columns;
-    // Consume the authored jitter even for a roadside slot so partial-cap
-    // retries preserve the same RNG stream as the ordinary formation.
-    const xJitter = g.rand();
-    const yJitter = g.rand();
-    const roadside = sideEntry && kind === "runner" && i < sideEntry.count ? sideEntry : null;
-    const x = roadside
-      ? counterattackSideEntrySlotX(roadside, i)
-      : Math.max(10, Math.min(W - 10, center - 29 + column * spacing + (xJitter - 0.5) * 2.5));
-    const y = roadside ? roadside.y : spawnY - row * 8.5 - yJitter * 2.4;
-    const enemy = makeAssaultEnemy(
-      g,
-      x,
-      y,
-      kind === "brute",
-      lane * 2 + column - Math.floor(columns / 2),
-      kind,
-      roadside?.lane,
-    );
-    if (kind === "guard"
-      && i === plan.runners
-      && !g.level.assault?.practice
-      && assault.encounter > 0
-      && g.level.assault?.slamEvery !== undefined
-      && (assault.waves <= 1 || lane === 0)) {
-      enemy.braced = true;
-    }
-    if (kind === "runner" && !g.level.assault?.practice && assault.encounter > 0 && g.level.assault?.slamEvery !== undefined) {
-      const breakawayTargetX = counterattackBreakawayTarget(center, lane, x, i, roadside ? i : undefined);
-      enemy.breakawayTargetX = breakawayTargetX;
-      // Keep the authored wave role outside Unit. The existing target remains
-      // visible to renderers and focused movement fixtures, while this state
-      // lets only a true flank rush earn a later road-speed ramp.
-      counterattackRunnerBreakaways.set(enemy, {
-        owner: assault,
-        encounter: assault.encounter,
-        role,
-        startX: x,
-        startY: y,
-        targetX: breakawayTargetX,
-        roadSpeedScale: 1,
-      });
-    }
-    g.red.push(enemy);
+  for (let i = start; i < roles.length && assault.waveSpawned + spawned < effectiveTotal && g.red.length < ASSAULT_RED_CAP; i++) {
+    spawnCounterattackUnit(g, assault, role, lane, plan, columns, center, spawnY, roles, i, sideEntry);
     spawned++;
   }
   assault.waveSpawned += spawned;
   assault.frontline = Math.max(assault.frontline, spawnY);
-  if (start === 0 && spawned > 0) pop(g, center, spawnY - 18, 1, role === "flank" ? "RUNNER RUSH" : role === "shield" ? "SHIELD WAVE" : lane === 0 ? "CENTER WAVE" : lane < 0 ? "LEFT WAVE" : "RIGHT WAVE");
+  if (assault.waveSpawned === spawned && spawned > 0) pop(g, center, spawnY - 18, 1, role === "flank" ? "RUNNER RUSH" : role === "shield" ? "SHIELD WAVE" : lane === 0 ? "CENTER WAVE" : lane < 0 ? "LEFT WAVE" : "RIGHT WAVE");
   return spawned;
+}
+
+function spawnAssaultEarlyRaidUnit(g: Game, state: AssaultEarlyRaidRuntime) {
+  const assault = state.assault;
+  const active = g.bases[assault.encounter];
+  const config = g.level.assault?.counterattack;
+  if (!active || !config || g.red.length >= ASSAULT_RED_CAP) return false;
+  const role: CounterattackWaveRole = "flank";
+  const plan = counterattackWavePlan(config, state.waveIndex, role);
+  const lane = counterattackLane(config, state.waveIndex, assault.encounter);
+  const center = active.x + lane * 105;
+  const total = plan.runners + plan.guards + plan.brutes;
+  const columns = Math.min(8, Math.max(3, Math.ceil(Math.sqrt(total * 1.15))));
+  const spawnY = active.y - active.h / 2 - 42;
+  const roles: AssaultWaveKind[] = [];
+  for (let i = 0; i < plan.runners; i++) roles.push("runner");
+  for (let i = 0; i < plan.guards; i++) roles.push("guard");
+  for (let i = 0; i < plan.brutes; i++) roles.push("brute");
+  const slot = state.spawned;
+  const slotX = counterattackSideEntrySlotX(state.entry, slot);
+  if (blocked(g, slotX, state.entry.y, 4.4)) {
+    // A wall introduced after the warning started still gets the same full
+    // fallback as an authored blocked hatch: leave every unspawned slot in
+    // its original wave and keep already-spawned units debited.
+    state.resolved = true;
+    return false;
+  }
+  spawnCounterattackUnit(g, assault, role, lane, plan, columns, center, spawnY, roles, slot, state.entry, true);
+  state.spawned++;
+  assault.frontline = Math.max(assault.frontline, state.entry.y);
+  return true;
+}
+
+function updateAssaultEarlyRaid(g: Game, dt: number) {
+  const state = activeAssaultEarlyRaid(g);
+  if (!state) return;
+  if (state.startedFrame === state.assault.motionFrame) return;
+  if (state.warning > 0) {
+    state.warning = Math.max(0, state.warning - Math.max(0, dt));
+    if (state.warning > 1e-9) return;
+    state.warning = 0;
+  }
+  while (state.spawned < state.reserved && g.red.length < ASSAULT_RED_CAP) {
+    if (!spawnAssaultEarlyRaidUnit(g, state)) break;
+  }
 }
 
 function updateAssaultCounterattack(g: Game, dt: number) {
@@ -1522,8 +1727,17 @@ function updateAssaultCounterattack(g: Game, dt: number) {
     refreshAssaultRemaining(g);
     return;
   }
+  const completedWave = assault.wave;
   assault.wave++;
   assault.waveSpawned = 0;
+  const earlyRaid = assaultEarlyRaidStates.get(g);
+  if (
+    earlyRaid
+    && earlyRaid.owner === g
+    && earlyRaid.assault === assault
+    && earlyRaid.encounter === assault.encounter
+    && earlyRaid.waveIndex === completedWave
+  ) assaultEarlyRaidStates.delete(g);
   assault.waveLane = deployedLane;
   if (assault.wave < assault.waves) {
     assault.waveTimer = interval;
@@ -3130,12 +3344,20 @@ function updateAssaultRed(g: Game, dt: number) {
   for (let redIndex = 0; redIndex < g.red.length; redIndex++) {
     const u = g.red[redIndex];
     if (u.dead) continue;
+    const earlyRaidRunner = assaultEarlyRaidRunners.get(u);
+    const isEarlyRaidRunner = Boolean(
+      earlyRaidRunner
+      && earlyRaidRunner.owner === g
+      && earlyRaidRunner.assault === assault
+      && earlyRaidRunner.encounter === assault.encounter
+      && u.kind === "runner",
+    );
     // Formation lanes establish the initial spread; after release, neighbours
     // and inertia decide the path. Homing each unit to a quantized lane center
     // made the red horde look like nine synchronized rails.
     u.vx *= Math.exp(-2.8 * dt);
     u.vx = Math.max(-180, Math.min(180, u.vx + assaultMotion.lateral[redIndex] * (ASSAULT_RED_LATERAL_ACCEL / ASSAULT_LATERAL_ACCEL) * dt));
-    if (assault.phase === "battle" && active) {
+    if (assault.phase === "battle" && active && !isEarlyRaidRunner) {
       const rearDepth = active.y - u.y;
       const rearProgress = Math.max(0, Math.min(1,
         (rearDepth - ASSAULT_RED_REAR_PRESSURE_START)
@@ -3145,7 +3367,7 @@ function updateAssaultRed(g: Game, dt: number) {
       applyAssaultCorridorPressure(u, active.x, dt, rearCorridorHalf);
     }
     let runnerRoadSpeedScale = 1;
-    if (assault.phase === "counterattack" && u.kind === "runner") {
+    if ((assault.phase === "counterattack" || isEarlyRaidRunner) && u.kind === "runner") {
       applyAssaultRunnerBreakaway(u, dt);
       runnerRoadSpeedScale = assaultRunnerRoadSpeedScale(u, assault, dt);
     }
@@ -3385,6 +3607,7 @@ function remixAssaultGates(g: Game, encounter: number) {
 function beginAssaultAdvance(g: Game) {
   const assault = g.assault!;
   const active = g.bases[assault.encounter];
+  assaultEarlyRaidStates.delete(g);
   bossPressureDeadlineStates.delete(g);
   assault.encounter++;
   assault.advance = 1;
@@ -3444,6 +3667,18 @@ function startAssaultCounterattack(g: Game, active: Base) {
   return true;
 }
 
+function resolveAssaultEarlyRaidOnBossDeath(g: Game) {
+  const assault = g.assault;
+  const state = assaultEarlyRaidStates.get(g);
+  if (!state || !assault || state.owner !== g || state.assault !== assault || state.encounter !== assault.encounter) return;
+  state.warning = 0;
+  state.resolved = true;
+  // No unit was pulled forward, so the later wave remains completely
+  // ordinary. Spawned roadside units stay in the living army and their slots
+  // continue to debit the original wave through earlyRaidWaveDebit.
+  if (state.spawned <= 0) assaultEarlyRaidStates.delete(g);
+}
+
 function finishAssaultCounterattack(g: Game) {
   const assault = g.assault!;
   if (assault.phase !== "counterattack" || assault.wave < assault.waves || g.red.some((unit) => !unit.dead)) return;
@@ -3484,6 +3719,7 @@ function finishAssaultEncounter(g: Game) {
     assault.upgradeFlash = 1;
     pop(g, active.x, active.y - 30, 0, "UPGRADE");
   }
+  resolveAssaultEarlyRaidOnBossDeath(g);
   if (startAssaultCounterattack(g, active)) return;
 
   for (const r of g.red) if (!r.dead) pop(g, r.x, r.y, 1);
@@ -3500,6 +3736,7 @@ function finishAssaultEncounter(g: Game) {
 function stepAssault(g: Game, dt: number) {
   const assault = g.assault!;
   if (g.status !== "playing") {
+    assaultEarlyRaidStates.delete(g);
     bossBraceRuntime(g, true);
     for (const p of g.pops) p.t += dt;
     g.pops = g.pops.filter((p) => p.t < 0.8);
@@ -3587,6 +3824,7 @@ function stepAssault(g: Game, dt: number) {
           }
         }
       }
+      if (g.status === "playing" && assault.phase === "battle") updateAssaultEarlyRaid(g, dt);
       if (g.status === "playing" && active && active.hp <= 0) finishAssaultEncounter(g);
       if (
         g.status === "playing"
