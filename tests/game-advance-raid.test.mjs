@@ -170,7 +170,7 @@ test("a giant death during the warning restores unspawned slots to the ordinary 
   assert.equal(game.red.filter((unit) => unit.sideEntry === 1).length, 2);
 });
 
-test("a cap-delayed raid retries its second slot and debits only what spawned", () => {
+test("a partially spawned raid cancels its pending slot on boss death and debits only what spawned", () => {
   const game = setup();
   trigger(game);
   game.red = Array.from({ length: 649 }, (_, index) => ({
@@ -201,6 +201,72 @@ test("a cap-delayed raid retries its second slot and debits only what spawned", 
   advanceUntilWave(game, 1);
   assert.equal(game.red.length, 4);
   assert.equal(game.red.filter((unit) => unit.sideEntry === 1).length, 2);
+});
+
+test("a live boss retries both roadside slots after red-cap space opens", () => {
+  const game = setup();
+  trigger(game);
+  game.red = Array.from({ length: 650 }, (_, index) => ({
+    x: 20 + (index % 20) * 15,
+    y: 100 - Math.floor(index / 20) * 0.2,
+    vx: 0,
+    hp: 1,
+    r: 4.4,
+    big: false,
+    used: 0,
+    dead: false,
+  }));
+  for (let frame = 0; frame < 120; frame++) step(game, FRAME);
+  assert.deepEqual(assaultEarlyRaid(game)?.entry, { x: 306, y: 470, count: 2, lane: 1 });
+  assert.equal(game.red.length, 650, "a full red cap delayed the first roadside slot");
+
+  game.red.splice(0, 1);
+  step(game, FRAME);
+  assert.equal(assaultEarlyRaid(game)?.spawned, 1);
+  assert.equal(assaultEarlyRaid(game)?.entry.count, 1);
+  assert.ok(game.bases[1].hp > 0, "the live giant remained actionable during the retry");
+
+  game.red.splice(0, 1);
+  step(game, FRAME);
+  assert.equal(assaultEarlyRaid(game), null);
+  assert.equal(game.assault.phase, "battle");
+  assert.equal(game.red.filter((unit) => unit.sideEntry === 1).length, 2);
+});
+
+test("a wall inserted during the warning cancels the hatch and falls back to the ordinary wave", () => {
+  const game = setup();
+  trigger(game);
+  game.walls.push({ x: 285, y: 450, w: 45, h: 45 });
+  for (let frame = 0; frame < 120; frame++) step(game, FRAME);
+  assert.equal(assaultEarlyRaid(game), null);
+  assert.equal(game.red.length, 0, "the blocked hatch created no roadside unit");
+
+  game.bases[1].hp = 0;
+  step(game, FRAME);
+  advanceUntilWave(game, 1);
+  assert.equal(game.red.length, 4, "the blocked raid restored the original wave budget");
+  assert.equal(game.red.filter((unit) => unit.sideEntry === 1).length, 0, "the wall kept the ordinary wave off the blocked hatch");
+});
+
+test("spawned roadside runners stay alive and keep moving when the boss dies", () => {
+  const game = setup();
+  trigger(game);
+  for (let frame = 0; frame < 120; frame++) step(game, FRAME);
+  const runner = game.red.find((unit) => unit.sideEntry === 1);
+  assert.ok(runner);
+  const beforeDeath = { x: runner.x, y: runner.y };
+
+  game.bases[1].hp = 0;
+  step(game, FRAME);
+  assert.equal(game.assault.phase, "counterattack");
+  assert.ok(game.red.includes(runner), "the spawned runner was discarded with the defeated boss");
+  assert.equal(runner.dead, false);
+
+  const afterDeath = { x: runner.x, y: runner.y };
+  step(game, FRAME);
+  assert.ok(runner.y > afterDeath.y, "the runner stopped moving at the phase boundary");
+  assert.ok(Number.isFinite(runner.breakawayTargetX));
+  assert.ok(afterDeath.y >= beforeDeath.y);
 });
 
 test("early runners use a real breakaway path and can be intercepted locally", () => {
