@@ -33,9 +33,10 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(41, 390 / 844, 0.2, 380);
   const cameraHome = new THREE.Vector3(15, 56, 64);
+  const shieldCameraHome = new THREE.Vector3(7.78, 62.47, 60.04);
   const cleanupCameraHome = new THREE.Vector3(4.79, 68.72, 54.55);
   const cameraTarget = new THREE.Vector3(0, 0, -14);
-  let cameraFollow = 0, combatLookZ = -14, cleanupFocus = 0, displayedTan = Math.tan(THREE.MathUtils.degToRad(16));
+  let cameraFollow = 0, combatLookZ = -14, shieldFocus = 0, cleanupFocus = 0, displayedTan = Math.tan(THREE.MathUtils.degToRad(16));
   const stage = new THREE.Group(); scene.add(stage);
   let theme = "fork", travel = 0;
   const worldCurve = (z: number) => theme === "bend" ? Math.sin(z * 0.018) * 1.3 : 0;
@@ -533,8 +534,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const shieldLabel = makeLabel("SHIELD", 4.3, 1.45, "#ffe5a0", 127, true);
   stage.add(shieldLabel.sprite); shieldLabel.sprite.visible = false; shieldLabel.sprite.renderOrder = 10;
   const shieldMeter = new THREE.Group(); stage.add(shieldMeter); shieldMeter.visible = false;
-  box(shieldMeter, basic(0x26324b, { depthTest: false, depthWrite: false }), 0, 0, 0, 3.8, 0.22, 0.12).renderOrder = 9;
-  const shieldMeterFill = box(shieldMeter, basic(0xffd45b, { depthTest: false, depthWrite: false }), 0, 0, 0.08, 3.6, 0.13, 0.1); shieldMeterFill.renderOrder = 10;
+  const shieldMeterBack = box(shieldMeter, basic(0x26324b, { depthTest: false, depthWrite: false }), 0, 0, 0, 3.8, 0.38, 0.12); shieldMeterBack.renderOrder = 9;
+  const shieldMeterFill = box(shieldMeter, basic(0xffd45b, { depthTest: false, depthWrite: false }), 0, 0, 0.08, 3.6, 0.24, 0.1); shieldMeterFill.renderOrder = 10;
+  for (const part of [shieldMeterBack, shieldMeterFill]) { part.castShadow = false; part.receiveShadow = false; }
   const shieldHalo = new THREE.InstancedMesh(geo(new THREE.RingGeometry(0.72, 1, 24).rotateX(-Math.PI / 2)), basic(0xffd66c, { transparent: true, opacity: 0.8, depthTest: false, depthWrite: false }), 16);
   shieldHalo.instanceMatrix.setUsage(THREE.DynamicDrawUsage); shieldHalo.frustumCulled = false; shieldHalo.renderOrder = 7; stage.add(shieldHalo);
   // Small halos keep every shield visible; one arrow identifies the selected
@@ -809,17 +811,26 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   let previousPhase = "battle", previousWave = 0, previousWaveLane = 0, counterattackAt = -99, retreatCount = 0, retreatZ = -57;
   let reserveAnchor = NaN;
   const projected = new THREE.Vector3();
+  const cameraUp = new THREE.Vector3();
   function updateCamera(dt = 1) {
     const portrait = camera.aspect < 0.85;
     camera.clearViewOffset();
     camera.position.copy(cameraHome);
-    if (portrait) camera.position.lerp(cleanupCameraHome, cleanupFocus);
+    if (portrait) camera.position.lerp(shieldCameraHome, shieldFocus).lerp(cleanupCameraHome, cleanupFocus);
     camera.position.z += combatLookZ - cameraTarget.z - travel;
     camera.position.x += curve(combatLookZ) + cameraFollow;
     camera.position.x += Math.sin(frameTime * 57) * shake * 0.09;
     camera.position.y += Math.cos(frameTime * 43) * shake * 0.06;
     camera.lookAt(curve(combatLookZ) + cameraFollow, 0, combatLookZ - travel);
     camera.updateMatrixWorld();
+
+    // Keep charge progress in the same screen plane as its label. World-up
+    // spacing foreshortens the track and lets the label cover the filled bar.
+    if (shieldMeter.visible) {
+      cameraUp.setFromMatrixColumn(camera.matrixWorld, 1);
+      shieldMeter.quaternion.copy(camera.quaternion);
+      shieldMeter.position.copy(shieldLabel.sprite.position).addScaledVector(cameraUp, -1.05);
+    }
 
     // Fit complete actionable objects in camera space. A longer lens keeps
     // the distant fighters closer in size to the battery, while the lower
@@ -868,6 +879,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     }
     if (weaponCrate.visible) frameBox(prize.group, -0.79, 0, -1.23, 0.79, 1.35, 0.86);
     frameLabel(shieldLabel.sprite);
+    if (shieldMeter.visible) frameBox(shieldMeter, -1.9, -0.19, -0.06, 1.9, 0.19, 0.13);
     for (const hatch of sideHatches) {
       if (!hatch.group.visible) continue;
       frameBox(hatch.group, -2, 0, -1.6, 2, 2.5, 1.6);
@@ -907,7 +919,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     dt = Math.min(dt, 0.05); frameTime += dt;
     if (currentGame !== game) {
       currentGame = game; shot = game.stats.fired; previousTier = game.assault?.tier ?? 1;
-      hasRenderedUnits = false; cameraFollow = 0; combatLookZ = cameraTarget.z; cleanupFocus = 0; displayedTan = Math.tan(THREE.MathUtils.degToRad(16));
+      hasRenderedUnits = false; cameraFollow = 0; combatLookZ = cameraTarget.z; shieldFocus = 0; cleanupFocus = 0; displayedTan = Math.tan(THREE.MathUtils.degToRad(16));
       previousWeapon = game.assault?.weaponLevel ?? 1; crateHp = crateMax = cannonLockHp = -1;
       cannon.forEach((value, i) => { value.shots = game.assault?.barrelShots[i] ?? 0; value.recoil = 0; });
       shadowAt = 0;
@@ -1304,7 +1316,6 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const caption = cleanup ? "KEEP FIRING" : !ready ? "CHARGE ★" : aligned ? "TAP ★" : shieldAim.direction === "left" ? "← AIM" : "AIM →";
       if (caption !== shieldCaption) { shieldLabel.write(caption, aligned ? "#b8fff1" : "#ffe5a0"); shieldCaption = caption; }
       shieldLabel.sprite.position.set(wx(frontGuard.x) + curve(z), 6.75, z);
-      shieldMeter.position.set(shieldLabel.sprite.position.x, 5.92, z);
       const fraction = cleanup ? shieldBracePressure(game, frontGuard) : Math.min(1, game.charge / CHARGE_MAX);
       shieldMeterFill.scale.x = 3.6 * fraction; shieldMeterFill.position.x = -1.8 * (1 - fraction);
       (shieldMeterFill.material as THREE.MeshBasicMaterial).color.setHex(cleanup || ready ? 0x8cffe2 : 0xffd45b);
@@ -1545,6 +1556,8 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     if (frameTime >= shadowAt) { renderer.shadowMap.needsUpdate = true; shadowAt = frameTime + 1 / 15; }
     // Follow the fight without fitting the distant reserve ranks.
     const cleaningUp = assault?.phase === "counterattack" && assault.wave >= assault.waves && assault.waveWarning === 0 && assault.remaining <= 12;
+    const fightingShields = shieldMeter.visible && assault?.phase === "counterattack" && !!activeBoss && activeBoss.hp <= 0;
+    shieldFocus += ((fightingShields ? 1 : 0) - shieldFocus) * Math.min(1, dt * 4);
     cleanupFocus += ((cleaningUp ? 1 : 0) - cleanupFocus) * Math.min(1, dt * 5);
     cameraFollow += (wx(game.cannonX) * 0.18 - cameraFollow) * Math.min(1, dt * 4);
     const combatY = assault?.phase === "counterattack" ? assault.frontline : activeBoss?.y ?? 300;
