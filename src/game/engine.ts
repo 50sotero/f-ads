@@ -2052,6 +2052,8 @@ const ASSAULT_UNIT_SPACING = 8.4;
 const ASSAULT_MOTION_CELL = 16;
 const ASSAULT_LATERAL_ACCEL = 1400;
 const ASSAULT_RED_LATERAL_ACCEL = 520;
+/** Small skin beyond the real circle sum used for side-by-side comfort. */
+const ASSAULT_MOTION_COMFORT_GAP = 6;
 const ASSAULT_MAX_NEIGHBOURS = 48;
 const ASSAULT_MAX_CELL_SAMPLES = 8;
 const ASSAULT_MOTION_COLS = Math.ceil(W / ASSAULT_MOTION_CELL);
@@ -2074,21 +2076,29 @@ for (let cellLength = 1; cellLength <= MAX_UNITS; cellLength++) {
     assaultMotionSampleOffsets[sampleOffset + sample] = Math.floor(sample * cellLength / sampleCount);
   }
 }
+const assaultMotionNeighbourOffsetEntries: Array<{ dr: number; dc: number }> = [];
+for (let dr = -ASSAULT_MOTION_SEARCH; dr <= ASSAULT_MOTION_SEARCH; dr++) {
+  for (let dc = -ASSAULT_MOTION_SEARCH; dc <= ASSAULT_MOTION_SEARCH; dc++) {
+    assaultMotionNeighbourOffsetEntries.push({ dr, dc });
+  }
+}
+assaultMotionNeighbourOffsetEntries.sort((a, b) => {
+  const distanceA = a.dr * a.dr + a.dc * a.dc;
+  const distanceB = b.dr * b.dr + b.dc * b.dc;
+  return distanceA - distanceB || a.dr - b.dr || a.dc - b.dc;
+});
 for (let row = 0; row < ASSAULT_MOTION_ROWS; row++) {
   for (let col = 0; col < ASSAULT_MOTION_COLS; col++) {
     const baseCellIndex = row * ASSAULT_MOTION_COLS + col;
     const baseOffset = baseCellIndex * ASSAULT_MOTION_NEIGHBOUR_COUNT;
     let count = 0;
-    for (let dr = -ASSAULT_MOTION_SEARCH; dr <= ASSAULT_MOTION_SEARCH; dr++) {
+    for (const { dr, dc } of assaultMotionNeighbourOffsetEntries) {
       const rr = row + dr;
-      if (rr < 0 || rr >= ASSAULT_MOTION_ROWS) continue;
-      for (let dc = -ASSAULT_MOTION_SEARCH; dc <= ASSAULT_MOTION_SEARCH; dc++) {
-        const cc = col + dc;
-        if (cc < 0 || cc >= ASSAULT_MOTION_COLS) continue;
-        assaultMotionNeighbourCells[baseOffset + count] = rr * ASSAULT_MOTION_COLS + cc;
-        assaultMotionNeighbourHashAdjust[baseOffset + count] = dr * 17 + dc * 13;
-        count++;
-      }
+      const cc = col + dc;
+      if (rr < 0 || rr >= ASSAULT_MOTION_ROWS || cc < 0 || cc >= ASSAULT_MOTION_COLS) continue;
+      assaultMotionNeighbourCells[baseOffset + count] = rr * ASSAULT_MOTION_COLS + cc;
+      assaultMotionNeighbourHashAdjust[baseOffset + count] = dr * 17 + dc * 13;
+      count++;
     }
     assaultMotionNeighbourCounts[baseCellIndex] = count;
   }
@@ -2741,7 +2751,9 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1, owner: Ass
         if (!assaultMotionUnitLive[otherIndex]) continue;
         const signedDx = unitX - assaultMotionUnitX[otherIndex];
         const verticalGap = unitY - assaultMotionUnitY[otherIndex];
-        const lateralReach = unitRadius + assaultMotionUnitR[otherIndex] + 12;
+        const otherRadius = assaultMotionUnitR[otherIndex];
+        const bodyReach = unitRadius + otherRadius;
+        const lateralReach = bodyReach + ASSAULT_MOTION_COMFORT_GAP;
         const absDx = Math.abs(signedDx);
         const absDy = Math.abs(verticalGap);
         if (absDx > lateralReach || absDy > verticalReach) continue;
@@ -2756,13 +2768,9 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1, owner: Ass
         const side = absDx > 0.15 ? Math.sign(signedDx) : i < otherIndex ? -1 : 1;
         sideForce += side * proximity;
 
-        // A neighbour at the same y is also a forward blockage: the crowd
-        // must first open a lateral gap before those runners can advance.
         if (forwardGap >= -0.5) {
           const lateralOverlap = Math.max(0, 1 - absDx / lateralReach);
           const gapOverlap = Math.max(0, 1 - Math.max(0, forwardGap) / verticalReach);
-          // Leave enough motion for the lateral flow to open a gap. A hard
-          // zero here recreates the old stationary queue at the boss edge.
           limit = Math.min(limit, 1 - lateralOverlap * gapOverlap * 0.96);
         }
       }
