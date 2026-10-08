@@ -428,6 +428,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     box(defense, dark, side * 9.15, 0.28, defenseZ, 0.46, 0.56, 0.7);
     box(defense, defenseMaterial, side * 9.15, 0.61, defenseZ, 0.37, 0.1, 0.54).castShadow = false;
   }
+  bake(defense);
   const dangerMaterial = basic(0xff335c, { transparent: true, opacity: 0, depthWrite: false });
   const dangerStrip = box(stage, dangerMaterial, 0, 0.022, defenseZ - 1.35, 18.2, 0.01, 2.6);
   dangerStrip.castShadow = false;

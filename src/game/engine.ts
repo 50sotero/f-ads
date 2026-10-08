@@ -2285,8 +2285,12 @@ function nearestAssaultCounterattackTarget(unit: Unit) {
     for (let sample = 0; sample < sampleCount; sample++) {
       if (inspected >= ASSAULT_COUNTER_TARGET_MAX_CANDIDATES) return best;
       inspected++;
-      const sampleOffset = Math.floor(sample * cell.length / sampleCount);
-      const target = cell[(sampleStart + sampleOffset) % cell.length];
+      const sampleOffset = cell.length <= MAX_UNITS
+        && ASSAULT_COUNTER_TARGET_MAX_CELL_SAMPLES === ASSAULT_MAX_CELL_SAMPLES
+        ? assaultMotionSampleOffsets[cell.length * ASSAULT_MOTION_SAMPLE_STRIDE + sample]
+        : Math.floor(sample * cell.length / sampleCount);
+      const sampleIndex = sampleStart + sampleOffset;
+      const target = cell[sampleIndex < cell.length ? sampleIndex : sampleIndex - cell.length];
       if (!target || target.dead) continue;
       const dx = target.x - unitX;
       const dy = target.y - unitY;
