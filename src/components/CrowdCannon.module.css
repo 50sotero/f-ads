@@ -316,6 +316,8 @@
 .battleObjective[data-compact="true"] strong { font-size: 10px; }
 .battleObjective[data-compact="true"] .wavePips i { height: 10px; width: 5px; }
 .battleObjective[data-phase="counterattack"][data-compact="true"] { background: #592046dd; border-color: #ff987d88; }
+.battleObjective[data-phase="counterattack"][data-compact="true"],
+.battleObjective[data-phase="counterattack"][data-shield="true"] { animation-name: upgradeIn; }
 .battleObjective[data-phase="counterattack"][data-warning="true"] { color: #fff4b5; border-color: #ffd887; }
 .battleObjective[data-compact="true"][data-warning="true"] { border-radius: 12px; }
 .battleObjective[data-compact="true"][data-warning="true"] > div > span { display: block; font-size: 9px; }
@@ -598,6 +600,7 @@
   .encounterProgress { right: 60px; }
   .encounterLabel { font-size: 12px; }
   .battleObjective, .battleObjective[data-compact="true"] { top: 26px; left: 50%; right: auto; transform: translateX(-50%); width: max-content; max-width: 460px; }
+  .battleObjective[data-phase="counterattack"] { animation-name: upgradeIn; }
   .battleObjective[data-compact="true"] strong { font-size: 13px; }
   .weaponCard { left: 28px; bottom: 28px; min-width: 135px; padding: 10px 14px; }
   .weaponCard strong { font-size: 17px; }
