@@ -884,7 +884,7 @@ export function bossDefenseDeadline(game: Game): BossDefenseDeadlineSnapshot | n
  * is measured from the cannon to the giant so the player can deliberately
  * align a champion before committing it to the interruption lane.
  */
-export function championBossAim(game: Game): { target: Base; direction: "left" | "right" | "aligned"; canInterrupt: boolean } | null {
+export function championBossAim(game: Game): { target: Base; direction: "left" | "right" | "aligned"; guidanceDirection: "left" | "right" | "aligned"; canInterrupt: boolean } | null {
   const assault = game.assault;
   const state = bossBraceRuntime(game);
   if (!assault || !state || state.phase !== "winding") return null;
@@ -892,12 +892,19 @@ export function championBossAim(game: Game): { target: Base; direction: "left" |
   if (!target || target.hp <= 0) return null;
   const offset = target.x - game.cannonX;
   const direction = Math.abs(offset) <= 14 ? "aligned" : offset < 0 ? "left" : "right";
+  // Launches use the cannon's physical position. The sight and instructions
+  // must also account for its pending motion: passing through the lane on the
+  // way to an overshoot is not a stable invitation to launch.
+  const pendingOffset = target.x - game.targetX;
+  const guidanceDirection = direction === "aligned" && Math.abs(pendingOffset) > 14
+    ? pendingOffset < 0 ? "left" : "right"
+    : direction;
   const remaining = Math.max(0, ASSAULT_BOSS_BRACE_DURATION - state.elapsed);
   const bossFront = target.y + target.h / 2;
   const launchY = CANNON_Y - 26;
   const distance = Math.max(0, launchY - bossFront);
   const travel = distance / (ASSAULT_CHAMP_SPEED * ASSAULT_BOSS_BRACE_CHAMPION_SPEED_MULTIPLIER * ASSAULT_BOSS_BRACE_CHAMPION_FORWARD_FLOOR) + 0.15;
-  return { target, direction, canInterrupt: remaining + 1e-9 >= travel };
+  return { target, direction, guidanceDirection, canInterrupt: remaining + 1e-9 >= travel };
 }
 
 function activeBossBraceChampionDrive(game: Game, unit: Unit) {

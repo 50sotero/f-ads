@@ -166,7 +166,7 @@ function assaultHud(game: Game): AssaultHud {
     brace: bossBrace(game),
     breakthrough: bossBreakthrough(game),
     braceChampion: bossBraceChampionIncoming(game),
-    bossAim: bossAim?.direction ?? null,
+    bossAim: bossAim?.guidanceDirection ?? null,
     bossCanInterrupt: bossAim?.canInterrupt ?? false,
     deadline,
   };
@@ -328,6 +328,18 @@ export function CrowdCannon() {
   const levelRef = useRef(levelIndex);
   const soundRef = useRef(sound);
 
+  const syncBossGuidance = useCallback((game: Game) => {
+    const aim = championBossAim(game);
+    if (!aim) return;
+    // Aim advice is input-critical. Do not leave a stale green invitation up
+    // for the general HUD's 80 ms refresh while the cannon crosses the lane.
+    setHud((previous) => previous.assault.bossAim === aim.guidanceDirection
+      && previous.assault.bossCanInterrupt === aim.canInterrupt ? previous : {
+        ...previous,
+        assault: { ...previous.assault, bossAim: aim.guidanceDirection, bossCanInterrupt: aim.canInterrupt },
+      });
+  }, []);
+
   useEffect(() => {
     screenRef.current = screen;
     levelRef.current = levelIndex;
@@ -451,6 +463,7 @@ export function CrowdCannon() {
           step(game, DT);
           accumulator -= DT;
         }
+        syncBossGuidance(game);
         if (game.stats.fired > seen.fired) soundRef.current("shot");
         if (game.stats.multiplied > seen.multiplied) soundRef.current("pop");
         if (game.stats.baseHits > seen.baseHits) soundRef.current("hit");
@@ -553,7 +566,7 @@ export function CrowdCannon() {
       renderer.dispose();
       if (rendererRef.current === renderer) rendererRef.current = null;
     };
-  }, [finish, rendererNonce]);
+  }, [finish, rendererNonce, syncBossGuidance]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -604,6 +617,7 @@ export function CrowdCannon() {
       }
       lastPointerX = pointerX(event);
       if (event.pointerType === "mouse") game.targetX = toWorldX(lastPointerX);
+      syncBossGuidance(game);
       game.firing = true;
     };
     const move = (event: PointerEvent) => {
@@ -615,6 +629,7 @@ export function CrowdCannon() {
       // Project both points through the current camera so a combat zoom does
       // not add a sideways jump to the next touch movement.
       game.targetX = event.pointerType === "mouse" ? toWorldX(x) : game.targetX + toWorldX(x) - toWorldX(lastPointerX);
+      syncBossGuidance(game);
       lastPointerX = x;
     };
     const up = (event: PointerEvent) => {
@@ -683,7 +698,7 @@ export function CrowdCannon() {
       document.removeEventListener("visibilitychange", visibilityChanged);
       reset();
     };
-  }, [rendererNonce]);
+  }, [rendererNonce, syncBossGuidance]);
 
   useEffect(() => {
     if (screen !== "playing") {

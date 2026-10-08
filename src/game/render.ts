@@ -1308,13 +1308,13 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     shieldLabel.sprite.visible = bracedUnits.length > 0 && game.status === "playing" && !sideDanger;
     shieldMeter.visible = !!shieldAim && shieldLabel.sprite.visible;
     const bossAim = championBossAim(game);
-    const abilityAim = shieldAim ?? bossAim;
+    const abilityAim = shieldAim ?? (bossAim ? { ...bossAim, direction: bossAim.guidanceDirection } : null);
     championSight.visible = !!abilityAim && game.status === "playing" && (!sideDanger || !!bossAim);
     bossAimRing.visible = !!bossAim && game.status === "playing";
     if (bossAim) {
       const aimZ = wz(bossAim.target.y + bossAim.target.h / 2 + 12);
       bossAimRing.position.set(wx(bossAim.target.x) + curve(aimZ), 0.075, aimZ);
-      bossAimMaterial.color.setHex(bossAim.direction === "aligned" ? 0x8cffe2 : 0xffdc64);
+      bossAimMaterial.color.setHex(bossAim.guidanceDirection === "aligned" ? 0x8cffe2 : 0xffdc64);
     }
     if (shieldAim && shieldLabel.sprite.visible) {
       const frontGuard = shieldAim.target, z = wz(frontGuard.y) - entry;

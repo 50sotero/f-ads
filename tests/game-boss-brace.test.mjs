@@ -403,6 +403,36 @@ test("only an aligned champion commits to the boss lane", () => {
   assert.equal(champion.dead, false);
 });
 
+test("boss guidance rejects a transient pass through alignment without changing physical launch aim", () => {
+  for (const targetX of [146.91, 213.09]) {
+    const game = armBrace({ baseX: 180 });
+    game.cannonX = 182;
+    game.targetX = targetX;
+    const aim = championBossAim(game);
+    assert.equal(aim?.direction, "aligned", "physical launch position changed");
+    assert.equal(aim?.guidanceDirection, targetX < 180 ? "right" : "left",
+      "an overshooting target advertised a stable aligned launch");
+    game.charge = 30;
+    assert.equal(launchChampion(game), true);
+    assert.equal(bossBraceChampionIncoming(game), true, "an actually aligned launch lost its commitment");
+  }
+});
+
+test("boss guidance turns aligned only after both actual and pending positions enter the lane", () => {
+  const game = armBrace({ baseX: 180 });
+  game.cannonX = 146.91;
+  game.targetX = 180;
+  assert.equal(championBossAim(game)?.guidanceDirection, "right", "the pending target alone advertised alignment");
+  game.cannonX = 180;
+  assert.equal(championBossAim(game)?.guidanceDirection, "aligned");
+  game.targetX = 146.91;
+  assert.equal(championBossAim(game)?.guidanceDirection, "right", "moving away kept stale aligned guidance");
+  game.cannonX = 146.91;
+  game.charge = 30;
+  assert.equal(launchChampion(game), true);
+  assert.equal(bossBraceChampionIncoming(game), false, "a shot outside the actual lane was auto-aligned");
+});
+
 test("the committed charge is bounded and ordinary champions keep their base speed", () => {
   const committedGame = armBrace({ baseX: 272 });
   committedGame.cannonX = 272;
