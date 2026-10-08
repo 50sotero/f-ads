@@ -2327,6 +2327,11 @@ for (let row = 0; row < ASSAULT_MOTION_ROWS; row++) {
 }
 const assaultMotionCells: Array<number[] | undefined> = new Array(ASSAULT_MOTION_COLS * ASSAULT_MOTION_ROWS);
 const assaultMotionCellGeneration = new Uint32Array(ASSAULT_MOTION_COLS * ASSAULT_MOTION_ROWS);
+const assaultMotionCellMinX = new Float64Array(ASSAULT_MOTION_CELL_COUNT);
+const assaultMotionCellMaxX = new Float64Array(ASSAULT_MOTION_CELL_COUNT);
+const assaultMotionCellMinY = new Float64Array(ASSAULT_MOTION_CELL_COUNT);
+const assaultMotionCellMaxY = new Float64Array(ASSAULT_MOTION_CELL_COUNT);
+const assaultMotionCellMaxRadius = new Float64Array(ASSAULT_MOTION_CELL_COUNT);
 let assaultMotionGeneration = 0;
 let assaultMotionForward = new Float32Array(MAX_UNITS);
 let assaultMotionLateral = new Float32Array(MAX_UNITS);
@@ -2920,6 +2925,15 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1, owner: Ass
         cell.length = 0;
       }
       cellGeneration[cellIndex] = generation;
+      assaultMotionCellMinX[cellIndex] = assaultMotionCellMaxX[cellIndex] = unit.x;
+      assaultMotionCellMinY[cellIndex] = assaultMotionCellMaxY[cellIndex] = unit.y;
+      assaultMotionCellMaxRadius[cellIndex] = unit.r;
+    } else {
+      assaultMotionCellMinX[cellIndex] = Math.min(assaultMotionCellMinX[cellIndex], unit.x);
+      assaultMotionCellMaxX[cellIndex] = Math.max(assaultMotionCellMaxX[cellIndex], unit.x);
+      assaultMotionCellMinY[cellIndex] = Math.min(assaultMotionCellMinY[cellIndex], unit.y);
+      assaultMotionCellMaxY[cellIndex] = Math.max(assaultMotionCellMaxY[cellIndex], unit.y);
+      assaultMotionCellMaxRadius[cellIndex] = Math.max(assaultMotionCellMaxRadius[cellIndex], unit.r);
     }
     cell!.push(i);
   }
@@ -2962,6 +2976,18 @@ function assaultForwardSlots(units: Unit[], forwardDirection: -1 | 1, owner: Ass
       // quadratic all-pairs pass.
       const cellLength = cell.length;
       const sampleCount = Math.min(cellLength, ASSAULT_MAX_CELL_SAMPLES);
+      // Reject only cells whose actual contents cannot enter the existing
+      // comfort envelope. Still spend their sample budget: omitting that
+      // accounting would expose later neighbours and change crowd movement.
+      const cellReach = unitRadius + assaultMotionCellMaxRadius[cellIndex] + ASSAULT_MOTION_COMFORT_GAP;
+      if (unitY - assaultMotionCellMaxY[cellIndex] > verticalReach
+        || assaultMotionCellMinY[cellIndex] - unitY > verticalReach
+        || unitX - assaultMotionCellMaxX[cellIndex] > cellReach
+        || assaultMotionCellMinX[cellIndex] - unitX > cellReach) {
+        inspected += Math.min(sampleCount, ASSAULT_MAX_NEIGHBOURS - inspected);
+        if (inspected >= ASSAULT_MAX_NEIGHBOURS) break neighbourSearch;
+        continue;
+      }
       const sampleStart = sampleCount > 1
         ? ((sampleHash + assaultMotionNeighbourHashAdjust[neighbourOffset]) % cellLength + cellLength) % cellLength
         : 0;
