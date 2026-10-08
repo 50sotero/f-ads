@@ -85,8 +85,8 @@ export function createMobGeometry(): THREE.BufferGeometry {
   parts.push(tint(placed(new THREE.CylinderGeometry(0.095, 0.12, 0.18, 8), 0, 0.96, -0.025), 0x9db6ca));
   parts.push(placed(new THREE.SphereGeometry(0.245, 10, 6), 0, 1.16, -0.035, 0.96, 1.04, 0.96));
   for (const side of [-1, 1]) {
-    const arm = new THREE.CapsuleGeometry(0.105, 0.29, 2, 6);
-    arm.rotateZ(side * 0.27); parts.push(stridePart(placed(arm, side * 0.335, 0.61, -0.025), side));
+    const arm = new THREE.CapsuleGeometry(0.09, 0.29, 2, 6);
+    arm.rotateZ(side * 0.1); parts.push(stridePart(placed(arm, side * 0.265, 0.61, -0.025), side));
     parts.push(stridePart(tint(placed(new THREE.CapsuleGeometry(0.105, 0.23, 2, 6), side * 0.145, 0.205, -0.025, 1, 1, 1.2), 0x8ca6bd), side * 2));
     // Bright toes and darker legs retain two distinct steps at phone size.
     parts.push(stridePart(tint(placed(new THREE.SphereGeometry(0.12, 6, 4), side * 0.145, 0.07, -0.085, 1, 0.45, 1.65), 0xd5eafa), side * 2));
