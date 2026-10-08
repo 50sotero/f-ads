@@ -2503,6 +2503,9 @@ function nearestAssaultCounterattackTarget(unit: Unit, approach = false) {
   for (const offsetIndex of occupied) {
     const dr = assaultCounterTargetOffsetRows[offsetIndex];
     const dc = assaultCounterTargetOffsetCols[offsetIndex];
+    // Preserve the original close-query sample order and budget for practice
+    // and champions. Rejected new rows must not hide a valid old-range target.
+    if (!approach && dr < -Math.ceil(ASSAULT_COUNTER_TARGET_DEPTH / CELL)) continue;
     const cellIndex = baseCellIndex + assaultCounterTargetOffsetDeltas[offsetIndex];
     const cell = assaultCounterTargetCells[cellIndex]!;
     const sampleCount = Math.min(cell.length, ASSAULT_COUNTER_TARGET_MAX_CELL_SAMPLES);

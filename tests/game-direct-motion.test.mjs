@@ -356,6 +356,25 @@ test("forward approach does not steer sideways before close engagement", () => {
   assert.equal(survivor.y, stoppedAt, "survivor kept pursuing after the real enemy disappeared");
 });
 
+test("approach-only rows cannot consume champion or practice close-target samples", () => {
+  for (const practice of [false, true]) {
+    const survivor = counterattackUnit(180, 350, { big: !practice });
+    // These near cells have always spent samples on just-outside-depth reds.
+    // The newly indexed farther row must not spend the remaining budget and
+    // hide the valid close target at the far corner of the original window.
+    const decoys = [-1, 0, 1].flatMap(column => Array.from({ length: 8 },
+      () => counterattackUnit(180 + column * 24, 220, { used: 0 })));
+    const farther = Array.from({ length: 8 }, () => counterattackUnit(180, 200, { used: 0 }));
+    const target = counterattackUnit(264, 460, { used: 0 });
+    const game = counterattackGame({ blue: [survivor], red: [...decoys, ...farther, target] });
+    game.level.assault.practice = practice;
+    step(game, 1 / 60);
+    assert.ok(survivor.x > 180, `${practice ? "practice" : "champion"} lost its close target to approach-only samples`);
+    assert.equal(survivor.y, 350, "the unaligned target released forward travel");
+    assert.equal(target.hp, 1, "target was damaged without physical contact");
+  }
+});
+
 test("a full survivor cap still clears a counterattack while firing", () => {
   const blue = [];
   for (let index = 0; index < 900; index++) {
