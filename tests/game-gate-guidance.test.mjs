@@ -51,10 +51,11 @@ test("completing one panel in each fork row restores the same boss approach as a
     const selectedX = x < 180 ? 120 : 240;
     const siblingX = x < 180 ? 240 : 120;
     const selected = [gate(selectedX, 510), gate(selectedX, 467), gate(180, 424)];
+    const body = big ? { big: true, r: 11, hp: 14 } : {};
     const branched = prepared([
       gate(siblingX, 510), selected[0], gate(siblingX, 467), selected[1], selected[2],
-    ], runner({ x, y: 390, big, used: 26 }), 300);
-    const singleRoute = prepared(selected, runner({ x, y: 390, big, used: 7 }), 300);
+    ], runner({ x, y: 390, ...body, used: 26 }), 300);
+    const singleRoute = prepared(selected, runner({ x, y: 390, ...body, used: 7 }), 300);
     for (let frame = 0; frame < 20; frame++) {
       step(branched, FRAME);
       step(singleRoute, FRAME);
