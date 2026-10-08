@@ -437,24 +437,66 @@ test("far-side shots keep moving after they miss the boss lane", () => {
   }
 });
 
-test("sustained fire stays in a central multi-row corridor while the boss advances", () => {
+test("sustained fire keeps a deep central queue that advances and replenishes boss contact", () => {
   const game = newGame(assaultLevel({
     bases: [{ x: 180, y: 300, hp: 99999, every: 9999, group: 0 }],
   }));
   game.firing = true;
-  for (let frame = 0; frame < 720; frame++) step(game, 1 / 60);
-  const boss = game.bases[0];
-  const postChain = game.blue.filter((unit) => (unit.used & 1) !== 0);
-  const central = postChain.filter((unit) => Math.abs(unit.x - boss.x) <= 96);
-  const front = boss.y + boss.h / 2;
-  const touching = game.blue.filter((unit) => unit.y >= front && unit.y <= front + 8);
-  const occupiedRows = new Set(game.blue.map((unit) => Math.floor(unit.y / 8)));
-  assert.ok(game.blue.length > 100, "fixture did not build sustained crowd pressure");
-  assert.ok(postChain.length > 100, "fixture did not cross the first gate");
-  assert.ok(central.length / postChain.length > 0.9, "post-gate crowd spilled across the full road");
-  assert.ok(touching.length < 50, `${touching.length} runners overlapped at the boss edge`);
-  assert.ok(occupiedRows.size > 20, "crowd did not form a multi-row queue");
-  assert.ok(boss.y > 300 && boss.y <= 420, `boss pressure moved to an invalid y=${boss.y}`);
+  const diameter = 8.4;
+  let initialCohort;
+  let initialHits = 0;
+  let oldContacts = 0;
+  let newContacts = 0;
+  for (let frame = 0; frame < 720; frame++) {
+    if (frame === 600) {
+      initialCohort = new Map(game.blue.map((unit) => [unit, { startY: unit.y, travel: 0 }]));
+      initialHits = game.stats.baseHits;
+    }
+    const before = frame >= 600 ? game.blue.map((unit) => [unit, unit.y]) : [];
+    step(game, 1 / 60);
+    for (const [unit, previousY] of before) {
+      const travel = previousY - unit.y;
+      assert.ok(travel >= -1e-9, "queue repacked an existing runner backward");
+      assert.ok(travel <= 98 * 1.1 / 60 + 1e-9, "queue teleported a runner forward");
+      const original = initialCohort.get(unit);
+      if (original) original.travel = original.startY - unit.y;
+      if (unit.dead) {
+        if (original) oldContacts++;
+        else newContacts++;
+      }
+    }
+    if (![480, 600, 720].includes(frame + 1)) continue;
+    const boss = game.bases[0];
+    const postChain = game.blue.filter((unit) => (unit.used & 1) !== 0);
+    const central = postChain.filter((unit) => Math.abs(unit.x - boss.x) <= 96);
+    const front = boss.y + boss.h / 2;
+    const touching = game.blue.filter((unit) => unit.y >= front && unit.y <= front + 8);
+    const depths = game.blue.map((unit) => unit.y).sort((a, b) => a - b);
+    let bandStart = 0;
+    let peakBand = 0;
+    for (let end = 0; end < depths.length; end++) {
+      while (depths[end] - depths[bandStart] > diameter) bandStart++;
+      peakBand = Math.max(peakBand, end - bandStart + 1);
+    }
+    assert.ok(game.blue.length > 100, "fixture did not build sustained crowd pressure");
+    assert.ok(postChain.length > 100, "fixture did not cross the first gate");
+    assert.ok(central.length / postChain.length > 0.9, "post-gate crowd spilled across the full road");
+    assert.ok(touching.length < 50, `${touching.length} runners overlapped at the boss edge`);
+    // Preserve the original twenty eight-unit rows' physical extent without
+    // requiring every world-aligned bin to contain a runner. Bulk distribution
+    // rules out a thin shelf with a handful of distant outliers.
+    assert.ok(depths.at(-1) - depths[0] >= 20 * 8, "queue lost its sustained depth");
+    assert.ok(depths[Math.floor(depths.length * 0.75)] - depths[Math.floor(depths.length * 0.25)] >= 2 * diameter,
+      "the middle half of the crowd collapsed into fewer than two body depths");
+    assert.ok(peakBand <= depths.length / 4, "one body-deep shelf held over a quarter of the crowd");
+    assert.ok(boss.y > 300 && boss.y <= 420, `boss pressure moved to an invalid y=${boss.y}`);
+  }
+  assert.ok([...initialCohort.values()].filter(({ travel }) => travel >= diameter).length > initialCohort.size / 2,
+    "most waiting runners failed to advance by a body diameter");
+  assert.ok(oldContacts > initialCohort.size / 2, "the waiting queue failed to reach boss contact");
+  assert.ok(newContacts > 0, "new arrivals did not replenish boss contact");
+  assert.equal(oldContacts + newContacts, game.stats.baseHits - initialHits,
+    "tracked runners disappeared without causing boss contact");
 });
 
 test("boss pressure waits for the opening, then reaches the choke on reference timing", () => {

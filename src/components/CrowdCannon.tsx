@@ -714,6 +714,8 @@ export function CrowdCannon() {
   const totalStars = save.stars.reduce((total, value) => total + (value ?? 0), 0);
   const level = levels[levelIndex];
   const assault = hud.assault;
+  const paceStars = stars(level, hud.time);
+  const paceSeconds = Math.ceil(Math.max(0, (paceStars === 3 ? level.par : level.par * 1.4) - hud.time));
   const lineBroken = assault.integrity === 0;
   const roadCleared = !lineBroken && assault.phase === "counterattack" && assault.wave === assault.waves && assault.remaining === 0;
   const battleEnded = lineBroken || roadCleared;
@@ -849,6 +851,9 @@ export function CrowdCannon() {
               <span className={styles.encounterLabel}>STAGE {Math.min(assault.encounters, assault.encounter + 1)} / {assault.encounters}</span>
               <span className={styles.encounterDots} aria-hidden="true">{Array.from({ length: assault.encounters }, (_, index) => <i key={index} data-done={index < assault.encounter} data-current={index === assault.encounter} />)}</span>
             </div>
+            {tutorialStep === null && <span className={styles.paceClock} data-testid="pace-clock" data-stars={paceStars} role="timer" aria-label={`${paceStars}-star pace${paceStars > 1 ? `, ${paceSeconds} seconds remaining` : ""}`}>
+              {paceStars}★ pace{paceStars > 1 && <span> · {paceSeconds}s left</span>}
+            </span>}
           </div>
           {battleObjectiveVisible && <div className={styles.battleObjective} data-testid="battle-objective" data-phase={assault.phase} data-warning={incomingWave} data-wave-role={assault.waveRole} data-side-raid={sideDanger} data-brace={giantWinding ? "winding" : giantStaggered ? "staggered" : giantAdvancing ? "breaking" : undefined} data-deadline={giantDeadline ? "moving" : undefined} data-breached={lineBroken} data-cleared={roadCleared} data-shield={!battleEnded && !sideDanger && !giantDeadline && assault.shields > 0} data-cleanup={!battleEnded && !sideDanger && !giantDeadline && assault.shields > 0 && assault.shieldCleanup} data-compact={!battleEnded && !sideDanger && !giantWinding && !giantStaggered && !giantAdvancing && assault.shields === 0 && (assault.phase === "counterattack" || assault.phase === "battle" && hud.time > 4)}>
             <span className={styles.objectiveIcon} aria-hidden="true">{roadCleared ? "★" : lineBroken || assault.phase === "counterattack" ? "!" : assault.phase === "advance" ? "»" : giantDeadline ? "!" : "⚑"}</span>
