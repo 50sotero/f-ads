@@ -947,7 +947,8 @@ export function CrowdCannon() {
           <h2 id="win-title">{hasNext ? "Route cleared!" : "You held the line!"}</h2>
           <p>{hasNext ? `${level.name} secured. Leaders down, counterattacks defeated.` : "The last fortress has fallen. Your crowd conquered the whole campaign."}</p>
           <Stars n={result.stars} animated className={styles.resultStars} />
-          <span className={styles.resultTime}>{result.time.toFixed(1)}s {result.best ? "· new best" : "· run complete"} · 3★ ≤ {level.par.toFixed(1)}s · 2★ ≤ {(level.par * 1.4).toFixed(1)}s</span>
+          <span className={styles.resultTime}>{result.time.toFixed(1)}s {result.best ? "· new best" : "· run complete"}</span>
+          <span className={styles.resultTime}>Stars for speed · 3★ ≤ {level.par}s · 2★ ≤ {Number((level.par * 1.4).toFixed(1))}s</span>
           {!hasNext && <div className={styles.campaignStats}><div><strong>{totalStars}<small> / {levels.length * 3}</small></strong><span>CAMPAIGN STARS</span></div><div><strong>{hud.assault.integrity}<small> / {hud.assault.maxIntegrity}</small></strong><span>DEFENSE REMAINING</span></div></div>}
           <div className={styles.resultReward}><strong>◈ +{result.earned}</strong><small>UPGRADE CREDITS</small></div>
           <div className={styles.modalActions}>

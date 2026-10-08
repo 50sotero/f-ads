@@ -33,10 +33,11 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(41, 390 / 844, 0.2, 380);
   const cameraHome = new THREE.Vector3(15, 56, 64);
+  const denseCameraHome = new THREE.Vector3();
   const shieldCameraHome = new THREE.Vector3(7.78, 62.47, 60.04);
   const cleanupCameraHome = new THREE.Vector3(4.79, 68.72, 54.55);
   const cameraTarget = new THREE.Vector3(0, 0, -14);
-  let cameraFollow = 0, combatLookZ = -14, shieldFocus = 0, cleanupFocus = 0, displayedTan = Math.tan(THREE.MathUtils.degToRad(16));
+  let cameraFollow = 0, combatLookZ = -14, denseFocus = 0, denseEncounter = -1, shieldFocus = 0, cleanupFocus = 0, displayedTan = Math.tan(THREE.MathUtils.degToRad(16));
   const stage = new THREE.Group(); scene.add(stage);
   let theme = "fork", travel = 0;
   const worldCurve = (z: number) => theme === "bend" ? Math.sin(z * 0.018) * 1.3 : 0;
@@ -816,7 +817,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   function updateCamera(dt = 1) {
     const portrait = camera.aspect < 0.85;
     camera.clearViewOffset();
-    camera.position.copy(cameraHome);
+    camera.position.copy(cameraHome).lerp(denseCameraHome, denseFocus);
     if (portrait) camera.position.lerp(shieldCameraHome, shieldFocus).lerp(cleanupCameraHome, cleanupFocus);
     camera.position.z += combatLookZ - cameraTarget.z - travel;
     camera.position.x += curve(combatLookZ) + cameraFollow;
@@ -920,7 +921,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     dt = Math.min(dt, 0.05); frameTime += dt;
     if (currentGame !== game) {
       currentGame = game; shot = game.stats.fired; previousTier = game.assault?.tier ?? 1;
-      hasRenderedUnits = false; cameraFollow = 0; combatLookZ = cameraTarget.z; shieldFocus = 0; cleanupFocus = 0; displayedTan = Math.tan(THREE.MathUtils.degToRad(16));
+      hasRenderedUnits = false; cameraFollow = 0; combatLookZ = cameraTarget.z; denseFocus = 0; denseEncounter = -1; shieldFocus = 0; cleanupFocus = 0; displayedTan = Math.tan(THREE.MathUtils.degToRad(16));
       previousWeapon = game.assault?.weaponLevel ?? 1; crateHp = crateMax = cannonLockHp = -1;
       cannon.forEach((value, i) => { value.shots = game.assault?.barrelShots[i] ?? 0; value.recoil = 0; });
       shadowAt = 0;
@@ -1556,6 +1557,11 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     // for every animation frame on a phone.
     if (frameTime >= shadowAt) { renderer.shadowMap.needsUpdate = true; shadowAt = frameTime + 1 / 15; }
     // Follow the fight without fitting the distant reserve ranks.
+    const fightingGiant = assault?.phase === "battle" && !!activeBoss && activeBoss.hp > 0;
+    // Keep the higher view for the rest of this giant fight once its army
+    // fills up. Latching avoids camera breathing as front ranks are defeated.
+    if (fightingGiant && game.blue.length >= 600) denseEncounter = encounter;
+    denseFocus += ((fightingGiant && denseEncounter === encounter ? 1 : 0) - denseFocus) * Math.min(1, dt * 2.5);
     const cleaningUp = assault?.phase === "counterattack" && assault.wave >= assault.waves && assault.waveWarning === 0 && assault.remaining <= 12;
     const fightingShields = shieldMeter.visible && assault?.phase === "counterattack" && !!activeBoss && activeBoss.hp <= 0;
     shieldFocus += ((fightingShields ? 1 : 0) - shieldFocus) * Math.min(1, dt * 4);
@@ -1570,6 +1576,10 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   function resize(width: number, height: number) {
     camera.aspect = width / height;
     cameraHome.set(...(camera.aspect < 0.85 ? [15, 56, 64] : [11.25, 42, 44.5]) as [number, number, number]);
+    // Raise the orbit to 45 degrees without changing its distance or yaw.
+    const orbitHeight = cameraHome.distanceTo(cameraTarget) * Math.SQRT1_2;
+    const orbitRatio = orbitHeight / Math.hypot(cameraHome.x, cameraHome.z - cameraTarget.z);
+    denseCameraHome.set(cameraHome.x * orbitRatio, orbitHeight, (cameraHome.z - cameraTarget.z) * orbitRatio).add(cameraTarget);
     renderer.setSize(width, height, false); updateCamera();
   }
   resize(canvas.clientWidth || 390, canvas.clientHeight || 844);
