@@ -330,13 +330,14 @@ export function CrowdCannon() {
 
   const syncBossGuidance = useCallback((game: Game) => {
     const aim = championBossAim(game);
-    if (!aim) return;
+    const direction = aim?.guidanceDirection ?? null;
+    const canInterrupt = aim?.canInterrupt ?? false;
     // Aim advice is input-critical. Do not leave a stale green invitation up
     // for the general HUD's 80 ms refresh while the cannon crosses the lane.
-    setHud((previous) => previous.assault.bossAim === aim.guidanceDirection
-      && previous.assault.bossCanInterrupt === aim.canInterrupt ? previous : {
+    setHud((previous) => previous.assault.bossAim === direction
+      && previous.assault.bossCanInterrupt === canInterrupt ? previous : {
         ...previous,
-        assault: { ...previous.assault, bossAim: aim.guidanceDirection, bossCanInterrupt: aim.canInterrupt },
+        assault: { ...previous.assault, bossAim: direction, bossCanInterrupt: canInterrupt },
       });
   }, []);
 
