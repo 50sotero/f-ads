@@ -763,12 +763,14 @@ export function CrowdCannon() {
   const incomingWave = assault.phase === "counterattack" && assault.waveWarning > 0 && !battleEnded;
   const incomingLane = assault.waveLane < 0 ? "← LEFT" : assault.waveLane > 0 ? "RIGHT →" : "CENTER";
   const sideThreat = !battleEnded && (assault.raidCount > 0 || assault.entryCount > 0);
+  const giantPriority = !battleEnded && !!assault.defenseThreat
+    && (giantAdvancing || !!giantDeadline && giantDeadline.front >= assault.defenseThreat.y);
   // Follow the closest physical threat to the defense line. An upcoming hatch
   // or a distant raider must not conceal an ordinary formation already here.
-  const defenseThreat = !battleEnded && assault.defenseThreat
+  const defenseThreat = !battleEnded && !giantPriority && assault.defenseThreat
     && (assault.raidCount === 0 || assault.defenseThreat.y > assault.raidY)
     ? assault.defenseThreat : null;
-  const defenseLane = defenseThreat?.lane === -1 ? "← LEFT" : defenseThreat?.lane === 1 ? "RIGHT →" : "CENTER";
+  const defenseLane = assault.defenseThreat?.lane === -1 ? "← LEFT" : assault.defenseThreat?.lane === 1 ? "RIGHT →" : "CENTER";
   const defenseAction = defenseThreat?.shielded && !assault.shieldCleanup
     ? hud.charge < CHARGE_MAX ? "Keep firing to charge ★. A champion breaks this shield."
       : assault.shieldAim === "aligned" ? "Tap ★ to break the shield before it reaches your line."
@@ -784,11 +786,12 @@ export function CrowdCannon() {
   const sideLabel = `${sideLane < 0 ? "← LEFT" : "RIGHT →"} SIDE RAID`;
   const parallelThreat = defenseThreat
     ? giantWinding ? `SLAM ${Math.ceil(assault.brace!.seconds)}s`
-      : sideThreat ? `${sideLane < 0 ? "←" : "→"} RAID ${assault.raidCount > 0 ? "LIVE" : assault.entrySeconds > 0 ? `${assault.entrySeconds}s` : "READY"}` : null
+      : sideThreat ? `${sideLane < 0 ? "←" : "→"} RAID ${assault.raidCount > 0 ? "LIVE" : assault.entrySeconds > 0 ? `${assault.entrySeconds}s` : "READY"}`
+        : giantDeadline ? "GIANT CLOSING IN" : null
     : overlappingThreats
     ? sideDanger ? `SLAM ${Math.ceil(assault.brace!.seconds)}s`
       : `${sideLane < 0 ? "←" : "→"} RAID ${assault.entrySeconds > 0 ? `${assault.entrySeconds}s` : "READY"}`
-    : null;
+    : giantPriority && !sideDanger ? `${defenseLane} LINE IN DANGER` : null;
   const otherRaidLabel = `${sideLane < 0 ? "RIGHT →" : "← LEFT"} · ${assault.otherRaidCount} LIVE ${assault.otherRaidCount === 1 ? "RAIDER" : "RAIDERS"}`;
   const sideAction = assault.raidCount > 0
     ? assault.raidAim === "left" ? "← Move farther left. Fire at the red rings!"
