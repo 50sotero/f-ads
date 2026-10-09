@@ -780,7 +780,8 @@ export function CrowdCannon() {
       : "On their lane. Keep firing to protect your line!";
   // While the hatch is only telegraphing, keep the interrupt action primary.
   // Live runners take priority without concealing the giant's slam countdown.
-  const sideDanger = !defenseThreat && sideThreat && (!giantWinding || assault.raidCount > 0);
+  const sideDanger = !defenseThreat && sideThreat && (!giantWinding || assault.raidCount > 0)
+    && (!giantPriority || assault.raidCount > 0 && assault.raidY > (assault.deadline?.front ?? Infinity));
   const overlappingThreats = giantWinding && sideThreat;
   const sideLane = assault.raidCount > 0 ? assault.raidLane : assault.entryLane;
   const sideLabel = `${sideLane < 0 ? "← LEFT" : "RIGHT →"} SIDE RAID`;
@@ -791,7 +792,11 @@ export function CrowdCannon() {
     : overlappingThreats
     ? sideDanger ? `SLAM ${Math.ceil(assault.brace!.seconds)}s`
       : `${sideLane < 0 ? "←" : "→"} RAID ${assault.entrySeconds > 0 ? `${assault.entrySeconds}s` : "READY"}`
-    : giantPriority && !sideDanger ? `${defenseLane} LINE IN DANGER` : null;
+    : giantPriority && !sideDanger
+      ? assault.raidCount > 0 && assault.raidY > assault.defenseThreat!.y
+        ? `${sideLane < 0 ? "← LEFT" : "RIGHT →"} RAID LIVE`
+        : `${defenseLane} LINE IN DANGER`
+      : null;
   const otherRaidLabel = `${sideLane < 0 ? "RIGHT →" : "← LEFT"} · ${assault.otherRaidCount} LIVE ${assault.otherRaidCount === 1 ? "RAIDER" : "RAIDERS"}`;
   const sideAction = assault.raidCount > 0
     ? assault.raidAim === "left" ? "← Move farther left. Fire at the red rings!"
