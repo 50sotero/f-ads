@@ -342,6 +342,8 @@
 .battleObjective[data-brace="breaking"] { border-color: #ffb18d; background: #943d3bed; }
 .battleObjective[data-deadline="moving"] { border-color: #ffb18d; background: linear-gradient(110deg, #753a35ee, #4e3443ee); }
 .battleObjective[data-deadline="moving"] strong { color: #ffd09e; }
+.battleObjective[data-defense-threat="true"] { border-color: #ffbb86; background: linear-gradient(110deg, #9a303bed, #63283fed); }
+.battleObjective[data-defense-threat="true"] strong { color: #fff0c5; }
 .battleObjective[data-compact="true"][data-deadline="moving"] { max-width: calc(100% - 24px); }
 .battleObjective[data-compact="true"][data-deadline="moving"] > div > span { display: block; font-size: 9px; }
 .battleObjective[data-breached="true"] { background: #872d43ed; border-color: #ffad98; color: #fff0e4; }
