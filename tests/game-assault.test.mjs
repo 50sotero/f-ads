@@ -1,0 +1,235 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { CANNON_Y, newGame, step } from "../src/game/engine.ts";
+
+const assaultLevel = (overrides = {}) => ({
+  name: "assault test",
+  par: 20,
+  bases: [{ x: 125, y: 300, hp: 24, every: 9999, group: 0 }],
+  gates: [
+    { x: 180, y: 510, w: 170, kind: "x", n: 2 },
+    { x: 180, y: 467, w: 170, kind: "x", n: 3 },
+    { x: 180, y: 424, w: 170, kind: "x", n: 4 },
+  ],
+  assault: { horde: 320, reserve: 900, speed: 16, theme: "fork" },
+  ...overrides,
+});
+
+test("assault starts with a compact horde and explicit reserve state", () => {
+  const g = newGame(assaultLevel(), 7);
+  assert.ok(g.assault);
+  assert.equal(g.assault.encounter, 0);
+  assert.equal(g.assault.encounters, 1);
+  assert.equal(g.assault.reserve, 900);
+  assert.equal(g.red.length, 320);
+  assert.equal(g.assault.frontline, 372);
+  assert.ok(Math.min(...g.red.map((u) => u.x)) >= 35);
+  assert.ok(Math.max(...g.red.map((u) => u.x)) <= 215);
+  assert.ok(Math.max(...g.red.map((u) => u.y)) >= 370);
+});
+
+test("configured counterattacks preserve the living army and telegraph typed waves", () => {
+  const g = newGame(assaultLevel({
+    bases: [{ x: 180, y: 300, hp: 1, every: 9999, group: 0 }],
+    assault: {
+      horde: 0,
+      reserve: 0,
+      speed: 16,
+      theme: "fork",
+      counterattack: { waves: 2, runners: 2, guards: 1, brutes: 1, interval: 0.7, flankEvery: 2 },
+    },
+  }));
+  const survivor = { x: 32, y: 250, vx: 0, hp: 1, r: 4.4, big: false, used: 0, dead: false };
+  g.red.push(survivor);
+  g.blue.push({ x: 180, y: 331.2, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false });
+  g.firing = false;
+
+  step(g, 1 / 60);
+  assert.equal(g.assault.phase, "counterattack");
+  assert.equal(g.assault.encounter, 0);
+  assert.equal(g.assault.wave, 0);
+  assert.equal(g.assault.waveLane, -1);
+  assert.equal(g.assault.waveWarning, 1);
+  assert.ok(g.red.includes(survivor), "living defenders were discarded when the boss fell");
+  assert.equal(g.assault.reserve, 0, "normal reserve continued into the counterattack");
+  assert.ok(g.assault.remaining >= 9, `remaining counterattack units were undercounted: ${g.assault.remaining}`);
+
+  for (let frame = 0; frame < 60 && g.assault.wave < 1; frame++) step(g, 1 / 60);
+  assert.equal(g.assault.wave, 1);
+  assert.equal(g.assault.waveLane, 0, "the next wave did not alternate to the centre");
+  assert.ok(g.assault.waveWarning > 0, "the next wave was not telegraphed");
+  assert.ok(g.red.some((unit) => unit.kind === "guard"));
+  assert.ok(g.red.some((unit) => unit.kind === "brute"));
+  assert.equal(g.status, "playing");
+});
+
+test("counterattack cannot finish a boss encounter before every wave is cleared", () => {
+  const g = newGame(assaultLevel({
+    bases: [{ x: 180, y: 300, hp: 1, every: 9999, group: 0 }],
+    assault: {
+      horde: 0,
+      reserve: 0,
+      speed: 16,
+      theme: "fork",
+      counterattack: { waves: 1, runners: 1, guards: 0, brutes: 0, interval: 0.65 },
+    },
+  }));
+  g.blue.push({ x: 180, y: 331.2, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false });
+  g.firing = false;
+  step(g, 1 / 60);
+  assert.equal(g.status, "playing");
+  assert.equal(g.assault.phase, "counterattack");
+
+  for (let frame = 0; frame < 60 && g.red.length === 0; frame++) step(g, 1 / 60);
+  assert.equal(g.assault.wave, 1);
+  assert.equal(g.red.length, 1);
+  assert.equal(g.status, "playing", "the boss was marked won before its counterattack spawned");
+  assert.equal(g.assault.remaining, 1);
+
+  g.red[0].dead = true;
+  step(g, 1 / 60);
+  assert.equal(g.status, "won");
+  assert.equal(g.assault.remaining, 0);
+});
+
+test("a full field queues every counterattack reinforcement without dropping units", () => {
+  const g = newGame(assaultLevel({
+    bases: [{ x: 180, y: 300, hp: 1, every: 9999, group: 0 }],
+    assault: { horde: 650, reserve: 0, speed: 16, theme: "fork",
+      counterattack: { waves: 1, runners: 30, guards: 8, brutes: 4, interval: 0.65 } },
+  }));
+  g.bases[0].hp = 0;
+  for (let i = 0; i < 50; i++) step(g, 1 / 60);
+  assert.equal(g.red.length, 650);
+  assert.equal(g.assault.wave, 0);
+  assert.equal(g.assault.remaining, 692);
+
+  g.red.slice(0, 5).forEach((unit) => { unit.dead = true; });
+  for (let i = 0; i < 25; i++) step(g, 1 / 60);
+  assert.equal(g.red.length, 650);
+  assert.equal(g.assault.waveSpawned, 5);
+  assert.equal(g.assault.remaining, 687);
+
+  g.red.forEach((unit) => { unit.dead = true; });
+  for (let i = 0; i < 25; i++) step(g, 1 / 60);
+  assert.equal(g.assault.wave, 1);
+  assert.equal(g.red.length, 37, "the queued remainder must still deploy");
+  assert.equal(g.red.filter((unit) => unit.kind === "guard").length, 8);
+  assert.equal(g.red.filter((unit) => unit.kind === "brute").length, 4);
+  assert.equal(g.status, "playing");
+});
+
+test("clearing a stage preserves upgrades and opens the next counterattack on the opposite flank", () => {
+  const g = newGame(assaultLevel({
+    bases: [0, 1].map(() => ({ x: 180, y: 300, hp: 1, every: 9999, group: 0 })),
+    assault: { horde: 0, reserve: 0, speed: 16, theme: "fork",
+      counterattack: { waves: 1, runners: 1, interval: 0.65 } },
+  }));
+  g.assault.tier = 4;
+  g.assault.weaponLevel = 3;
+  g.bases[0].hp = 0;
+  step(g, 1 / 60);
+  assert.equal(g.assault.waveLane, -1);
+  for (let i = 0; i < 50; i++) step(g, 1 / 60);
+  g.red.forEach((unit) => { unit.dead = true; });
+  step(g, 1 / 60);
+  assert.equal(g.assault.phase, "advance");
+  assert.equal(g.assault.encounter, 1);
+  assert.equal(g.assault.tier, 5);
+  assert.equal(g.assault.weaponLevel, 3);
+  for (let i = 0; i < 120 && g.assault.phase === "advance"; i++) step(g, 1 / 60);
+  g.bases[1].hp = 0;
+  step(g, 1 / 60);
+  assert.equal(g.assault.phase, "counterattack");
+  assert.equal(g.assault.waveLane, 1);
+  assert.equal(g.status, "playing");
+});
+
+test("practice assault pickups raise the cannon tier and emit upgrade feedback", () => {
+  const g = newGame(assaultLevel({
+    bases: [{ x: 125, y: 300, hp: 999, every: 9999, group: 0 }],
+    assault: { horde: 0, reserve: 0, speed: 16, theme: "fork", practice: true, pickupEvery: 20 },
+  }));
+  g.cannonX = 55;
+  g.targetX = 55;
+  for (let i = 0; i < 110; i++) step(g, 1 / 60);
+  assert.ok(g.assault);
+  assert.ok(g.assault.tier > g.assault.startingTier);
+  assert.ok(g.assault.pickupsCollected > 0);
+  assert.ok(g.pops.some((p) => p.text === "UPGRADE"));
+  assert.equal(g.status, "playing");
+  assert.equal(g.red.length, 0);
+  assert.equal(CANNON_Y, 596);
+});
+
+test("assault bosses advance sequentially and preserve future boss health", () => {
+  const g = newGame(assaultLevel({
+    bases: [
+      { x: 125, y: 300, hp: 1, every: 9999, group: 0 },
+      { x: 125, y: 300, hp: 5, every: 9999, group: 0 },
+    ],
+    assault: { horde: 0, reserve: 0, speed: 16, theme: "bend" },
+  }));
+  g.blue.push({ x: 125, y: 331.2, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false });
+  step(g, 1 / 60);
+  assert.ok(g.assault);
+  assert.equal(g.assault.encounter, 1);
+  assert.ok(g.assault.advance > 0);
+  assert.equal(g.bases[0].hp, 0);
+  assert.equal(g.bases[1].hp, 5);
+  assert.equal(g.status, "playing");
+});
+
+test("dense post-chain queue stays above the cannon and leaves pre-chain runners alone", () => {
+  const g = newGame(assaultLevel({
+    bases: [{ x: 125, y: 300, hp: 999999, every: 9999, group: 0 }],
+    assault: { horde: 0, reserve: 0, speed: 16, theme: "bridge" },
+  }));
+  const postChain = [];
+  for (let i = 0; i < 899; i++) {
+    postChain.push({
+      x: 125 + ((i % 9) - 4) * 4,
+      y: 440,
+      vx: 0,
+      hp: 1,
+      r: 4.2,
+      big: false,
+      used: 0b111,
+      dead: false,
+      lane: (i % 9) - 4,
+    });
+  }
+  const preChain = { x: 125, y: 440, vx: 0, hp: 1, r: 4.2, big: false, used: 0, dead: false, lane: 0 };
+  g.blue.push(...postChain, preChain);
+  step(g, 1 / 60);
+  assert.ok(g.blue.every((u) => u.y <= CANNON_Y - u.r - 2));
+  assert.ok(preChain.y < 450, `pre-chain runner was repacked at y=${preChain.y}`);
+});
+
+test("boss slam exposes a warning, pulses once, and does not kill the crowd", () => {
+  const g = newGame(assaultLevel({
+    bases: [{ x: 125, y: 300, hp: 999999, every: 9999, group: 0 }],
+    assault: { horde: 0, reserve: 0, speed: 16, theme: "fork", slamEvery: 1 },
+  }));
+  g.firing = false;
+  for (let i = 0; i < 15; i++) step(g, 1 / 60);
+  assert.ok(g.assault);
+  assert.ok(g.assault.bossWarning > 0 && g.assault.bossWarning <= 1);
+  g.blue.push(
+    { x: 185, y: 445, vx: 0, hp: 1, r: 4.2, big: false, used: 7, dead: false, lane: 2 },
+    { x: 188, y: 438, vx: 0, hp: 1, r: 4.2, big: false, used: 7, dead: false, lane: 2 },
+  );
+  for (let i = 0; i < 44; i++) step(g, 1 / 60);
+  const boss = g.bases[0];
+  const contactEdge = boss.y + boss.h / 2 + 4.2;
+  assert.equal(g.blue.length, 2);
+  assert.ok(g.blue.every((u) => u.y > contactEdge && u.y <= boss.y + boss.h / 2 + 112));
+  assert.ok(g.blue.every((u) => Math.abs(u.x - boss.x) <= boss.w / 2 + 30));
+  const beforeImpact = g.blue.map((u) => u.y);
+  step(g, 1 / 60);
+  assert.equal(g.assault.bossPulse, 1);
+  assert.ok(g.pops.some((p) => p.text === "SLAM"));
+  assert.equal(g.blue.length, 2);
+  assert.ok(g.blue.every((u, i) => u.y >= beforeImpact[i] + 8));
+  assert.equal(g.status, "playing");
+});
