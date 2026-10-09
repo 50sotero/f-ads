@@ -16,6 +16,7 @@ export type DefenseThreatSnapshot = Readonly<{
   y: number;
   lane: DefenseThreatLane;
   nearLineCount: number;
+  shielded: boolean;
   direction: DefenseThreatDirection;
 }>;
 
@@ -74,7 +75,7 @@ export function selectDefenseThreat(game: Game): DefenseThreatSnapshot | null {
     || game.level.assault?.practice
   ) return null;
 
-  let nearest: { x: number; y: number } | null = null;
+  let nearest: Game["red"][number] | null = null;
   let nearLineCount = 0;
   for (const unit of game.red) {
     if (unit.dead || unit.sideEntry || !Number.isFinite(unit.x) || !Number.isFinite(unit.y)) continue;
@@ -92,6 +93,7 @@ export function selectDefenseThreat(game: Game): DefenseThreatSnapshot | null {
     y: nearest.y,
     lane: roadLane(nearest.x),
     nearLineCount,
+    shielded: !!nearest.braced,
     direction: alignment.direction,
   };
 }

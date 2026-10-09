@@ -61,6 +61,7 @@ test("selects the closest nonboss red and counts only actual eligible threats", 
     y: closest.y,
     lane: 0,
     nearLineCount: 2,
+    shielded: false,
     direction: "aligned",
   });
 });
@@ -110,6 +111,7 @@ test("keeps side-entry raiders out of the ordinary defense threat", () => {
     y: DEFENSE_Y - 70,
     lane: 0,
     nearLineCount: 1,
+    shielded: false,
     direction: "aligned",
   });
 });
@@ -126,6 +128,7 @@ test("includes living large red guards and brutes in the warning", () => {
     y: DEFENSE_Y - 40,
     lane: 0,
     nearLineCount: 2,
+    shielded: false,
     direction: "aligned",
   });
 });
@@ -146,6 +149,7 @@ test("uses world road thirds for lane even when the cannon is offset", () => {
       y: DEFENSE_Y - 40,
       lane: expected.lane,
       nearLineCount: 1,
+    shielded: false,
       direction: expected.direction,
     });
   }
@@ -168,6 +172,7 @@ test("uses actual tier-five barrel positions for left, center, right, and offset
       y: DEFENSE_Y - 40,
       lane: expected.lane,
       nearLineCount: 1,
+    shielded: false,
       direction: expected.direction,
     });
   }
@@ -181,6 +186,7 @@ test("resolves equal-distance barrel and threat ties deterministically", () => {
     y: DEFENSE_Y - 40,
     lane: 0,
     nearLineCount: 1,
+    shielded: false,
     direction: "right",
   });
 
@@ -199,4 +205,19 @@ test("counterattack remains eligible while advance remains hidden", () => {
   assert.ok(selectDefenseThreat(game));
   game.assault.phase = "advance";
   assert.equal(selectDefenseThreat(game), null);
+});
+
+
+test("identifies a raised shield so the urgent cue can retain its champion action", () => {
+  const game = makeGame();
+  const guard = red(156, DEFENSE_Y - 60, { braced: true, kind: "guard", hp: 5 });
+  game.red = [guard, red(210, DEFENSE_Y - 90)];
+  const before = structuredClone(game.red);
+  assert.equal(selectDefenseThreat(game)?.shielded, true);
+  assert.deepEqual(game.red, before, "reading a threat never changes combat state");
+  guard.braced = false;
+  assert.equal(selectDefenseThreat(game)?.shielded, false);
+  guard.braced = true;
+  game.red.push(red(210, DEFENSE_Y - 30));
+  assert.equal(selectDefenseThreat(game)?.shielded, false, "a farther shield does not change the closer runner's action");
 });

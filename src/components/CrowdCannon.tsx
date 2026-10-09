@@ -769,7 +769,11 @@ export function CrowdCannon() {
     && (assault.raidCount === 0 || assault.defenseThreat.y > assault.raidY)
     ? assault.defenseThreat : null;
   const defenseLane = defenseThreat?.lane === -1 ? "← LEFT" : defenseThreat?.lane === 1 ? "RIGHT →" : "CENTER";
-  const defenseAction = defenseThreat?.direction === "left" ? "← Move left and fire at the approaching red crowd."
+  const defenseAction = defenseThreat?.shielded && !assault.shieldCleanup
+    ? hud.charge < CHARGE_MAX ? "Keep firing to charge ★. A champion breaks this shield."
+      : assault.shieldAim === "aligned" ? "Tap ★ to break the shield before it reaches your line."
+        : `${shieldInstruction}. Line up the gold sight, then tap ★.`
+    : defenseThreat?.direction === "left" ? "← Move left and fire at the approaching red crowd."
     : defenseThreat?.direction === "right" ? "Move right → Fire at the approaching red crowd."
       : "On their lane. Keep firing to protect your line!";
   // While the hatch is only telegraphing, keep the interrupt action primary.
@@ -801,12 +805,12 @@ export function CrowdCannon() {
   // carries the aim/launch step for a winding giant or shielded defenders.
   const topObjectiveHasChampionInstruction = battleObjectiveVisible
     && !battleEnded
-    && !defenseThreat
     && !sideDanger
     && hud.charge >= CHARGE_MAX
     && (
-      giantWinding && assault.bossCanInterrupt && !assault.braceChampion
-      || !giantWinding && !giantStaggered && !giantAdvancing && !giantDeadline && assault.shields > 0 && !assault.shieldCleanup
+      defenseThreat ? defenseThreat.shielded && !assault.shieldCleanup
+        : giantWinding && assault.bossCanInterrupt && !assault.braceChampion
+          || !giantWinding && !giantStaggered && !giantAdvancing && !giantDeadline && assault.shields > 0 && !assault.shieldCleanup
     );
   const contextualHint = tutorialStep === null && levelIndex === 0
     ? hud.time < 4 ? "Hold + drag · Build your crowd through the gates"
