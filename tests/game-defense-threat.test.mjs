@@ -42,7 +42,7 @@ function red(x, y, overrides = {}) {
   };
 }
 
-test("selects the closest ordinary red and counts only actual eligible threats", () => {
+test("selects the closest nonboss red and counts only actual eligible threats", () => {
   const game = makeGame();
   const closest = red(180, DEFENSE_Y - 40);
   const other = red(156, DEFENSE_Y - 90);
@@ -51,7 +51,9 @@ test("selects the closest ordinary red and counts only actual eligible threats",
     closest,
     red(204, DEFENSE_Y - DEFENSE_THREAT_DISTANCE - 0.01),
     red(180, DEFENSE_Y - 20, { dead: true }),
-    red(180, DEFENSE_Y - 10, { big: true }),
+    red(180, DEFENSE_Y - DEFENSE_THREAT_DISTANCE - 0.02, { big: true, kind: "brute" }),
+    red(Number.NaN, DEFENSE_Y - 20),
+    red(180, Number.POSITIVE_INFINITY),
   ];
 
   assert.deepEqual(selectDefenseThreat(game), {
@@ -106,19 +108,56 @@ test("keeps side-entry raiders out of the ordinary defense threat", () => {
   assert.deepEqual(selectDefenseThreat(game), {
     x: 204,
     y: DEFENSE_Y - 70,
-    lane: 1,
+    lane: 0,
     nearLineCount: 1,
     direction: "aligned",
   });
 });
 
+test("includes living large red guards and brutes in the warning", () => {
+  const game = makeGame();
+  game.red = [
+    red(156, DEFENSE_Y - 90, { big: true, kind: "brute", hp: 14 }),
+    red(204, DEFENSE_Y - 40, { big: true, kind: "guard", hp: 4 }),
+  ];
+
+  assert.deepEqual(selectDefenseThreat(game), {
+    x: 204,
+    y: DEFENSE_Y - 40,
+    lane: 0,
+    nearLineCount: 2,
+    direction: "aligned",
+  });
+});
+
+test("uses world road thirds for lane even when the cannon is offset", () => {
+  const cases = [
+    { cannonX: 300, x: 50, lane: -1, direction: "left" },
+    { cannonX: 60, x: 180, lane: 0, direction: "right" },
+    { cannonX: 60, x: 300, lane: 1, direction: "right" },
+  ];
+
+  for (const expected of cases) {
+    const game = makeGame({ tier: 1 });
+    game.cannonX = expected.cannonX;
+    game.red = [red(expected.x, DEFENSE_Y - 40)];
+    assert.deepEqual(selectDefenseThreat(game), {
+      x: expected.x,
+      y: DEFENSE_Y - 40,
+      lane: expected.lane,
+      nearLineCount: 1,
+      direction: expected.direction,
+    });
+  }
+});
+
 test("uses actual tier-five barrel positions for left, center, right, and offset direction", () => {
   const cases = [
-    { x: 156, lane: -1, direction: "aligned" },
+    { x: 156, lane: 0, direction: "aligned" },
     { x: 180, lane: 0, direction: "aligned" },
-    { x: 204, lane: 1, direction: "aligned" },
-    { x: 130, lane: -1, direction: "left" },
-    { x: 230, lane: 1, direction: "right" },
+    { x: 204, lane: 0, direction: "aligned" },
+    { x: 130, lane: 0, direction: "left" },
+    { x: 230, lane: 0, direction: "right" },
   ];
 
   for (const expected of cases) {
@@ -134,7 +173,7 @@ test("uses actual tier-five barrel positions for left, center, right, and offset
   }
 });
 
-test("resolves equal-distance battery ties deterministically", () => {
+test("resolves equal-distance barrel and threat ties deterministically", () => {
   const game = makeGame({ tier: 2 });
   game.red = [red(180, DEFENSE_Y - 40)];
   assert.deepEqual(selectDefenseThreat(game), {
@@ -142,15 +181,15 @@ test("resolves equal-distance battery ties deterministically", () => {
     y: DEFENSE_Y - 40,
     lane: 0,
     nearLineCount: 1,
-    direction: "aligned",
+    direction: "right",
   });
 
   const tied = makeGame({ tier: 5 });
-  tied.red = [red(130, DEFENSE_Y - 40), red(204, DEFENSE_Y - 40)];
+  tied.red = [red(204, DEFENSE_Y - 40), red(156, DEFENSE_Y - 40)];
   const first = selectDefenseThreat(tied);
   tied.red.reverse();
   assert.deepEqual(selectDefenseThreat(tied), first);
-  assert.equal(first?.x, 204, "the aligned actual barrel wins an equal-depth tie");
+  assert.equal(first?.x, 156, "the lower world x wins an equal-depth tie");
 });
 
 test("counterattack remains eligible while advance remains hidden", () => {

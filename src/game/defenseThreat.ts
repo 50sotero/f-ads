@@ -2,7 +2,7 @@
 // bundler resolves this concrete source extension, while the expectation keeps
 // the existing no-emit TypeScript configuration strict.
 // @ts-expect-error Node strip-types tests require the concrete TypeScript path.
-import { CANNON_BARREL_SPACING, DEFENSE_Y, cannonBarrelPositions, type Game } from "./engine.ts";
+import { DEFENSE_Y, W, cannonBarrelPositions, type Game } from "./engine.ts";
 
 /** Maximum distance from the defense line at which a real red threat is shown. */
 export const DEFENSE_THREAT_DISTANCE = 130;
@@ -10,7 +10,7 @@ export const DEFENSE_THREAT_DISTANCE = 130;
 export type DefenseThreatLane = -1 | 0 | 1;
 export type DefenseThreatDirection = "left" | "right" | "aligned";
 
-/** Read-only UI data for the closest ordinary red unit near the defense line. */
+/** Read-only UI data for the closest nonboss red unit near the defense line. */
 export type DefenseThreatSnapshot = Readonly<{
   x: number;
   y: number;
@@ -20,7 +20,6 @@ export type DefenseThreatSnapshot = Readonly<{
 }>;
 
 type BarrelAlignment = {
-  lane: DefenseThreatLane;
   direction: DefenseThreatDirection;
   gap: number;
 };
@@ -35,17 +34,6 @@ function barrelAlignment(game: Game, x: number): BarrelAlignment {
     if (distance < nearestDistance - 1e-9) {
       nearestIndex = i;
       nearestDistance = distance;
-      continue;
-    }
-    if (Math.abs(distance - nearestDistance) <= 1e-9) {
-      // A center barrel wins an exact tie. For an even battery, the midpoint
-      // between equally distant left and right barrels is the stable center.
-      const currentOffset = barrels[nearestIndex].x;
-      const nextOffset = barrels[i].x;
-      if (Math.abs(nextOffset) < Math.abs(currentOffset) - 1e-9
-        || (Math.abs(nextOffset - currentOffset) <= 1e-9 && nextOffset < currentOffset)) {
-        nearestIndex = i;
-      }
     }
   }
 
@@ -54,45 +42,22 @@ function barrelAlignment(game: Game, x: number): BarrelAlignment {
   const gap = x - nearestX;
   // Keep the read model on the same ten-pixel alignment contract used by the
   // existing assault HUD while still deriving each target barrel from the
-  // actual tier layout.
-  const alignmentTolerance = Math.min(10, CANNON_BARREL_SPACING * 0.5);
-  const symmetricMidpoint = barrels.some((barrel) => (
-    barrel.x < 0
-    && barrels.some((other) => Math.abs(other.x + barrel.x) <= 1e-9)
-  ));
-  const atEvenBatteryMidpoint = symmetricMidpoint
-    && Math.abs(x - centerX) <= 1e-9
-    && Math.abs(nearestOffset) > 1e-9;
-  const direction: DefenseThreatDirection = Math.abs(gap) <= alignmentTolerance || atEvenBatteryMidpoint
+  // actual tier layout. Exact equal-distance ties retain authored barrel
+  // order, so an even battery never invents a center barrel.
+  const direction: DefenseThreatDirection = Math.abs(gap) <= 10
     ? "aligned"
     : gap < 0 ? "left" : "right";
-  const lane = atEvenBatteryMidpoint
-    ? 0
-    : Math.max(-1, Math.min(1, Math.sign(nearestOffset))) as DefenseThreatLane;
-  return { lane, direction, gap };
+  return { direction, gap };
 }
 
-function tieBreak(game: Game, candidate: { x: number; y: number }, selected: { x: number; y: number }) {
-  if (candidate.y > selected.y + 1e-9) return true;
-  if (candidate.y < selected.y - 1e-9) return false;
-  const candidateAlignment = barrelAlignment(game, candidate.x);
-  const selectedAlignment = barrelAlignment(game, selected.x);
-  const candidateGap = Math.abs(candidateAlignment.gap);
-  const selectedGap = Math.abs(selectedAlignment.gap);
-  if (candidateGap < selectedGap - 1e-9) return true;
-  if (candidateGap > selectedGap + 1e-9) return false;
-  if (candidateAlignment.lane !== selectedAlignment.lane) {
-    // Center is the stable winner when two equally near units occupy a lane
-    // boundary; otherwise prefer left before right without array-order state.
-    const candidateRank = candidateAlignment.lane === 0 ? 0 : candidateAlignment.lane < 0 ? 1 : 2;
-    const selectedRank = selectedAlignment.lane === 0 ? 0 : selectedAlignment.lane < 0 ? 1 : 2;
-    return candidateRank < selectedRank;
-  }
-  return candidate.x < selected.x - 1e-9;
+function roadLane(x: number): DefenseThreatLane {
+  if (x < W / 3) return -1;
+  if (x > W * 2 / 3) return 1;
+  return 0;
 }
 
 /**
- * Selects the closest real ordinary red unit that can physically reach the
+ * Selects the closest real nonboss red unit that can physically reach the
  * defense line soon. The selector has no timers or memory: callers can read
  * it every render frame without affecting simulation state.
  *
@@ -112,18 +77,20 @@ export function selectDefenseThreat(game: Game): DefenseThreatSnapshot | null {
   let nearest: { x: number; y: number } | null = null;
   let nearLineCount = 0;
   for (const unit of game.red) {
-    if (unit.dead || unit.big || unit.sideEntry) continue;
+    if (unit.dead || unit.sideEntry || !Number.isFinite(unit.x) || !Number.isFinite(unit.y)) continue;
     const distance = DEFENSE_Y - unit.y;
     if (distance > DEFENSE_THREAT_DISTANCE) continue;
     nearLineCount++;
-    if (!nearest || tieBreak(game, unit, nearest)) nearest = unit;
+    if (!nearest
+      || unit.y > nearest.y + 1e-9
+      || (Math.abs(unit.y - nearest.y) <= 1e-9 && unit.x < nearest.x - 1e-9)) nearest = unit;
   }
   if (!nearest) return null;
   const alignment = barrelAlignment(game, nearest.x);
   return {
     x: nearest.x,
     y: nearest.y,
-    lane: alignment.lane,
+    lane: roadLane(nearest.x),
     nearLineCount,
     direction: alignment.direction,
   };
