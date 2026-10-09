@@ -685,6 +685,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
         // by a changing cadence makes feet snap when a runner brakes or turns.
         state.phase += elapsed * (9 + Math.min(14, speed) * 2) * Math.max(0.15, state.run);
       }
+      // A raised shield keeps its broad face toward the attacking crowd.
+      // Small sideways spacing steps must not rotate that contact face away.
+      if (unit.braced) state.angle = Math.PI;
       state.x = unit.x; state.y = unit.y; state.travel = travel; state.time = time;
       const fighting = engaged ? 1 - state.run : 0;
       const blocked = unit.braced && currentGame ? shieldBlockImpact(currentGame, unit) : 0;

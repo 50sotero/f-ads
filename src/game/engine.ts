@@ -576,6 +576,9 @@ const bossPressureDeadlineStates = new WeakMap<Game, BossPressureDeadlineState>(
 const assaultEarlyRaidStates = new WeakMap<Game, AssaultEarlyRaidRuntime>();
 const assaultEarlyRaidRunners = new WeakMap<Unit, AssaultEarlyRaidRunnerState>();
 const SHIELD_BRACE_FATIGUE_SECONDS = 1.25;
+// The raised gold shield is wide across the road but shallow along it.
+// Its rendered half-width is 0.34 * 1.6 * 2.1 / 0.052 = 21.97 logical px.
+export const BRACED_SHIELD_HALF_WIDTH = 22;
 const ASSAULT_BOSS_SLAM_DURATION = 0.35;
 const ASSAULT_BOSS_SLAM_DECAY = 8;
 const ASSAULT_BOSS_SLAM_END_ENVELOPE = Math.exp(-ASSAULT_BOSS_SLAM_DECAY * ASSAULT_BOSS_SLAM_DURATION);
@@ -3471,8 +3474,10 @@ function resolveAssaultFights(g: Game, dt: number) {
   assaultFightOccupiedCells.length = 0;
   const grid = assaultFightGrid;
   const braceContacts = isShieldCleanup(g) ? new Set<Unit>() : null;
+  let hasRaisedShield = false;
   for (const r of g.red) {
     if (r.dead) continue;
+    if (r.braced) hasRaisedShield = true;
     const c = Math.max(0, Math.min(COLS - 1, Math.floor(r.x / CELL)));
     const rr = Math.max(0, Math.min(ROWS - 1, Math.floor((r.y + CELL) / CELL)));
     const cellIndex = rr * COLS + c;
@@ -3491,17 +3496,25 @@ function resolveAssaultFights(g: Game, dt: number) {
     for (let dr = -1; dr <= 1 && !u.dead; dr++) {
       const rr = r0 + dr;
       if (rr < 0 || rr >= ROWS) continue;
-      for (let dc = -1; dc <= 1 && !u.dead; dc++) {
+      // A raised shield plus a champion can span two 24px columns. Visit the
+      // original three first, retaining ordinary combat's existing order.
+      const columnCount = hasRaisedShield ? 5 : 3;
+      for (let column = 0; column < columnCount && !u.dead; column++) {
+        const dc = column < 3 ? column - 1 : column === 3 ? -2 : 2;
         const cc = c0 + dc;
         if (cc < 0 || cc >= COLS) continue;
         const cell = grid[rr * COLS + cc];
         if (!cell || cell.length === 0) continue;
         for (const e of cell) {
           if (e.dead) continue;
+          if ((dc < -1 || dc > 1) && !e.braced) continue;
           const reach = u.r + e.r;
           const dx = u.x - e.x;
           const dy = u.y - e.y;
-          if (dx * dx + dy * dy > reach * reach) continue;
+          if (e.braced) {
+            const across = u.r + BRACED_SHIELD_HALF_WIDTH;
+            if (dx * dx / (across * across) + dy * dy / (reach * reach) > 1) continue;
+          } else if (dx * dx + dy * dy > reach * reach) continue;
           if (e.braced && !u.big) {
             // A braced guard visibly holds the line until a champion arrives.
             // Ordinary runners are consumed on contact without weakening the
