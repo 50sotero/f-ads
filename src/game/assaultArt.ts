@@ -326,7 +326,7 @@ export function createWarden(variant = 0): WardenArt {
     mesh(arm, ball, body, -side * 0.23, -1.8, 1.01, 0.27, 0.42, 0.29);
     return arm;
   });
-  const idle = { lift: 0, lean: 0, upperY: 1.43, reach: 0, pitch: 0.13, arm: -0.26, spread: 0.11, head: -0.15, knees: 0 };
+  const idle = { lift: 0, lean: 0, bank: 0, retreat: 0, upperY: 1.43, reach: 0, pitch: 0.13, roll: 0, arm: -0.26, leftArm: 0, rightArm: 0, spread: 0.11, head: -0.15, knees: 0, leftLeg: 0, rightLeg: 0 };
   type Pose = typeof idle;
   const pose = { ...idle }, interruptedFrom = { ...idle }, defeatedFrom = { ...idle };
   const poseKeys = Object.keys(idle) as (keyof Pose)[];
@@ -337,17 +337,18 @@ export function createWarden(variant = 0): WardenArt {
     key(0.1, { upperY: 1.12, reach: 0.13, pitch: 0.25, arm: -0.45, spread: 0.18, head: -0.2, knees: 0.28 }),
     key(0.55, { upperY: 1.3, reach: -0.26, pitch: -0.12, arm: -1.6, spread: 0.21, head: 0.06, knees: 0.14 }),
     key(0.8, { upperY: 1.03, reach: -0.45, pitch: -0.22, arm: -2.22, spread: 0.32, head: 0.18, knees: 0.38 }),
-    key(0.88, { lift: 0.54, lean: -0.12, upperY: 1.36, reach: -0.16, pitch: -0.08, arm: -2.16, spread: 0.27, head: 0.03, knees: 0.46 }),
-    key(0.94, { lift: 0.5, lean: 0.12, upperY: 1.31, reach: 0.25, pitch: 0.22, arm: -1.5, spread: 0.17, head: -0.16, knees: 0.36 }),
+    key(0.86, { upperY: 0.99, reach: -0.5, pitch: -0.25, arm: -2.25, spread: 0.36, head: 0.2, knees: 0.45 }),
+    key(0.925, { lift: 1.25, lean: -0.12, upperY: 1.2, reach: -0.08, pitch: -0.12, arm: -1.72, spread: 0.42, head: -0.02, knees: 0.65 }),
+    key(0.975, { lift: 0.45, lean: 0.18, upperY: 1.22, reach: 0.46, pitch: 0.15, arm: -0.65, spread: 0.12, head: -0.16, knees: 0.5 }),
     key(1, contact),
   ];
   const recovery = [key(0, contact), key(0.17, { ...contact, upperY: 1.1, reach: 0.8, knees: 0.44 }),
     key(0.58, { upperY: 1.15, reach: 0.35, pitch: 0.24, arm: -0.65, knees: 0.18 }), key(1, {})];
-  const recoil = key(0, { lean: -0.23, upperY: 1.25, reach: -0.4, pitch: -0.24, arm: -1.03, spread: 0.4, head: 0.35, knees: 0.22 });
-  const vulnerable = key(0, { upperY: 1.05, reach: -0.08, pitch: 0.08, arm: -0.75, spread: 0.42, head: 0.42, knees: 0.32 });
-  const fallenPose = key(1, { lift: -0.93, lean: -1.5, upperY: 1.25, arm: 0, spread: 0.5, head: 0, knees: -0.1 });
+  const recoil = key(0, { lift: 0.12, lean: -0.48, bank: 0.06, retreat: -0.22, upperY: 1.3, reach: -0.48, pitch: -0.26, arm: -1.2, spread: 0.42, head: 0.48, knees: 0.1 });
+  const vulnerable = key(0, { lean: -0.1, retreat: -0.1, upperY: 1.05, reach: -0.08, pitch: 0.22, arm: -0.5, spread: 0.52, head: 0.35, knees: 0.32 });
+  const fallenPose = key(1, { lift: -0.93, lean: -1.5, bank: -0.17, upperY: 1.25, arm: 0, spread: 0.5, head: 0, knees: -0.1 });
   const fall = [key(0, {}), key(0.22, { lift: 0.4, lean: -0.35, upperY: 1.25, arm: -1.1, spread: 0.55, head: 0.3 }),
-    key(0.58, { lift: -0.15, lean: -1.12, upperY: 1.2, arm: -0.35, spread: 0.75, head: 0.2 }), { ...fallenPose, at: 0.75 }, fallenPose];
+    key(0.58, { lift: -0.15, lean: -1.12, bank: -0.13, upperY: 1.2, arm: -0.35, spread: 0.75, head: 0.2 }), { ...fallenPose, at: 0.75 }, fallenPose];
   const blend = (from: Pose, to: Pose, progress: number) => {
     const amount = THREE.MathUtils.smoothstep(progress, 0, 1);
     for (const property of poseKeys) pose[property] = THREE.MathUtils.lerp(from[property], to[property], amount);
@@ -367,21 +368,24 @@ export function createWarden(variant = 0): WardenArt {
     const t = Number.isFinite(time) ? time : 0;
     const windup = THREE.MathUtils.clamp(attack || 0, 0, 1);
     const strike = THREE.MathUtils.clamp(impact || 0, 0, 1);
-    if (strike > previousImpact + 0.2) lastImpactAt = t;
+    // A slow render may first observe only the tail of an actual impact.
+    // Any zero-to-positive entry is still that event, at its elapsed phase.
+    if (strike > 0 && (previousImpact <= 0 || strike > previousImpact + 0.2)) lastImpactAt = t - (1 - strike) * 0.3;
     if (stagger > 0 && previousStagger <= 0) Object.assign(interruptedFrom, pose);
     if (defeat >= 0 && !wasDefeated) {
       Object.assign(defeatedFrom, pose);
       Object.assign(fall[0], defeatedFrom);
     }
-    const recovering = t - lastImpactAt < 0.58;
+    const recovering = t - lastImpactAt < 0.78;
     if (defeat >= 0) sample(fall, defeat);
     else if (stagger > 0) {
       const elapsed = 1 - stagger;
       if (elapsed < 0.2) blend(interruptedFrom, recoil, elapsed / 0.2);
-      else if (elapsed < 0.6) blend(recoil, vulnerable, (elapsed - 0.2) / 0.4);
-      else blend(vulnerable, idle, (elapsed - 0.6) / 0.4);
+      else if (elapsed < 0.38) Object.assign(pose, recoil);
+      else if (elapsed < 0.7) blend(recoil, vulnerable, (elapsed - 0.38) / 0.32);
+      else blend(vulnerable, idle, (elapsed - 0.7) / 0.3);
     } else if (windup > 0) sample(anticipation, windup);
-    else if (recovering) sample(recovery, (t - lastImpactAt) / 0.58);
+    else if (recovering) sample(recovery, (t - lastImpactAt) / 0.78);
     else Object.assign(pose, idle);
     previousImpact = strike; previousStagger = stagger; wasDefeated = defeat >= 0;
 
@@ -390,17 +394,28 @@ export function createWarden(variant = 0): WardenArt {
     const damage = occupied ? 0 : flash;
     const drive = THREE.MathUtils.clamp(advance, 0, 1);
     const stride = occupied ? 0 : Math.sin(t * (drive > 0 ? 8.8 : 4.2));
-    pivot.position.y = 2 + pose.lift;
-    pivot.rotation.set(pose.lean, 0, defeat >= 0 ? -0.17 * THREE.MathUtils.smoothstep(defeat, 0.2, 0.75) : 0);
-    upper.position.set(0, pose.upperY + Math.abs(stride) * (0.07 + drive * 0.04), pose.reach - damage * 0.16);
-    upper.rotation.set(pose.pitch - damage * 0.1 + (occupied ? 0 : drive * 0.12), 0, stride * 0.028);
-    head.rotation.x = pose.head - damage * 0.12;
+    // Store the complete displayed pose, including the small asymmetric
+    // motion, so an interruption or death starts exactly where the body was.
+    pose.upperY += Math.abs(stride) * (0.07 + drive * 0.04);
+    pose.reach -= damage * 0.16;
+    pose.pitch += -damage * 0.1 + (occupied ? 0 : drive * 0.12);
+    pose.roll += stride * 0.028;
+    pose.head -= damage * 0.12;
+    pose.leftArm += stride * 0.19 + (stagger > 0 ? -0.18 * Math.sin((1 - stagger) * Math.PI) : 0);
+    pose.rightArm += -stride * 0.19 + (stagger > 0 ? 0.3 * Math.sin((1 - stagger) * Math.PI) : 0);
+    pose.leftLeg -= stride * (0.18 + drive * 0.36);
+    pose.rightLeg += stride * (0.18 + drive * 0.36);
+    pivot.position.set(0, 2 + pose.lift, pose.retreat);
+    pivot.rotation.set(pose.lean, 0, pose.bank);
+    upper.position.set(0, pose.upperY, pose.reach);
+    upper.rotation.set(pose.pitch, 0, pose.roll);
+    head.rotation.x = pose.head;
     arms.forEach((arm, i) => {
-      arm.rotation.x = pose.arm + stride * (i ? -0.19 : 0.19) + (stagger > 0 ? (i ? 0.3 : -0.18) * Math.sin((1 - stagger) * Math.PI) : 0);
+      arm.rotation.x = pose.arm + (i ? pose.rightArm : pose.leftArm);
       arm.rotation.z = (i ? 1 : -1) * pose.spread;
     });
     feet.forEach((leg, i) => {
-      const bend = pose.knees + stride * (i ? -1 : 1) * (0.18 + drive * 0.36);
+      const bend = pose.knees + (i ? pose.rightLeg : pose.leftLeg);
       leg.rotation.x = bend;
       // A braced toe stays above the road when the leg compresses; rotating
       // the unadjusted foot pivot otherwise buries the toes during landing.
