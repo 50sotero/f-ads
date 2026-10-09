@@ -238,12 +238,17 @@ export function createSiegeCannon(includeChassis = true): SiegeCannonArt {
   return { group, barrel, muzzle, rotor, setWeapon, dispose() { group.clear(); owned.dispose(); } };
 }
 
-export type WardenArt = { group: THREE.Group; animate: (time: number, hit: number, windup?: number, impact?: number, stagger?: number, advance?: number) => void; dispose: () => void };
+export type WardenArt = { group: THREE.Group; animate: (time: number, hit: number, windup?: number, impact?: number, stagger?: number, advance?: number, defeat?: number) => void; reset: () => void; dispose: () => void };
 
 /** A low, broad guardian with oversized hands and a continuous rounded back. */
 export function createWarden(variant = 0): WardenArt {
   const owned = resources(), group = new THREE.Group();
   group.name = "warden";
+  // Turn the complete body around its center of mass, keeping the outer root
+  // available for the renderer's road position and death anchor.
+  const pivot = new THREE.Group(), model = new THREE.Group();
+  pivot.name = "warden-body-pivot"; pivot.position.y = 2;
+  model.position.y = -2; pivot.add(model); group.add(pivot);
   const style = variant % 3;
   const body = owned.material([0xffce19, 0xff9243, 0xa382ed][style], 0.35);
   const cuff = owned.material([0xec582a, 0x354765, 0xffc550][style], 0.4), trim = owned.material(0x633954, 0.46);
@@ -253,12 +258,12 @@ export function createWarden(variant = 0): WardenArt {
   const ball = owned.geometry(new THREE.SphereGeometry(1, 20, 14));
   const round = (w: number, h: number, d: number, r: number) => owned.geometry(new RoundedBoxGeometry(w, h, d, 3, r));
   const feet = [-1, 1].map(side => {
-    const leg = new THREE.Group(); leg.position.set(side * 0.76, 0.73, -0.08); group.add(leg);
+    const leg = new THREE.Group(); leg.position.set(side * 0.76, 0.73, -0.08); model.add(leg);
     mesh(leg, ball, body, 0, 0.38, 0, 0.58, 0.85, 0.62);
     mesh(leg, round(1.25, 0.62, 1.63, 0.28), body, 0, -0.4, 0.44);
     return leg;
   });
-  const upper = new THREE.Group(); upper.position.y = 1.43; group.add(upper);
+  const upper = new THREE.Group(); upper.position.y = 1.43; model.add(upper);
   const back = owned.geometry(form([
     [-0.3, 0.59, 0.45, 0, 0.02], [0.1, 1.1, 0.76, 0, -0.02],
     [0.85, 1.71, 1.06, 0, -0.11], [1.55, 2.3, 1.14, 0, -0.15],
@@ -321,32 +326,93 @@ export function createWarden(variant = 0): WardenArt {
     mesh(arm, ball, body, -side * 0.23, -1.8, 1.01, 0.27, 0.42, 0.29);
     return arm;
   });
-  function animate(time: number, hit: number, attack = 0, impact = 0, stagger = 0, advance = 0) {
+  const idle = { lift: 0, lean: 0, upperY: 1.43, reach: 0, pitch: 0.13, arm: -0.26, spread: 0.11, head: -0.15, knees: 0 };
+  type Pose = typeof idle;
+  const pose = { ...idle }, interruptedFrom = { ...idle }, defeatedFrom = { ...idle };
+  const poseKeys = Object.keys(idle) as (keyof Pose)[];
+  const key = (at: number, values: Partial<Pose>) => ({ at, ...idle, ...values });
+  const contact = { upperY: 1.12, reach: 0.68, pitch: 0.44, arm: -0.38, spread: 0.09, head: -0.38, knees: 0.4, lean: 0.03 };
+  const anticipation = [
+    key(0, {}),
+    key(0.1, { upperY: 1.12, reach: 0.13, pitch: 0.25, arm: -0.45, spread: 0.18, head: -0.2, knees: 0.28 }),
+    key(0.55, { upperY: 1.3, reach: -0.26, pitch: -0.12, arm: -1.6, spread: 0.21, head: 0.06, knees: 0.14 }),
+    key(0.8, { upperY: 1.03, reach: -0.45, pitch: -0.22, arm: -2.22, spread: 0.32, head: 0.18, knees: 0.38 }),
+    key(0.88, { lift: 0.54, lean: -0.12, upperY: 1.36, reach: -0.16, pitch: -0.08, arm: -2.16, spread: 0.27, head: 0.03, knees: 0.46 }),
+    key(0.94, { lift: 0.5, lean: 0.12, upperY: 1.31, reach: 0.25, pitch: 0.22, arm: -1.5, spread: 0.17, head: -0.16, knees: 0.36 }),
+    key(1, contact),
+  ];
+  const recovery = [key(0, contact), key(0.17, { ...contact, upperY: 1.1, reach: 0.8, knees: 0.44 }),
+    key(0.58, { upperY: 1.15, reach: 0.35, pitch: 0.24, arm: -0.65, knees: 0.18 }), key(1, {})];
+  const recoil = key(0, { lean: -0.23, upperY: 1.25, reach: -0.4, pitch: -0.24, arm: -1.03, spread: 0.4, head: 0.35, knees: 0.22 });
+  const vulnerable = key(0, { upperY: 1.05, reach: -0.08, pitch: 0.08, arm: -0.75, spread: 0.42, head: 0.42, knees: 0.32 });
+  const fallenPose = key(1, { lift: -0.93, lean: -1.5, upperY: 1.25, arm: 0, spread: 0.5, head: 0, knees: -0.1 });
+  const fall = [key(0, {}), key(0.22, { lift: 0.4, lean: -0.35, upperY: 1.25, arm: -1.1, spread: 0.55, head: 0.3 }),
+    key(0.58, { lift: -0.15, lean: -1.12, upperY: 1.2, arm: -0.35, spread: 0.75, head: 0.2 }), { ...fallenPose, at: 0.75 }, fallenPose];
+  const blend = (from: Pose, to: Pose, progress: number) => {
+    const amount = THREE.MathUtils.smoothstep(progress, 0, 1);
+    for (const property of poseKeys) pose[property] = THREE.MathUtils.lerp(from[property], to[property], amount);
+  };
+  const sample = (keys: (Pose & { at: number })[], progress: number) => {
+    let next = 1;
+    while (next < keys.length - 1 && keys[next].at < progress) next++;
+    const previous = keys[next - 1], following = keys[next];
+    blend(previous, following, (progress - previous.at) / (following.at - previous.at));
+  };
+  let lastImpactAt = -Infinity, previousImpact = 0, previousStagger = 0, wasDefeated = false;
+  function reset() {
+    lastImpactAt = -Infinity; previousImpact = previousStagger = 0; wasDefeated = false;
+    Object.assign(pose, idle);
+  }
+  function animate(time: number, hit: number, attack = 0, impact = 0, stagger = 0, advance = 0, defeat = -1) {
     const t = Number.isFinite(time) ? time : 0;
-    const windup = Math.pow(THREE.MathUtils.clamp(attack || 0, 0, 1), 0.7);
-    const strike = Math.pow(THREE.MathUtils.clamp(impact || 0, 0, 1), 0.65);
-    // Incoming hits still flash, but cannot disguise the two-handed attack.
-    const flash = THREE.MathUtils.clamp(hit || 0, 0, 1);
-    const damage = flash * (1 - windup * 0.55) * (1 - strike);
+    const windup = THREE.MathUtils.clamp(attack || 0, 0, 1);
+    const strike = THREE.MathUtils.clamp(impact || 0, 0, 1);
+    if (strike > previousImpact + 0.2) lastImpactAt = t;
+    if (stagger > 0 && previousStagger <= 0) Object.assign(interruptedFrom, pose);
+    if (defeat >= 0 && !wasDefeated) {
+      Object.assign(defeatedFrom, pose);
+      Object.assign(fall[0], defeatedFrom);
+    }
+    const recovering = t - lastImpactAt < 0.58;
+    if (defeat >= 0) sample(fall, defeat);
+    else if (stagger > 0) {
+      const elapsed = 1 - stagger;
+      if (elapsed < 0.2) blend(interruptedFrom, recoil, elapsed / 0.2);
+      else if (elapsed < 0.6) blend(recoil, vulnerable, (elapsed - 0.2) / 0.4);
+      else blend(vulnerable, idle, (elapsed - 0.6) / 0.4);
+    } else if (windup > 0) sample(anticipation, windup);
+    else if (recovering) sample(recovery, (t - lastImpactAt) / 0.58);
+    else Object.assign(pose, idle);
+    previousImpact = strike; previousStagger = stagger; wasDefeated = defeat >= 0;
+
+    const occupied = defeat >= 0 || stagger > 0 || windup > 0 || recovering;
+    const flash = defeat >= 0 ? 0 : THREE.MathUtils.clamp(hit || 0, 0, 1);
+    const damage = occupied ? 0 : flash;
     const drive = THREE.MathUtils.clamp(advance, 0, 1);
-    const stride = Math.sin(t * (drive > 0 ? 8.8 : 4.2)) * (1 - Math.max(windup, strike));
-    upper.position.y = 1.43 + Math.abs(stride) * (0.07 + drive * 0.04) + windup * 0.22 + damage * 0.1 - strike * 0.3;
-    upper.position.z = -damage * 0.48 - windup * 0.36 + strike * 0.78;
-    upper.rotation.x = 0.13 - damage * 0.22 - windup * 0.28 + strike * 0.38 - stagger * 0.48 + drive * 0.12;
-    upper.rotation.z = stride * 0.028 + Math.sin(t * 17) * damage * 0.065 + Math.sin(t * 18) * stagger * 0.07;
-    head.rotation.x = -0.15 - damage * 0.18 + windup * 0.2 - strike * 0.13 + stagger * 0.35;
+    const stride = occupied ? 0 : Math.sin(t * (drive > 0 ? 8.8 : 4.2));
+    pivot.position.y = 2 + pose.lift;
+    pivot.rotation.set(pose.lean, 0, defeat >= 0 ? -0.17 * THREE.MathUtils.smoothstep(defeat, 0.2, 0.75) : 0);
+    upper.position.set(0, pose.upperY + Math.abs(stride) * (0.07 + drive * 0.04), pose.reach - damage * 0.16);
+    upper.rotation.set(pose.pitch - damage * 0.1 + (occupied ? 0 : drive * 0.12), 0, stride * 0.028);
+    head.rotation.x = pose.head - damage * 0.12;
     arms.forEach((arm, i) => {
-      // Hands reach into the crowd on contact. A positive strike rotation
-      // swept them behind the torso and robbed the slam of visible weight.
-      arm.rotation.x = -0.26 + stride * (i ? -0.19 : 0.19) - windup * 1.9 - strike * 0.3 + damage * (i ? 0.3 : 0.42);
-      arm.rotation.z = (i ? 1 : -1) * (0.11 + windup * 0.24 + strike * 0.04);
+      arm.rotation.x = pose.arm + stride * (i ? -0.19 : 0.19) + (stagger > 0 ? (i ? 0.3 : -0.18) * Math.sin((1 - stagger) * Math.PI) : 0);
+      arm.rotation.z = (i ? 1 : -1) * pose.spread;
     });
-    feet.forEach((leg, i) => { leg.rotation.x = stride * (i ? -1 : 1) * (0.18 + drive * 0.36); });
-    body.color.copy(bodyColor).lerp(hitColor, flash * 0.78);
-    armor.color.copy(armorColor).lerp(hitColor, flash * 0.86);
-    body.emissive.setHex(0xfff9e8); body.emissiveIntensity = flash * 0.12;
-    armor.emissive.setHex(0xfff9e8); armor.emissiveIntensity = flash * 0.18;
+    feet.forEach((leg, i) => {
+      const bend = pose.knees + stride * (i ? -1 : 1) * (0.18 + drive * 0.36);
+      leg.rotation.x = bend;
+      // A braced toe stays above the road when the leg compresses; rotating
+      // the unadjusted foot pivot otherwise buries the toes during landing.
+      leg.position.y = 0.73 + Math.max(0, Math.sin(bend)) * 1.05 + Math.max(0, -Math.sin(bend)) * 0.3;
+    });
+    // Preserve the team material through repeated hits so the silhouette,
+    // especially its changed attack pose, remains stronger than the flash.
+    body.color.copy(bodyColor).lerp(hitColor, flash * 0.42);
+    armor.color.copy(armorColor).lerp(hitColor, flash * 0.5);
+    body.emissive.setHex(0xfff9e8); body.emissiveIntensity = flash * 0.06;
+    armor.emissive.setHex(0xfff9e8); armor.emissiveIntensity = flash * 0.1;
   }
   animate(0, 0);
-  return { group, animate, dispose() { group.clear(); owned.dispose(); } };
+  return { group, animate, reset, dispose() { group.clear(); owned.dispose(); } };
 }

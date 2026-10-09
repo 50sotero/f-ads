@@ -756,7 +756,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   }
   impactContext.closePath(); impactContext.fill(); impactContext.stroke();
   const impactTexture = texture(new THREE.CanvasTexture(impactCanvas)); impactTexture.colorSpace = THREE.SRGBColorSpace;
-  type BossView = { art: ReturnType<typeof createWarden>; label: Label; caption: string; nextLabelAt: number; cue: Label; cueCaption: string; bar: THREE.Group; fill: THREE.Mesh; charge: THREE.Group; chargeFill: THREE.Mesh; impact: THREE.Sprite; hitX: number; hp: number; deadAt: number; damageAt: number; deathX: number; deathZ: number; deathTravel: number };
+  type BossView = { art: ReturnType<typeof createWarden>; label: Label; caption: string; nextLabelAt: number; cue: Label; cueCaption: string; bar: THREE.Group; fill: THREE.Mesh; charge: THREE.Group; chargeFill: THREE.Mesh; impact: THREE.Sprite; hitX: number; hp: number; deadAt: number; damageAt: number; deathX: number; deathZ: number; deathTravel: number; poseTravel: number; deathScale: number; landed: boolean };
   const bosses: BossView[] = [];
   function ensureBosses(count: number) {
     while (bosses.length < count) {
@@ -771,7 +771,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const chargeFill = box(charge, basic(0xffcc49), 0, 0, 0.11, 4.15, 0.17, 0.1);
       const impact = new THREE.Sprite(mat(new THREE.SpriteMaterial({ map: impactTexture, transparent: true, opacity: 0, depthWrite: false, depthTest: false })));
       impact.renderOrder = 4; impact.visible = false; stage.add(impact);
-      bosses.push({ art, label, caption: "500", nextLabelAt: 0, cue, cueCaption: "", bar, fill, charge, chargeFill, impact, hitX: 0, hp: -1, deadAt: -99, damageAt: -99, deathX: 0, deathZ: 0, deathTravel: 0 });
+      bosses.push({ art, label, caption: "500", nextLabelAt: 0, cue, cueCaption: "", bar, fill, charge, chargeFill, impact, hitX: 0, hp: -1, deadAt: -99, damageAt: -99, deathX: 0, deathZ: 0, deathTravel: 0, poseTravel: 0, deathScale: 1.2, landed: false });
     }
   }
   const particleList: Particle[] = [];
@@ -947,7 +947,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       previousPulse = 0; wasRushing = false;
       previousPhase = game.assault?.phase ?? "battle"; previousWave = game.assault?.wave ?? 0; previousWaveLane = game.assault?.waveLane ?? 0; counterattackAt = -99; retreatCount = 0; reserveAnchor = NaN;
       particleList.length = shardStates.length = 0; fallen.length = previousUnits.length = 0;
-      bosses.forEach((boss) => { boss.hp = -1; boss.deadAt = -99; boss.damageAt = -99; boss.nextLabelAt = 0; });
+      bosses.forEach((boss) => { boss.hp = -1; boss.deadAt = -99; boss.damageAt = -99; boss.nextLabelAt = 0; boss.poseTravel = travel; boss.landed = false; boss.art.reset(); });
       gates.forEach((value) => { value.group.visible = false; value.nextBurst = 0; value.brokenAt = -1; });
       tags.forEach((value) => { value.age = 2; }); ringAge.fill(2); ringActive.fill(0); ringAlpha.array.fill(0); ringAlpha.needsUpdate = true;
     }
@@ -1402,7 +1402,12 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const waitingSide = i % 2 ? 3 : -3;
       if (!active && base.hp > 0) x += waitingSide + Math.sin(game.t * 0.35 + i) * 0.6;
       else if (approaching > 0) x += (waitingSide + Math.sin(game.t * 0.35 + i) * 0.6) * approaching;
-      if (base.hp <= 0 && view.hp > 0) { view.deathX = view.art.group.position.x; view.deathZ = view.art.group.position.z; view.deathTravel = travel; }
+      if (base.hp <= 0 && view.hp > 0) {
+        view.deathX = view.art.group.position.x; view.deathZ = view.art.group.position.z;
+        // The cached position belongs to the last visible live pose, even
+        // when the engine has already begun travelling to the next encounter.
+        view.deathTravel = view.poseTravel; view.deathScale = view.art.group.scale.x;
+      }
       if (base.hp <= 0) { x = view.deathX; z = view.deathZ + travel - view.deathTravel; }
       if (view.hp >= 0 && base.hp < view.hp && base.hp > 0 && game.t > view.damageAt + 0.3) {
         view.hitX = (random() - 0.5) * 2.2;
@@ -1412,10 +1417,11 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       }
       if (base.hp <= 0 && view.hp > 0) {
         view.deadAt = frameTime;
-        burst(x, 2, z, [0xffbf4d, 0xff985b, 0xc2a2ff][i % 3], 65, 2.8);
-        burst(x, 0.4, z, 0xfff0ce, 35, 2);
-        ring(x, z, 0xffd34c, 8); ring(x, z + 0.5, 0xfff7cb, 5);
-        tag("BOSS DOWN", x, z, "#ffe570"); shake = 1.7;
+        view.landed = false;
+        // Keep the body visible through the fall; debris belongs to its
+        // landing rather than concealing the entire defeat on the first frame.
+        burst(x, 2.3, z + 1, 0xfff0ce, 10, 0.65);
+        shake = Math.max(shake, 0.8);
       }
       const caption = game.level.assault?.practice ? "PRACTICE" : `${Math.max(0, Math.ceil(base.hp))}`;
       // Numbers need readable samples, not a canvas upload for every lost HP.
@@ -1426,7 +1432,13 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       const cueCaption = active && winding ? `SLAM ${Math.ceil(brace.seconds)}s` : active && stagger > 0 ? "STAGGERED" : "";
       if (view.cueCaption !== cueCaption) { view.cue.write(cueCaption, winding ? "#ffe19b" : "#a9ffe4"); view.cueCaption = cueCaption; }
       view.hp = base.hp;
-      const death = base.hp <= 0 ? Math.min(1, (frameTime - view.deadAt) / 0.85) : 0;
+      const death = base.hp <= 0 ? Math.min(1, (frameTime - view.deadAt) / 1.15) : 0;
+      if (base.hp <= 0 && death >= 0.7 && death < 1 && !view.landed) {
+        view.landed = true;
+        burst(x, 0.3, z - 1, 0xd9c3b5, 28, 1.3);
+        burst(x, 0.6, z - 1, [0xffbf4d, 0xff985b, 0xc2a2ff][i % 3], 12, 1.15);
+        ring(x, z - 1, 0xffd34c, 5); shake = Math.max(shake, 0.65);
+      }
       // During the counterattack, the remaining guards are the whole objective.
       // Reveal the next guardian when travel starts so it cannot read as a
       // defeated leader still standing on the cleared road.
@@ -1441,10 +1453,16 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       view.impact.material.opacity = impact * 0.9;
       view.impact.position.set(x + view.hitX, 2.2, z + 3.1);
       view.impact.scale.setScalar(1.4 + (1 - impact) * 0.8);
-      view.art.group.position.set(x, -death * 2, z);
-      view.art.group.scale.setScalar((active ? 1.2 - approaching * 0.18 : 1.02) * (1 - death * 0.65));
-      view.art.group.rotation.z = death * -1.3;
-      if (view.art.group.visible) view.art.animate(game.t + i * 2.3, hit, active ? warning : 0, active ? pulse : 0, active ? stagger : 0, active && breakthrough ? Math.min(1, breakthrough.advance / 8) : 0);
+      const fallingBack = THREE.MathUtils.smoothstep(death, 0, 0.75);
+      view.art.group.position.set(x, 0, z - fallingBack * 1.25);
+      view.art.group.scale.setScalar(base.hp <= 0
+        ? view.deathScale * (1 - THREE.MathUtils.smoothstep(death, 0.87, 1))
+        : active ? 1.2 - approaching * 0.18 : 1.02);
+      view.art.group.rotation.set(0, 0, 0);
+      if (base.hp > 0) view.poseTravel = travel;
+      const poseWindup = winding ? brace.progress : assault?.bossWarning ?? 0;
+      const poseImpact = brace?.phase === "impact" ? brace.progress : pulse;
+      if (view.art.group.visible) view.art.animate(game.t + i * 2.3, hit, active && base.hp > 0 ? poseWindup : 0, active && base.hp > 0 ? poseImpact : 0, active && base.hp > 0 ? stagger : 0, active && breakthrough ? Math.min(1, breakthrough.advance / 8) : 0, base.hp <= 0 ? death : -1);
       view.label.sprite.position.set(x, 6.05, z); view.label.sprite.scale.set(3.5, 1.15, 1);
       view.cue.sprite.position.set(x, 7.05, z); view.cue.sprite.scale.set(stagger > 0 ? 5.3 : 4.5, 1.05, 1);
       view.bar.position.set(x, 5.6, z); view.bar.scale.set(0.86, 0.65, 1);
