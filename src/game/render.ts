@@ -507,12 +507,12 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
       `).replace("#include <opaque_fragment>", `
         float rim = pow(1.0 - max(0.0, dot(normal, normalize(vViewPosition))), 1.6);
         ${friendly ? "outgoingLight += vec3(0.025, 0.17, 0.23) * rim * (1.0 - vFaceMask);" : "outgoingLight *= 1.0 - rim * 0.12;"}
-        if (vGateGlow < 0.0) outgoingLight = mix(outgoingLight, vec3(1.45, 1.05, 0.35), -vGateGlow * 0.65);
+        if (vGateGlow < 0.0) outgoingLight += vec3(0.7, 0.42, 0.06) * -vGateGlow * rim * rim * 0.45;
         else outgoingLight += vec3(0.18, 0.9, 1.5) * vGateGlow * (0.3 + rim * 1.8);
         #include <opaque_fragment>
       `);
     };
-    material.customProgramCacheKey = () => `arena-toy-figures-v14-${friendly}`; return material;
+    material.customProgramCacheKey = () => `arena-toy-figures-v15-${friendly}`; return material;
   }
   const mobGeometry = geo(createMobGeometry()), reserveGeometry = geo(createHordeGeometry());
   const friendMaterial = crowdMaterial(BLUE, true), enemyMaterial = crowdMaterial(0xffffff);
@@ -525,15 +525,9 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   // Draw priority targets after the billboard gate numbers. They still test
   // against real scene depth, but a value plaque must not hide their bodies.
   bracedGuards.material.transparent = true; bracedGuards.renderOrder = 8;
-  // Reveal only the selected shield where opaque crowd depth hides it. The
-  // ordinary mesh retains real depth; visible portions receive no overlay.
-  const guardRevealMaterial = crowdMaterial(0xdb2851);
-  guardRevealMaterial.transparent = true; guardRevealMaterial.opacity = 0.82;
-  guardRevealMaterial.depthWrite = false; guardRevealMaterial.depthFunc = THREE.GreaterDepth;
-  guardRevealMaterial.emissive.setHex(0x9c681b); guardRevealMaterial.emissiveIntensity = 0.22;
-  const guardReveal = new THREE.InstancedMesh(geo(bracedGuards.geometry.clone()), guardRevealMaterial, 1);
-  guardReveal.instanceMatrix.setUsage(THREE.DynamicDrawUsage); guardReveal.frustumCulled = false; guardReveal.renderOrder = 8;
-  stage.add(guardReveal);
+  // Selection stays outside the solid shield face. A second GreaterDepth
+  // body pass also revealed the guard through its own front surface, washing
+  // out the black inset and making the contact boundary look translucent.
   const regularUnits: Unit[] = [], guardUnits: Unit[] = [], bracedUnits: Unit[] = [];
   const shieldLabel = makeLabel("SHIELD", 4.3, 1.45, "#ffe5a0", 127, true);
   stage.add(shieldLabel.sprite); shieldLabel.sprite.visible = false; shieldLabel.sprite.renderOrder = 10;
@@ -577,7 +571,7 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
   // Twelve thousand silhouettes already cover the visible reserve field;
   // deeper rows sit above the viewport and would only add vertex work.
   const reserves = new THREE.InstancedMesh(reserveGeometry, crowdMaterial(RED), 12000);
-  for (const object of [friends, enemies, raiders, guards, bracedGuards, guardReveal, reserves]) {
+  for (const object of [friends, enemies, raiders, guards, bracedGuards, reserves]) {
     object.frustumCulled = false; object.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     object.geometry.setAttribute("runMotion", new THREE.InstancedBufferAttribute(new Float32Array(object.instanceMatrix.count * 4), 4).setUsage(THREE.DynamicDrawUsage));
     stage.add(object);
@@ -1281,16 +1275,6 @@ export function createRenderer(canvas: HTMLCanvasElement): CrowdRenderer {
     drawUnits(guardUnits, guards, true, entry, guardColorKeys, guardMatrixRange, guardMotionRange, guardColorRange);
     drawUnits(bracedUnits, bracedGuards, true, entry, bracedColorKeys, bracedMatrixRange, bracedMotionRange, bracedColorRange, shieldAim?.target);
     shieldHalo.count = Math.min(bracedUnits.length, shieldHalo.instanceMatrix.count);
-    const selectedGuardIndex = shieldAim ? bracedUnits.indexOf(shieldAim.target) : -1;
-    guardReveal.count = selectedGuardIndex >= 0 && game.status === "playing" ? 1 : 0;
-    if (guardReveal.count) {
-      bracedGuards.getMatrixAt(selectedGuardIndex, dummy.matrix);
-      guardReveal.setMatrixAt(0, dummy.matrix); guardReveal.instanceMatrix.needsUpdate = true;
-      const source = bracedGuards.geometry.getAttribute("runMotion") as THREE.InstancedBufferAttribute;
-      const revealMotion = guardReveal.geometry.getAttribute("runMotion") as THREE.InstancedBufferAttribute;
-      revealMotion.setXYZW(0, source.getX(selectedGuardIndex), source.getY(selectedGuardIndex), source.getZ(selectedGuardIndex), source.getW(selectedGuardIndex));
-      revealMotion.needsUpdate = true;
-    }
     shieldMarkers.count = game.status === "playing" && shieldAim && !sideDanger ? 1 : 0;
     shieldPressure.count = 0;
     for (let index = 0; index < shieldHalo.count; index++) {
