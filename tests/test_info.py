@@ -343,6 +343,15 @@ class FailureLogTest(unittest.TestCase):
         self.assertEqual((token['p'], token['s']), ('x', 'https://x.com/a/status/1'))
         self.assertEqual(self.failures(), [])
 
+    def test_returns_the_full_caption(self):
+        caption = 'BAIÃO DE 2 INGREDIENTES * 2 xícaras de arroz ' + 'x' * 3000
+        _, payload = self.lookup('https://www.tiktok.com/@a/video/1', 'tiktok', return_value={
+            'title': caption[:70] + '...', 'description': caption, 'formats': [MUXED], 'extractor_key': 'TikTok'})
+        self.assertEqual(payload['description'], caption[:2000])
+        _, payload = self.lookup('https://x.com/a/status/1', 'x',
+                                 return_value={'title': 't', 'formats': [MUXED], 'extractor_key': 'Twitter'})
+        self.assertIsNone(payload['description'])
+
     def test_unknown_site_success_is_counted_under_its_extractor(self):
         self.lookup('https://www.dailymotion.com/video/x8abcde',
                     return_value={'title': 't', 'formats': [MUXED], 'extractor_key': 'Dailymotion'})
