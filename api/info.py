@@ -292,10 +292,37 @@ def safe_filename(title, ext):
     return f'{name}.{ext or "mp4"}'
 
 
+COOKIE_ATTRIBUTES = {'domain', 'path', 'expires', 'max-age', 'secure', 'httponly', 'samesite', 'comment', 'version'}
+
+
+# RFC 6265 cookie-octet: what a value may hold without quotes.
+COOKIE_OCTETS = re.compile(r'[\x21\x23-\x2b\x2d-\x3a\x3c-\x5b\x5d-\x7e]*')
+
+
+def _unquote_cookie(value):
+    """Drops the quotes yt-dlp adds around plain values (TikTok's CDN rejects them), but
+    keeps them when the value holds escapes or characters that need quoting."""
+    if len(value) >= 2 and value[0] == value[-1] == '"' and COOKIE_OCTETS.fullmatch(value[1:-1]):
+        return value[1:-1]
+    return value
+
+
+def cookie_header(cookies):
+    """Turns yt-dlp's per-format `cookies` (Set-Cookie style, with Domain/Path/Expires
+    and quoted values) into the `name=value; ...` header a CDN expects. TikTok's CDN
+    answers 403 when it gets the attributes or the quotes."""
+    pairs = []
+    for part in cookies.split(';'):
+        name, sep, value = part.strip().partition('=')
+        if sep and name and name.lower() not in COOKIE_ATTRIBUTES:
+            pairs.append(f'{name}={_unquote_cookie(value)}')
+    return '; '.join(pairs)
+
+
 def _headers_for(fmt):
     headers = {k: v for k, v in (fmt.get('http_headers') or {}).items() if k in FORWARDED_HEADERS}
     if fmt.get('cookies'):
-        headers['Cookie'] = fmt['cookies']
+        headers['Cookie'] = cookie_header(fmt['cookies'])
     return headers
 
 

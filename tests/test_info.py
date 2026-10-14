@@ -202,6 +202,23 @@ REDDIT_MPD = """<?xml version="1.0" encoding="UTF-8"?>
 </AdaptationSet></Period></MPD>"""
 
 
+class CookieHeaderTest(unittest.TestCase):
+    def test_drops_attributes_and_quotes(self):
+        raw = ('ttwid=1%7Cabc; Domain=.tiktok.com; Path=/; Secure; Expires=1792000000; '
+               'tt_csrf_token=z9-x; Domain=.tiktok.com; Path=/; Secure; '
+               'tt_chain_token="Oa+b/c=="; Domain=.tiktok.com; Path=/; Secure; Expires=1792000000')
+        self.assertEqual(info.cookie_header(raw), 'ttwid=1%7Cabc; tt_csrf_token=z9-x; tt_chain_token=Oa+b/c==')
+
+    def test_keeps_quotes_on_values_that_need_them(self):
+        raw = r'auth="{\"token\":1}"; Path=/; x="a\054b"; y="plain"'
+        self.assertEqual(info.cookie_header(raw), r'auth="{\"token\":1}"; x="a\054b"; y=plain')
+
+    def test_signed_download_headers_carry_the_clean_cookie(self):
+        fmt = {'http_headers': {'User-Agent': 'UA', 'Sec-Fetch-Mode': 'navigate'},
+               'cookies': 'a="1"; Domain=.tiktok.com; Path=/; b=2; HttpOnly'}
+        self.assertEqual(info._headers_for(fmt), {'User-Agent': 'UA', 'Cookie': 'a=1; b=2'})
+
+
 class RedditVideoTest(unittest.TestCase):
     def test_reads_the_manifest_and_offers_joined_qualities(self):
         import xml.etree.ElementTree as ET
