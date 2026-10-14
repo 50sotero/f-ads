@@ -14,6 +14,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "weekly" as const,
       priority: l.platform.featured ? 0.9 : 0.7,
     })),
+    // Panframe, the video-to-recipe app served here through a rewrite.
+    { url: absoluteUrl("/recipe"), lastModified: contentUpdated, changeFrequency: "weekly", priority: 0.8 },
     ...["/terms", "/privacy", "/dmca"].map((path) => ({
       url: absoluteUrl(path),
       lastModified: legalUpdated,

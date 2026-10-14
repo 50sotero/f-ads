@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 import { site } from "./src/config/site";
 
+// Panframe (video to recipe, github.com/50sotero/panframe) is its own Vercel project, served here at /recipe.
+const panframe = (process.env.PANFRAME_URL || "https://panframe.vercel.app").replace(/\/$/, "");
+
 const nextConfig: NextConfig = {
   // Landing pages that moved; permanent redirects keep their search ranking.
   async redirects() {
@@ -15,11 +18,17 @@ const nextConfig: NextConfig = {
       })),
     ];
   },
-  // On Vercel, api/info.py is its own Python function. Locally it runs via
-  // `npm run dev:api` (scripts/dev_api.py), so point the route there.
   async rewrites() {
-    if (process.env.NODE_ENV !== "development") return [];
-    return [{ source: "/api/info", destination: "http://127.0.0.1:8000/api/info" }];
+    // Checked before this app's own pages, so the [slug] landing route can't claim /recipe.
+    const beforeFiles = [
+      { source: "/recipe", destination: `${panframe}/recipe` },
+      { source: "/recipe/:path*", destination: `${panframe}/recipe/:path*` },
+    ];
+    // On Vercel, api/info.py is its own Python function. Locally it runs via
+    // `npm run dev:api` (scripts/dev_api.py), so point the route there.
+    const afterFiles =
+      process.env.NODE_ENV === "development" ? [{ source: "/api/info", destination: "http://127.0.0.1:8000/api/info" }] : [];
+    return { beforeFiles, afterFiles, fallback: [] };
   },
 };
 

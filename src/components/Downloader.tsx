@@ -322,6 +322,13 @@ function Result({ info, platform, source }: { info: VideoInfo; platform: Platfor
           })}
         </ul>
         {mergeError && <p className="mt-3 text-sm text-danger">{mergeError}</p>}
+        {/* /recipe is Panframe, a separate app behind a rewrite, so this is a plain link rather than <Link>. */}
+        <a
+          href={`/recipe?link=${encodeURIComponent(source)}`}
+          className="mt-3 inline-block text-sm font-medium text-accent underline-offset-4 hover:underline"
+        >
+          Cooking video? Get the full recipe →
+        </a>
         <p className="mt-3 text-xs text-muted">
           {reported ? (
             "Thanks, we'll look into it."

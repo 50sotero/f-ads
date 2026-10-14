@@ -456,6 +456,9 @@ def extract(url, *, platform='unknown', source=None):
                         code='no_direct_formats', detail=describe_formats(info))
     return {
         'title': info.get('title'),
+        # The full post caption; TikTok's title stops at about 70 characters. Panframe reads the
+        # ingredients from it.
+        'description': _text(info.get('description'), 2000),
         'thumbnail': info.get('thumbnail'),
         'duration': info.get('duration'),
         'uploader': info.get('uploader') or info.get('channel'),
