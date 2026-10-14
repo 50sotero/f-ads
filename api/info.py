@@ -295,6 +295,18 @@ def safe_filename(title, ext):
 COOKIE_ATTRIBUTES = {'domain', 'path', 'expires', 'max-age', 'secure', 'httponly', 'samesite', 'comment', 'version'}
 
 
+# RFC 6265 cookie-octet: what a value may hold without quotes.
+COOKIE_OCTETS = re.compile(r'[\x21\x23-\x2b\x2d-\x3a\x3c-\x5b\x5d-\x7e]*')
+
+
+def _unquote_cookie(value):
+    """Drops the quotes yt-dlp adds around plain values (TikTok's CDN rejects them), but
+    keeps them when the value holds escapes or characters that need quoting."""
+    if len(value) >= 2 and value[0] == value[-1] == '"' and COOKIE_OCTETS.fullmatch(value[1:-1]):
+        return value[1:-1]
+    return value
+
+
 def cookie_header(cookies):
     """Turns yt-dlp's per-format `cookies` (Set-Cookie style, with Domain/Path/Expires
     and quoted values) into the `name=value; ...` header a CDN expects. TikTok's CDN
@@ -303,7 +315,7 @@ def cookie_header(cookies):
     for part in cookies.split(';'):
         name, sep, value = part.strip().partition('=')
         if sep and name and name.lower() not in COOKIE_ATTRIBUTES:
-            pairs.append(f'{name}={value.strip(chr(34))}')
+            pairs.append(f'{name}={_unquote_cookie(value)}')
     return '; '.join(pairs)
 
 
