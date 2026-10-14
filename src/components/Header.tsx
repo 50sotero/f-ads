@@ -9,6 +9,9 @@ export function Header() {
           {site.name}
         </Link>
         <nav className="flex gap-5 text-sm text-muted">
+          {/* Panframe is its own app behind a rewrite, so the browser has to load it; <Link> would 404. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a href="/recipe" className="hover:text-ink">Recipes</a>
           <Link href="/#how" className="hover:text-ink">How it works</Link>
           <Link href="/#advertise" className="hover:text-ink">Advertise</Link>
         </nav>
