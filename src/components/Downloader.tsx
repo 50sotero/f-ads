@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { downloadMerged } from "@/lib/mergeAv";
 import { detect, normalizeUrl, type Platform } from "@/lib/platforms";
 import { isRedditPost, lookupRedditPost, type RedditVideo } from "@/lib/reddit";
@@ -131,6 +131,15 @@ export function Downloader({ placeholder = "Paste a link from X, TikTok, Instagr
     else setState({ status: "idle" });
     return true;
   }
+
+  // Panframe's "Download video" link hands the post over as ?url=, so start on it as if it were pasted.
+  useEffect(() => {
+    const handed = new URLSearchParams(window.location.search).get("url");
+    // The page is prerendered, so the address bar can only be read here, once, after it loads.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (handed) takePastedText(handed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on the first load
+  }, []);
 
   async function pasteFromClipboard() {
     try {

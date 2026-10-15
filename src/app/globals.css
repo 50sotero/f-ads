@@ -6,7 +6,7 @@
   --ink: #1f1a14;
   --muted: #6b5f50;
   --line: #eadfca;
-  --accent: #e2531f;
+  --accent: #bf4318; /* 4.5:1 or better on the light backgrounds and under white text */
   --accent-ink: #ffffff;
   --ok: #1f7a4d;
   --danger: #b42318;

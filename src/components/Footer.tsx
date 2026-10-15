@@ -21,7 +21,10 @@ export function Footer() {
           <p>
             © {new Date().getFullYear()} {site.name}. Only download videos you own or have permission to use.
           </p>
-          <nav className="flex gap-5">
+          <nav className="flex flex-wrap gap-x-5 gap-y-2">
+            {/* Panframe is its own app behind a rewrite, so the browser has to load it; <Link> would 404. */}
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+            <a href="/recipe" className="hover:text-ink">Recipes from videos</a>
             <Link href="/terms" className="hover:text-ink">Terms</Link>
             <Link href="/privacy" className="hover:text-ink">Privacy</Link>
             <Link href="/dmca" className="hover:text-ink">Copyright / DMCA</Link>
