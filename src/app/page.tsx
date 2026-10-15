@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AdvertiseBox } from "@/components/AdvertiseBox";
 import { Downloader } from "@/components/Downloader";
+import { RecipePromo } from "@/components/RecipePromo";
 import { Faq, SiteLinks, Steps } from "@/components/Guide";
 import { JsonLd } from "@/components/JsonLd";
 import { SponsorBar, SponsorGrid, SponsorRails } from "@/components/Sponsors";
@@ -76,6 +77,7 @@ export default function Home() {
       <SponsorRails />
 
       <Steps heading="How to download a video" steps={steps} />
+      <RecipePromo />
       <SiteLinks heading="Downloaders for every site" />
       <Faq faq={faq} />
 
