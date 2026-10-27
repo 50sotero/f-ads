@@ -83,11 +83,26 @@ class ShareLinkTest(unittest.TestCase):
     def test_recognises_share_links_only(self):
         for url in ('https://fb.watch/abc/', 'https://www.facebook.com/share/v/1Ab/',
                     'https://www.reddit.com/r/videos/s/AbC', 'https://redd.it/abc',
-                    'https://v.redd.it/abc', 'https://pin.it/abc', 'https://b23.tv/abc'):
+                    'https://v.redd.it/abc', 'https://pin.it/abc', 'https://b23.tv/abc',
+                    'https://www.instagram.com/share/reel/BAbc123/', 'https://instagram.com/share/BAbc123'):
             self.assertIsNotNone(info.share_link_domains(url), url)
         for url in ('https://www.facebook.com/watch/?v=1', 'https://www.reddit.com/r/videos/comments/abc/t/',
-                    'https://x.com/a/status/1', 'https://evilfb.watch/abc'):
+                    'https://x.com/a/status/1', 'https://evilfb.watch/abc',
+                    'https://www.instagram.com/reel/Cabcdefghij/'):
             self.assertIsNone(info.share_link_domains(url), url)
+
+    def test_instagram_links_are_made_readable(self):
+        canon = info.canonical_instagram_url
+        self.assertEqual(canon('https://m.instagram.com/reel/Cabc/?igsh=x'),
+                         'https://www.instagram.com/reel/Cabc/?igsh=x')
+        self.assertEqual(canon('http://instagram.com/p/Cabc/'), 'https://www.instagram.com/p/Cabc/')
+        self.assertEqual(canon('https://www.instagram.com/accounts/login/?next=%2Freel%2FCabc%2F%3Figsh%3Dx'),
+                         'https://www.instagram.com/reel/Cabc/?igsh=x')
+        self.assertEqual(canon('https://www.instagram.com/accounts/login/?next=https%3A%2F%2Fevil.example%2F'),
+                         'https://www.instagram.com/accounts/login/?next=https%3A%2F%2Fevil.example%2F')
+        self.assertEqual(canon('https://x.com/a/status/1'), 'https://x.com/a/status/1')
+        ie = yt_dlp.extractor.instagram.InstagramIE
+        self.assertTrue(ie.suitable(canon('https://m.instagram.com/reel/Cabcdefghij/')))
 
     def test_reddit_file_links_give_the_video_id(self):
         packaged = ('https://packaged-media.redd.it/ba9rghafmmth1/pb/m2-vp9-res_1080p.mp4'
