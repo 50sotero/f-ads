@@ -63,6 +63,7 @@ SHARE_LINKS = (
     ('reddit.com', re.compile(r'/r/[^/]+/s/'), ('reddit.com',)),
     ('pin.it', None, ('pinterest.com', 'pin.it')),
     ('instagr.am', None, ('instagram.com', 'instagr.am')),
+    ('instagram.com', '/share/', ('instagram.com',)),
     ('b23.tv', None, ('bilibili.com', 'b23.tv')),
 )
 SHARE_LINK_MAX_REDIRECTS = 5
@@ -272,6 +273,22 @@ def follow_redirects(url, domains, timeout=10):
         raise _share_link_error(f'HTTP {e.code} without a redirect')
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise _share_link_error(f'{type(e).__name__}: {e}')
+
+
+def canonical_instagram_url(url):
+    """yt-dlp only reads www.instagram.com (or no subdomain), so links copied on a phone
+    (m.instagram.com) need the host swapped. A share link that bounced to the login page
+    still names the post in `next`."""
+    parsed = urlparse(url)
+    if not host_matches(parsed.hostname, 'instagram.com'):
+        return url
+    path, query = parsed.path, parsed.query
+    if path.startswith('/accounts/login'):
+        nxt = dict(parse_qsl(query)).get('next', '')
+        if nxt.startswith('/') and not nxt.startswith('//'):
+            nxt = urlparse(nxt)
+            path, query = nxt.path, nxt.query
+    return parsed._replace(scheme='https', netloc='www.instagram.com', path=path, query=query).geturl()
 
 
 def resolve_share_link(url):
@@ -582,7 +599,7 @@ def handle(body):
         if video_id:
             result = extract_reddit_video(video_id, reddit, source=url)
         else:
-            target = resolve_share_link(url)
+            target = canonical_instagram_url(resolve_share_link(url))
             post = reddit_post(target)
             video_id = post and reddit_embed_video_id(post[0])
             if video_id:
